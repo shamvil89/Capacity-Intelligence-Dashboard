@@ -6,6 +6,7 @@ schedules:
     displayName: Run every 10 minutes
     branches:
       include:
+        - master
         - main
     always: true
 
