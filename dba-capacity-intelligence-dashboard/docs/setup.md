@@ -34,12 +34,23 @@ serverName = DESKTOP-CIS3NI4
 environment = Development
 serverType = SQLServer
 connectionMode = SqlAuth
+credentialKey = default
 isActive = true
 ```
 
 After onboarding, run `pipelines/collect-capacity.yml` to collect metrics for active servers.
 
 If `DBA_SQL_AUTH_MODE = WindowsAuth`, SQL Server must allow the Azure DevOps agent service identity to write to `dbo.ServerInventory`. On this self-hosted agent the service runs as `NT AUTHORITY\NETWORK SERVICE`; for local SQL Server, set `DBA_REPOSITORY_SERVER = .` instead of `localhost`, then grant that identity access. If this is awkward, use `SqlAuth`.
+
+For Azure SQL Database rows, use `serverType = AzureSQL` and `connectionMode = SqlAuth`. Instance-level collectors such as disk space, backup history, and TempDB usage are skipped because Azure SQL Database does not expose the SQL Server instance DMVs those collectors require.
+
+Use `credentialKey` to select source credentials without storing passwords in `DBAUtility`. Put the secret JSON below in the Azure DevOps `configs` variable group as `SOURCE_SQL_CREDENTIALS_JSON`:
+
+```json
+{"default":{"user":"sa","password":"local-source-password"},"azuresql":{"user":"azure_sql_admin","password":"azure-source-password"}}
+```
+
+Then onboard Azure SQL with `credentialKey = azuresql` and local SQL Servers with `credentialKey = default`.
 
 ## Seed Server Inventory
 

@@ -4,7 +4,8 @@
     "DBA_REPOSITORY_DB": "DBAUtility",
     "DBA_SQL_AUTH_MODE": "SqlAuth",
     "SQL_USER": "collector_login",
-    "SQL_PASSWORD": "use-a-secret-store-or-pipeline-secret"
+    "SQL_PASSWORD": "use-a-secret-store-or-pipeline-secret",
+    "SOURCE_SQL_CREDENTIALS_JSON": "{\"default\":{\"user\":\"sa\",\"password\":\"local-source-password\"},\"azuresql\":{\"user\":\"azure_sql_admin\",\"password\":\"azure-source-password\"}}"
   },
   "notes": [
     "The MVP uses SQL authentication for both repository and source SQL Servers.",

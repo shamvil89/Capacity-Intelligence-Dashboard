@@ -43,6 +43,7 @@ steps:
       DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
       SQL_USER: $(SQL_USER)
       SQL_PASSWORD: $(SQL_PASSWORD)
+      SOURCE_SQL_CREDENTIALS_JSON: $(SOURCE_SQL_CREDENTIALS_JSON)
 
   - task: PublishPipelineArtifact@1
     displayName: Publish collector logs

@@ -9,6 +9,11 @@ $ErrorActionPreference = 'Stop'
 
 Initialize-DbaTools
 
+if ($env:DBA_SOURCE_SERVER_TYPE -eq "AzureSQL") {
+    Write-Host "Skipping disk space metrics for Azure SQL Database $ServerName. sys.dm_os_volume_stats is not available for Azure SQL Database."
+    return
+}
+
 $query = @"
 SELECT DISTINCT
     @@SERVERNAME AS server_name,

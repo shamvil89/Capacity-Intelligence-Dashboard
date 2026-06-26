@@ -37,6 +37,11 @@ parameters:
       - WindowsAuth
       - ManagedIdentity
 
+  - name: credentialKey
+    displayName: Source credential key
+    type: string
+    default: default
+
   - name: isActive
     displayName: Active
     type: boolean
@@ -82,6 +87,7 @@ steps:
         $environment = '${{ parameters.environment }}'
         $serverType = '${{ parameters.serverType }}'
         $connectionMode = '${{ parameters.connectionMode }}'
+        $credentialKey = '${{ parameters.credentialKey }}'.Trim()
         $isActive = [System.Convert]::ToBoolean('${{ parameters.isActive }}')
         $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
@@ -99,6 +105,10 @@ steps:
 
         if ([string]::IsNullOrWhiteSpace($serverName)) {
           throw "serverName parameter is required."
+        }
+
+        if ([string]::IsNullOrWhiteSpace($credentialKey)) {
+          $credentialKey = 'default'
         }
 
         if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
@@ -137,6 +147,7 @@ steps:
                 environment = @environment,
                 server_type = @server_type,
                 connection_mode = @connection_mode,
+                credential_key = @credential_key,
                 is_active = @is_active,
                 updated_at = SYSUTCDATETIME()
             WHERE server_name = @server_name;
@@ -149,6 +160,7 @@ steps:
                 environment,
                 server_type,
                 connection_mode,
+                credential_key,
                 is_active
             )
             VALUES
@@ -157,6 +169,7 @@ steps:
                 @environment,
                 @server_type,
                 @connection_mode,
+                @credential_key,
                 @is_active
             );
         END;
@@ -167,6 +180,7 @@ steps:
             environment,
             server_type,
             connection_mode,
+            credential_key,
             is_active,
             created_at,
             updated_at
@@ -190,6 +204,9 @@ steps:
 
         $null = $command.Parameters.Add('@connection_mode', [System.Data.SqlDbType]::VarChar, 50)
         $command.Parameters['@connection_mode'].Value = $connectionMode
+
+        $null = $command.Parameters.Add('@credential_key', [System.Data.SqlDbType]::VarChar, 100)
+        $command.Parameters['@credential_key'].Value = $credentialKey
 
         $null = $command.Parameters.Add('@is_active', [System.Data.SqlDbType]::Bit)
         $command.Parameters['@is_active'].Value = $isActive

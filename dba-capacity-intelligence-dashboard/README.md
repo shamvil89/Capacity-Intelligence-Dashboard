@@ -164,6 +164,7 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `DBA_SQL_AUTH_MODE`
 - `SQL_USER`
 - `SQL_PASSWORD`
+- `SOURCE_SQL_CREDENTIALS_JSON`
 - `VITE_API_BASE_URL`
 - `IIS_API_SITE_NAME`
 - `IIS_API_APP_POOL`
@@ -210,6 +211,16 @@ DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
 ```
 
 The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` on `DBAUtility` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
+
+Azure SQL Database inventory rows should use `server_type = AzureSQL` and `connection_mode = SqlAuth`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
+
+Source server credentials can vary by server. Store source credentials in the `configs` variable group as a secret named `SOURCE_SQL_CREDENTIALS_JSON`:
+
+```json
+{"default":{"user":"sa","password":"local-source-password"},"azuresql":{"user":"azure_sql_admin","password":"azure-source-password"}}
+```
+
+Set `credential_key = default` for SQL Servers that use `sa`, and `credential_key = azuresql` for Azure SQL Database.
 
 ## Security Notes
 

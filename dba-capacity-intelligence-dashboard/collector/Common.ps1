@@ -37,11 +37,66 @@ function New-SqlCredentialFromEnvironment {
     [pscredential]::new($user, $securePassword)
 }
 
+function Get-SourceCredentialFromEnvironment {
+    [CmdletBinding()]
+    param(
+        [string]$CredentialKey
+    )
+
+    $normalizedKey = if ([string]::IsNullOrWhiteSpace($CredentialKey) -or $CredentialKey -like '$(*') { "default" } else { $CredentialKey }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:SOURCE_SQL_CREDENTIALS_JSON) -and $env:SOURCE_SQL_CREDENTIALS_JSON -notlike '$(*') {
+        try {
+            $credentialMap = $env:SOURCE_SQL_CREDENTIALS_JSON | ConvertFrom-Json
+        }
+        catch {
+            throw "SOURCE_SQL_CREDENTIALS_JSON is not valid JSON. $($_.Exception.Message)"
+        }
+
+        $credentialProperty = $credentialMap.PSObject.Properties[$normalizedKey]
+
+        if ($credentialProperty) {
+            $credential = $credentialProperty.Value
+            $userProperty = $credential.PSObject.Properties["user"]
+            $usernameProperty = $credential.PSObject.Properties["username"]
+            $passwordProperty = $credential.PSObject.Properties["password"]
+            $user = if ($userProperty) { $userProperty.Value } elseif ($usernameProperty) { $usernameProperty.Value } else { $null }
+            $password = if ($passwordProperty) { $passwordProperty.Value } else { $null }
+
+            if (-not [string]::IsNullOrWhiteSpace($user) -and -not [string]::IsNullOrWhiteSpace($password)) {
+                return [pscustomobject]@{
+                    User = [string]$user
+                    Password = [string]$password
+                    Key = $normalizedKey
+                }
+            }
+        }
+    }
+
+    if ($normalizedKey -eq "default") {
+        if (-not [string]::IsNullOrWhiteSpace($env:SQL_USER) -and -not [string]::IsNullOrWhiteSpace($env:SQL_PASSWORD)) {
+            return [pscustomobject]@{
+                User = $env:SQL_USER
+                Password = $env:SQL_PASSWORD
+                Key = $normalizedKey
+            }
+        }
+    }
+
+    throw "No source SQL credential found for key '$normalizedKey'. Add it to SOURCE_SQL_CREDENTIALS_JSON or use key 'default' with SQL_USER/SQL_PASSWORD."
+}
+
 function Get-SqlAuthMode {
     [CmdletBinding()]
-    param()
+    param(
+        [string]$PreferredMode
+    )
 
-    $authMode = $env:DBA_SQL_AUTH_MODE
+    $authMode = $PreferredMode
+
+    if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
+        $authMode = $env:DBA_SQL_AUTH_MODE
+    }
 
     if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
         return "SqlAuth"
@@ -52,6 +107,43 @@ function Get-SqlAuthMode {
     }
 
     return $authMode
+}
+
+function New-SourceSqlConnectionString {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Database,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AuthMode,
+
+        [string]$CredentialKey
+    )
+
+    $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+    $builder["Data Source"] = $ServerName
+    $builder["Initial Catalog"] = $Database
+    $builder["Encrypt"] = $true
+    $builder["TrustServerCertificate"] = $true
+    $builder["Connection Timeout"] = 30
+
+    if ($AuthMode -eq "SqlAuth") {
+        $credential = Get-SourceCredentialFromEnvironment -CredentialKey $CredentialKey
+        $builder["User ID"] = $credential.User
+        $builder["Password"] = $credential.Password
+    }
+    elseif ($AuthMode -eq "WindowsAuth") {
+        $builder["Integrated Security"] = $true
+    }
+    else {
+        throw "Source connection mode '$AuthMode' is not implemented by the MVP collector."
+    }
+
+    $builder.ConnectionString
 }
 
 function Get-RepositoryConfig {
@@ -118,28 +210,35 @@ function Invoke-SourceQuery {
         [hashtable]$SqlParameter = @{}
     )
 
-    # MVP supports one authentication mode for all connections. TODO: add
-    # Managed Identity and per-server credentials based on ServerInventory.
-    $authMode = Get-SqlAuthMode
+    # Source SQL Servers can use a different connection mode from the local
+    # DBAUtility repository. The value comes from ServerInventory.connection_mode.
+    $authMode = Get-SqlAuthMode -PreferredMode $env:DBA_SOURCE_CONNECTION_MODE
+    $connectionString = New-SourceSqlConnectionString -ServerName $ServerName -Database $Database -AuthMode $authMode -CredentialKey $env:DBA_SOURCE_CREDENTIAL_KEY
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    $command = $connection.CreateCommand()
+    $command.CommandText = $Query
+    $command.CommandTimeout = 0
 
-    $invokeParams = @{
-        SqlInstance   = $ServerName
-        Database      = $Database
-        Query         = $Query
-        QueryTimeout  = 0
-        EnableException = $true
-        AppendConnectionString = "TrustServerCertificate=True"
+    foreach ($key in $SqlParameter.Keys) {
+        $parameter = $command.Parameters.Add("@$key", [System.Data.SqlDbType]::NVarChar, 4000)
+        $parameter.Value = $SqlParameter[$key]
     }
 
-    if ($authMode -eq "SqlAuth") {
-        $invokeParams.SqlCredential = New-SqlCredentialFromEnvironment
+    try {
+        $connection.Open()
+        $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($command)
+        $table = New-Object System.Data.DataTable
+        [void]$adapter.Fill($table)
+        return $table.Rows
     }
+    finally {
+        if ($connection.State -ne [System.Data.ConnectionState]::Closed) {
+            $connection.Close()
+        }
 
-    if ($SqlParameter.Count -gt 0) {
-        $invokeParams.SqlParameter = $SqlParameter
+        $connection.Dispose()
+        $command.Dispose()
     }
-
-    Invoke-DbaQuery @invokeParams
 }
 
 function Invoke-RepositoryProcedure {
@@ -166,7 +265,8 @@ SELECT
     server_name,
     environment,
     server_type,
-    connection_mode
+    connection_mode,
+    credential_key
 FROM dbo.ServerInventory
 WHERE is_active = 1
 ORDER BY server_name;
