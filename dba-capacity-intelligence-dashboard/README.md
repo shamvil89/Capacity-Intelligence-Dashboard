@@ -144,6 +144,8 @@ Local path: C:\Users\shamvil\PersonalEnvironment\agent
 
 PowerShell pipeline tasks are configured for Windows PowerShell on this host.
 
+The YAMLs use `projectRoot: dba-capacity-intelligence-dashboard` because the project currently lives inside that folder in the repository checkout. If the project files are moved to the repository root, change `projectRoot` to `.` in each pipeline.
+
 Create these variables in Azure DevOps. Mark secrets as secret.
 
 - `DBA_REPOSITORY_SERVER`

@@ -7,6 +7,9 @@ pool:
     - Agent.Name -equals shamvil
     - Agent.OS -equals Windows_NT
 
+variables:
+  projectRoot: dba-capacity-intelligence-dashboard
+
 steps:
   - checkout: self
 
@@ -21,12 +24,19 @@ steps:
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
         Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
 
+        $projectRoot = Join-Path '$(Build.SourcesDirectory)' '$(projectRoot)'
+        $databaseRoot = Join-Path $projectRoot 'database'
+
+        if (-not (Test-Path $databaseRoot)) {
+          throw "Database script folder not found: $databaseRoot"
+        }
+
         $orderedScripts = @()
-        $orderedScripts += (Resolve-Path 'database/001_Create_Database.sql').Path
-        $orderedScripts += Get-ChildItem 'database/tables' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem 'database/procedures' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem 'database/views' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem 'database/seed' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += (Resolve-Path (Join-Path $databaseRoot '001_Create_Database.sql')).Path
+        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'tables') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'procedures') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'views') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'seed') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
 
         foreach ($script in $orderedScripts) {
           Write-Host "Running $script"

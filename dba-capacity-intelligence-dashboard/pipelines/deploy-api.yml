@@ -8,8 +8,9 @@ pool:
     - Agent.OS -equals Windows_NT
 
 variables:
+  projectRoot: dba-capacity-intelligence-dashboard
   buildConfiguration: Release
-  apiProject: api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
+  apiProject: $(projectRoot)/api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
 
 steps:
   - checkout: self
@@ -26,7 +27,7 @@ steps:
       command: restore
       projects: $(apiProject)
       feedsToUse: config
-      nugetConfigPath: NuGet.config
+      nugetConfigPath: $(projectRoot)/NuGet.config
 
   - task: DotNetCoreCLI@2
     displayName: Build API
@@ -40,6 +41,7 @@ steps:
     inputs:
       pwsh: false
       targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)/$(projectRoot)
       script: |
         $testProjects = Get-ChildItem -Recurse -Filter '*.csproj' |
           Where-Object { $_.FullName -match '[\\/]tests?[\\/]' -or $_.BaseName -match 'Tests?$' }

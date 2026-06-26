@@ -8,7 +8,8 @@ pool:
     - Agent.OS -equals Windows_NT
 
 variables:
-  webDirectory: web/dba-capacity-web
+  projectRoot: dba-capacity-intelligence-dashboard
+  webDirectory: $(projectRoot)/web/dba-capacity-web
 
 steps:
   - checkout: self

@@ -16,6 +16,7 @@ pool:
     - Agent.OS -equals Windows_NT
 
 variables:
+  projectRoot: dba-capacity-intelligence-dashboard
   DBA_REPOSITORY_DB: DBAUtility
 
 steps:
@@ -34,7 +35,7 @@ steps:
     displayName: Collect SQL Server capacity metrics
     inputs:
       pwsh: false
-      filePath: collector/Collect-CapacityMetrics.ps1
+      filePath: $(projectRoot)/collector/Collect-CapacityMetrics.ps1
     env:
       DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
       DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
@@ -45,6 +46,6 @@ steps:
     displayName: Publish collector logs
     condition: always()
     inputs:
-      targetPath: collector/logs
+      targetPath: $(projectRoot)/collector/logs
       artifact: collector-logs
       publishLocation: pipeline

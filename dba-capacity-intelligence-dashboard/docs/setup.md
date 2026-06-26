@@ -97,6 +97,8 @@ Organization: https://dev.azure.com/kaz-tec/
 
 The agent currently uses Windows PowerShell for `PowerShell@2` tasks because `pwsh` is not installed on the host.
 
+The YAMLs assume the project folder is checked out as `$(Build.SourcesDirectory)\dba-capacity-intelligence-dashboard`. If you later move the contents of that folder to the repository root, update the `projectRoot` variable in each pipeline to `.`.
+
 Create these variables in the pipeline or variable group. Mark secrets as secret.
 
 - `DBA_REPOSITORY_SERVER`
