@@ -66,7 +66,7 @@ steps:
       publishWebProjects: false
       projects: $(apiProject)
       arguments: --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/api
-      zipAfterPublish: true
+      zipAfterPublish: false
 
   - task: PublishPipelineArtifact@1
     displayName: Publish API package
@@ -74,3 +74,135 @@ steps:
       targetPath: $(Build.ArtifactStagingDirectory)/api
       artifact: api
       publishLocation: pipeline
+
+  - task: PowerShell@2
+    displayName: Deploy API to IIS
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+
+        function Get-Setting {
+          param(
+            [string]$Value,
+            [string]$DefaultValue
+          )
+
+          if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
+            return $DefaultValue
+          }
+
+          return $Value
+        }
+
+        function Assert-Administrator {
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw "IIS deployment requires the Azure DevOps agent process to run as local Administrator. Current identity: $($identity.Name)"
+          }
+        }
+
+        function Invoke-RobocopyMirror {
+          param(
+            [string]$Source,
+            [string]$Destination
+          )
+
+          robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -gt 7) {
+            throw "Robocopy failed with exit code $exitCode."
+          }
+
+          $global:LASTEXITCODE = 0
+        }
+
+        Assert-Administrator
+        Import-Module WebAdministration -ErrorAction Stop
+
+        $siteName = Get-Setting $env:IIS_API_SITE_NAME 'DBA Capacity API'
+        $appPoolName = Get-Setting $env:IIS_API_APP_POOL 'DBACapacityApi'
+        $physicalPath = Get-Setting $env:IIS_API_PHYSICAL_PATH 'C:\inetpub\dba-capacity-api'
+        $port = [int](Get-Setting $env:IIS_API_PORT '5088')
+        $allowedOrigins = Get-Setting $env:DBA_API_ALLOWED_ORIGINS ''
+        $connectionString = Get-Setting $env:DBA_API_CONNECTION_STRING ''
+
+        $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+        if (-not $aspNetCoreModule) {
+          throw "ASP.NET Core IIS Hosting Bundle is required. Install it on the IIS server before deploying the API."
+        }
+
+        $publishRoot = '$(Build.ArtifactStagingDirectory)\api'
+        $apiDll = Get-ChildItem -Path $publishRoot -Recurse -Filter 'DBA.Capacity.Api.dll' | Select-Object -First 1
+        if (-not $apiDll) {
+          throw "Could not find DBA.Capacity.Api.dll under $publishRoot"
+        }
+
+        $publishPath = $apiDll.Directory.FullName
+        New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
+
+        if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {
+          New-WebAppPool -Name $appPoolName | Out-Null
+        }
+
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedRuntimeVersion -Value ''
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
+
+        if (-not (Test-Path "IIS:\Sites\$siteName")) {
+          New-Website -Name $siteName -Port $port -PhysicalPath $physicalPath -ApplicationPool $appPoolName | Out-Null
+        }
+        else {
+          Set-ItemProperty "IIS:\Sites\$siteName" -Name physicalPath -Value $physicalPath
+          Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationPool -Value $appPoolName
+        }
+
+        $site = Get-Website -Name $siteName
+        if (-not ($site.Bindings.Collection | Where-Object { $_.bindingInformation -eq "*:$($port):" })) {
+          New-WebBinding -Name $siteName -Protocol http -Port $port | Out-Null
+        }
+
+        $appOfflinePath = Join-Path $physicalPath 'app_offline.htm'
+        Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
+
+        try {
+          Stop-Website -Name $siteName -ErrorAction SilentlyContinue
+          Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
+
+          if (-not [string]::IsNullOrWhiteSpace($connectionString)) {
+            $productionSettings = @{
+              ConnectionStrings = @{
+                DBAUtility = $connectionString
+              }
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($allowedOrigins)) {
+              $productionSettings.Cors = @{
+                AllowedOrigins = @($allowedOrigins -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+              }
+            }
+
+            $productionSettings |
+              ConvertTo-Json -Depth 6 |
+              Set-Content -Path (Join-Path $physicalPath 'appsettings.Production.json') -Encoding UTF8
+          }
+
+          icacls $physicalPath /grant "IIS AppPool\$($appPoolName):(OI)(CI)RX" /T | Out-Null
+        }
+        finally {
+          Remove-Item -Path $appOfflinePath -ErrorAction SilentlyContinue
+        }
+
+        Start-WebAppPool -Name $appPoolName
+        Start-Website -Name $siteName
+        Write-Host "API deployed to http://localhost:$port"
+    env:
+      IIS_API_SITE_NAME: $(IIS_API_SITE_NAME)
+      IIS_API_APP_POOL: $(IIS_API_APP_POOL)
+      IIS_API_PHYSICAL_PATH: $(IIS_API_PHYSICAL_PATH)
+      IIS_API_PORT: $(IIS_API_PORT)
+      DBA_API_CONNECTION_STRING: $(DBA_API_CONNECTION_STRING)
+      DBA_API_ALLOWED_ORIGINS: $(DBA_API_ALLOWED_ORIGINS)

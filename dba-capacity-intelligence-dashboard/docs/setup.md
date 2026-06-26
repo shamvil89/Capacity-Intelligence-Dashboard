@@ -7,6 +7,9 @@
 - PowerShell 7 or Windows PowerShell 5.1.
 - .NET SDK 9.
 - Node.js 22 or newer.
+- IIS with Management Scripts and Tools.
+- ASP.NET Core Hosting Bundle for IIS API hosting.
+- IIS URL Rewrite module for React client-side routing.
 - Azure DevOps pipeline access for scheduled collection.
 
 ## Database Setup
@@ -107,6 +110,16 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `SQL_USER`
 - `SQL_PASSWORD`
 - `VITE_API_BASE_URL`
+- `IIS_API_SITE_NAME`
+- `IIS_API_APP_POOL`
+- `IIS_API_PHYSICAL_PATH`
+- `IIS_API_PORT`
+- `IIS_WEB_SITE_NAME`
+- `IIS_WEB_APP_POOL`
+- `IIS_WEB_PHYSICAL_PATH`
+- `IIS_WEB_PORT`
+- `DBA_API_CONNECTION_STRING`
+- `DBA_API_ALLOWED_ORIGINS`
 
 The scheduled collector uses Azure DevOps cron in UTC. Adjust `pipelines/collect-capacity.yml` if your desired 2:30 AM run should follow a local timezone.
 
@@ -118,3 +131,46 @@ DBA_SQL_AUTH_MODE = WindowsAuth
 ```
 
 Use `DBA_SQL_AUTH_MODE = SqlAuth` when deploying with a SQL login. In that case, `SQL_USER` and `SQL_PASSWORD` are required.
+
+## IIS Deployment
+
+The API pipeline creates or updates this site by default:
+
+```text
+Site: DBA Capacity API
+App pool: DBACapacityApi
+Path: C:\inetpub\dba-capacity-api
+URL: http://localhost:5088
+```
+
+The web pipeline creates or updates this site by default:
+
+```text
+Site: DBA Capacity Dashboard
+App pool: DBACapacityWeb
+Path: C:\inetpub\dba-capacity-web
+URL: http://localhost:8080
+```
+
+Set this value in the `configs` variable group before building the web app:
+
+```text
+VITE_API_BASE_URL = http://localhost:5088/api
+```
+
+Set this API CORS value if the web URL changes:
+
+```text
+DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
+```
+
+The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools.
+
+For the API database connection, choose one of these options:
+
+1. Grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.
+2. Set `DBA_API_CONNECTION_STRING` in the `configs` variable group. Example:
+
+```text
+Server=localhost;Database=DBAUtility;Trusted_Connection=True;TrustServerCertificate=True;
+```

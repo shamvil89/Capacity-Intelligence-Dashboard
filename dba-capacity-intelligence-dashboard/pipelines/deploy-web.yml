@@ -38,3 +38,97 @@ steps:
       targetPath: $(webDirectory)/dist
       artifact: web
       publishLocation: pipeline
+
+  - task: PowerShell@2
+    displayName: Deploy web app to IIS
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+
+        function Get-Setting {
+          param(
+            [string]$Value,
+            [string]$DefaultValue
+          )
+
+          if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
+            return $DefaultValue
+          }
+
+          return $Value
+        }
+
+        function Assert-Administrator {
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw "IIS deployment requires the Azure DevOps agent process to run as local Administrator. Current identity: $($identity.Name)"
+          }
+        }
+
+        function Invoke-RobocopyMirror {
+          param(
+            [string]$Source,
+            [string]$Destination
+          )
+
+          robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -gt 7) {
+            throw "Robocopy failed with exit code $exitCode."
+          }
+
+          $global:LASTEXITCODE = 0
+        }
+
+        Assert-Administrator
+        Import-Module WebAdministration -ErrorAction Stop
+
+        $siteName = Get-Setting $env:IIS_WEB_SITE_NAME 'DBA Capacity Dashboard'
+        $appPoolName = Get-Setting $env:IIS_WEB_APP_POOL 'DBACapacityWeb'
+        $physicalPath = Get-Setting $env:IIS_WEB_PHYSICAL_PATH 'C:\inetpub\dba-capacity-web'
+        $port = [int](Get-Setting $env:IIS_WEB_PORT '8080')
+        $distPath = Join-Path '$(Build.SourcesDirectory)' '$(webDirectory)\dist'
+
+        if (-not (Test-Path $distPath)) {
+          throw "React build output not found: $distPath"
+        }
+
+        New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
+
+        if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {
+          New-WebAppPool -Name $appPoolName | Out-Null
+        }
+
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedRuntimeVersion -Value ''
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
+
+        if (-not (Test-Path "IIS:\Sites\$siteName")) {
+          New-Website -Name $siteName -Port $port -PhysicalPath $physicalPath -ApplicationPool $appPoolName | Out-Null
+        }
+        else {
+          Set-ItemProperty "IIS:\Sites\$siteName" -Name physicalPath -Value $physicalPath
+          Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationPool -Value $appPoolName
+        }
+
+        $site = Get-Website -Name $siteName
+        if (-not ($site.Bindings.Collection | Where-Object { $_.bindingInformation -eq "*:$($port):" })) {
+          New-WebBinding -Name $siteName -Protocol http -Port $port | Out-Null
+        }
+
+        Stop-Website -Name $siteName -ErrorAction SilentlyContinue
+        Invoke-RobocopyMirror -Source $distPath -Destination $physicalPath
+        icacls $physicalPath /grant "IIS AppPool\$($appPoolName):(OI)(CI)RX" /T | Out-Null
+        Start-WebAppPool -Name $appPoolName
+        Start-Website -Name $siteName
+
+        Write-Host "Web app deployed to http://localhost:$port"
+    env:
+      IIS_WEB_SITE_NAME: $(IIS_WEB_SITE_NAME)
+      IIS_WEB_APP_POOL: $(IIS_WEB_APP_POOL)
+      IIS_WEB_PHYSICAL_PATH: $(IIS_WEB_PHYSICAL_PATH)
+      IIS_WEB_PORT: $(IIS_WEB_PORT)

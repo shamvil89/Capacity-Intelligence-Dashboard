@@ -33,6 +33,9 @@ React Dashboard Web App
 - PowerShell 7 or Windows PowerShell 5.1.
 - .NET SDK 9.
 - Node.js 22 or newer.
+- IIS with Management Scripts and Tools.
+- ASP.NET Core Hosting Bundle for IIS API hosting.
+- IIS URL Rewrite module for React client-side routing.
 - Azure DevOps for scheduled collector automation.
 
 ## Database Setup
@@ -131,8 +134,8 @@ http://localhost:5173
 
 - `pipelines/collect-capacity.yml`: scheduled collector run, manual run supported.
 - `pipelines/deploy-database.yml`: deploys database scripts in order.
-- `pipelines/deploy-api.yml`: restores, builds, tests if present, and publishes API artifact.
-- `pipelines/deploy-web.yml`: installs npm packages, builds React, and publishes web artifact.
+- `pipelines/deploy-api.yml`: restores, builds, tests if present, publishes artifact, and deploys the API to IIS.
+- `pipelines/deploy-web.yml`: installs npm packages, builds React, publishes artifact, and deploys the static web app to IIS.
 
 The YAMLs target the self-hosted Windows agent:
 
@@ -154,6 +157,16 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `SQL_USER`
 - `SQL_PASSWORD`
 - `VITE_API_BASE_URL`
+- `IIS_API_SITE_NAME`
+- `IIS_API_APP_POOL`
+- `IIS_API_PHYSICAL_PATH`
+- `IIS_API_PORT`
+- `IIS_WEB_SITE_NAME`
+- `IIS_WEB_APP_POOL`
+- `IIS_WEB_PHYSICAL_PATH`
+- `IIS_WEB_PORT`
+- `DBA_API_CONNECTION_STRING`
+- `DBA_API_ALLOWED_ORIGINS`
 
 For the local default SQL Server instance on the self-hosted agent, set:
 
@@ -163,6 +176,30 @@ DBA_SQL_AUTH_MODE = WindowsAuth
 ```
 
 Use `DBA_SQL_AUTH_MODE = SqlAuth` if deploying with a SQL login, and provide `SQL_USER` and `SQL_PASSWORD`.
+
+## IIS Deployment Defaults
+
+The API pipeline defaults to:
+
+```text
+IIS_API_SITE_NAME = DBA Capacity API
+IIS_API_APP_POOL = DBACapacityApi
+IIS_API_PHYSICAL_PATH = C:\inetpub\dba-capacity-api
+IIS_API_PORT = 5088
+```
+
+The web pipeline defaults to:
+
+```text
+IIS_WEB_SITE_NAME = DBA Capacity Dashboard
+IIS_WEB_APP_POOL = DBACapacityWeb
+IIS_WEB_PHYSICAL_PATH = C:\inetpub\dba-capacity-web
+IIS_WEB_PORT = 8080
+VITE_API_BASE_URL = http://localhost:5088/api
+DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
+```
+
+The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API app pool also needs SQL Server access to `DBAUtility`, or set `DBA_API_CONNECTION_STRING` in the `configs` variable group.
 
 ## Security Notes
 
