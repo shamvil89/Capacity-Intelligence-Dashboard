@@ -2,6 +2,7 @@
   "environmentVariables": {
     "DBA_REPOSITORY_SERVER": "sql-repository.example.net",
     "DBA_REPOSITORY_DB": "DBAUtility",
+    "DBA_SQL_AUTH_MODE": "SqlAuth",
     "SQL_USER": "collector_login",
     "SQL_PASSWORD": "use-a-secret-store-or-pipeline-secret"
   },

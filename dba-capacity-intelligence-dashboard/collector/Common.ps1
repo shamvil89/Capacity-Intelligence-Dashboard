@@ -37,6 +37,23 @@ function New-SqlCredentialFromEnvironment {
     [pscredential]::new($user, $securePassword)
 }
 
+function Get-SqlAuthMode {
+    [CmdletBinding()]
+    param()
+
+    $authMode = $env:DBA_SQL_AUTH_MODE
+
+    if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
+        return "SqlAuth"
+    }
+
+    if ($authMode -notin @("SqlAuth", "WindowsAuth")) {
+        throw "DBA_SQL_AUTH_MODE must be either 'SqlAuth' or 'WindowsAuth'. Current value: $authMode"
+    }
+
+    return $authMode
+}
+
 function Get-RepositoryConfig {
     [CmdletBinding()]
     param()
@@ -50,9 +67,9 @@ function Get-RepositoryConfig {
     }
 
     [pscustomobject]@{
-        Server     = $env:DBA_REPOSITORY_SERVER
-        Database   = $env:DBA_REPOSITORY_DB
-        Credential = New-SqlCredentialFromEnvironment
+        Server   = $env:DBA_REPOSITORY_SERVER
+        Database = $env:DBA_REPOSITORY_DB
+        AuthMode = Get-SqlAuthMode
     }
 }
 
@@ -69,10 +86,14 @@ function Invoke-RepositoryQuery {
     $invokeParams = @{
         SqlInstance   = $repository.Server
         Database      = $repository.Database
-        SqlCredential = $repository.Credential
         Query         = $Query
         QueryTimeout  = 0
         EnableException = $true
+        AppendConnectionString = "TrustServerCertificate=True"
+    }
+
+    if ($repository.AuthMode -eq "SqlAuth") {
+        $invokeParams.SqlCredential = New-SqlCredentialFromEnvironment
     }
 
     if ($SqlParameter.Count -gt 0) {
@@ -97,15 +118,21 @@ function Invoke-SourceQuery {
         [hashtable]$SqlParameter = @{}
     )
 
-    # MVP uses SQL authentication. TODO: add WindowsAuth, Managed Identity, and
-    # per-server credentials based on dbo.ServerInventory.connection_mode.
+    # MVP supports one authentication mode for all connections. TODO: add
+    # Managed Identity and per-server credentials based on ServerInventory.
+    $authMode = Get-SqlAuthMode
+
     $invokeParams = @{
         SqlInstance   = $ServerName
         Database      = $Database
-        SqlCredential = New-SqlCredentialFromEnvironment
         Query         = $Query
         QueryTimeout  = 0
         EnableException = $true
+        AppendConnectionString = "TrustServerCertificate=True"
+    }
+
+    if ($authMode -eq "SqlAuth") {
+        $invokeParams.SqlCredential = New-SqlCredentialFromEnvironment
     }
 
     if ($SqlParameter.Count -gt 0) {
