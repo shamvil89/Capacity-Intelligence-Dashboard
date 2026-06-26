@@ -24,6 +24,46 @@ steps:
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
         Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
 
+        $repositoryServer = $env:DBA_REPOSITORY_SERVER
+        $authMode = $env:DBA_SQL_AUTH_MODE
+
+        if ([string]::IsNullOrWhiteSpace($repositoryServer) -or $repositoryServer -like '$(*') {
+          throw "DBA_REPOSITORY_SERVER pipeline variable is required. For the local default SQL Server instance, use 'localhost'."
+        }
+
+        if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
+          $authMode = 'SqlAuth'
+        }
+
+        if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
+          throw "DBA_SQL_AUTH_MODE must be either 'SqlAuth' or 'WindowsAuth'. Current value: $authMode"
+        }
+
+        Write-Host "Target SQL Server: $repositoryServer"
+        Write-Host "SQL authentication mode: $authMode"
+
+        $sqlParams = @{
+          ServerInstance = $repositoryServer
+          TrustServerCertificate = $true
+          ErrorAction = 'Stop'
+        }
+
+        if ($authMode -eq 'SqlAuth') {
+          if ([string]::IsNullOrWhiteSpace($env:SQL_USER) -or $env:SQL_USER -like '$(*') {
+            throw "SQL_USER pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:SQL_PASSWORD) -or $env:SQL_PASSWORD -like '$(*') {
+            throw "SQL_PASSWORD pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
+          }
+
+          $sqlParams.Username = $env:SQL_USER
+          $sqlParams.Password = $env:SQL_PASSWORD
+        }
+
+        Write-Host "Testing SQL Server connection..."
+        Invoke-Sqlcmd @sqlParams -Query "SELECT @@SERVERNAME AS server_name, @@SERVICENAME AS service_name;" | Format-Table -AutoSize
+
         $projectRoot = Join-Path '$(Build.SourcesDirectory)' '$(projectRoot)'
         $databaseRoot = Join-Path $projectRoot 'database'
 
@@ -40,15 +80,10 @@ steps:
 
         foreach ($script in $orderedScripts) {
           Write-Host "Running $script"
-          Invoke-Sqlcmd `
-            -ServerInstance $env:DBA_REPOSITORY_SERVER `
-            -Username $env:SQL_USER `
-            -Password $env:SQL_PASSWORD `
-            -InputFile $script `
-            -TrustServerCertificate `
-            -ErrorAction Stop
+          Invoke-Sqlcmd @sqlParams -InputFile $script
         }
     env:
       DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
       SQL_USER: $(SQL_USER)
       SQL_PASSWORD: $(SQL_PASSWORD)

@@ -103,8 +103,18 @@ Create these variables in the pipeline or variable group. Mark secrets as secret
 
 - `DBA_REPOSITORY_SERVER`
 - `DBA_REPOSITORY_DB`
+- `DBA_SQL_AUTH_MODE`
 - `SQL_USER`
 - `SQL_PASSWORD`
 - `VITE_API_BASE_URL`
 
 The scheduled collector uses Azure DevOps cron in UTC. Adjust `pipelines/collect-capacity.yml` if your desired 2:30 AM run should follow a local timezone.
+
+For the local default SQL Server instance on the self-hosted agent machine, use:
+
+```text
+DBA_REPOSITORY_SERVER = localhost
+DBA_SQL_AUTH_MODE = WindowsAuth
+```
+
+Use `DBA_SQL_AUTH_MODE = SqlAuth` when deploying with a SQL login. In that case, `SQL_USER` and `SQL_PASSWORD` are required.

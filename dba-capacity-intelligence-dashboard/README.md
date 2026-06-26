@@ -150,9 +150,19 @@ Create these variables in Azure DevOps. Mark secrets as secret.
 
 - `DBA_REPOSITORY_SERVER`
 - `DBA_REPOSITORY_DB`
+- `DBA_SQL_AUTH_MODE`
 - `SQL_USER`
 - `SQL_PASSWORD`
 - `VITE_API_BASE_URL`
+
+For the local default SQL Server instance on the self-hosted agent, set:
+
+```text
+DBA_REPOSITORY_SERVER = localhost
+DBA_SQL_AUTH_MODE = WindowsAuth
+```
+
+Use `DBA_SQL_AUTH_MODE = SqlAuth` if deploying with a SQL login, and provide `SQL_USER` and `SQL_PASSWORD`.
 
 ## Security Notes
 
