@@ -39,6 +39,8 @@ isActive = true
 
 After onboarding, run `pipelines/collect-capacity.yml` to collect metrics for active servers.
 
+If `DBA_SQL_AUTH_MODE = WindowsAuth`, SQL Server must allow the Azure DevOps agent identity to write to `dbo.ServerInventory`. The pipeline prints the identity as `Pipeline Windows identity`. Grant that identity access or use `SqlAuth`.
+
 ## Seed Server Inventory
 
 Update `dbo.ServerInventory` with active SQL Server instances:

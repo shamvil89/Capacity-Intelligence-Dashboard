@@ -83,6 +83,11 @@ steps:
         $serverType = '${{ parameters.serverType }}'
         $connectionMode = '${{ parameters.connectionMode }}'
         $isActive = [System.Convert]::ToBoolean('${{ parameters.isActive }}')
+        $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+        Write-Host "Pipeline Windows identity: $windowsIdentity"
+        Write-Host "Repository target: $repositoryServer/$repositoryDatabase"
+        Write-Host "Repository auth mode: $authMode"
 
         if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
           throw "DBA_REPOSITORY_SERVER is required in the configs variable group."
@@ -194,6 +199,13 @@ steps:
 
           Write-Host "Server inventory row:"
           $table | Format-Table -AutoSize
+        }
+        catch {
+          if ($authMode -eq 'WindowsAuth') {
+            Write-Warning "Windows authentication failed for pipeline identity '$windowsIdentity'. Grant this identity access to DBAUtility or switch DBA_SQL_AUTH_MODE to SqlAuth in the configs variable group."
+          }
+
+          throw
         }
         finally {
           if ($connection.State -ne [System.Data.ConnectionState]::Closed) {
