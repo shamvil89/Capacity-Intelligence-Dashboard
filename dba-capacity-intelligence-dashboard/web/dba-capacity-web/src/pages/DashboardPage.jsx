@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
+import SortableHeader from '../components/SortableHeader.jsx';
 import SummaryCard from '../components/SummaryCard.jsx';
 import { formatInteger, formatNumber } from '../components/formatters.js';
+import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
 const riskLevels = ['All', 'Healthy', 'Low', 'Medium', 'High', 'Critical'];
@@ -11,6 +13,9 @@ const riskLevels = ['All', 'Healthy', 'Low', 'Medium', 'High', 'Critical'];
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [riskLevel, setRiskLevel] = useState('All');
+  const [serverFilter, setServerFilter] = useState('All');
+  const [containsFilter, setContainsFilter] = useState('');
+  const [sortState, setSortState] = useState({ key: 'riskLevel', direction: 'asc' });
   const [summary, setSummary] = useState(null);
   const [databases, setDatabases] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,6 +64,35 @@ export default function DashboardPage() {
     { label: 'Fastest Growing', value: summary?.fastestGrowingDatabaseName || 'No data', accent: 'yellow' }
   ], [summary]);
 
+  const serverOptions = useMemo(() => getUniqueOptions(databases, 'serverName'), [databases]);
+
+  const visibleDatabases = useMemo(() => {
+    const filteredRows = databases.filter((item) => {
+      const matchesServer = serverFilter === 'All' || item.serverName === serverFilter;
+      const matchesContains = containsText(item, [
+        'serverName',
+        'databaseName',
+        'riskLevel',
+        'recommendation'
+      ], containsFilter);
+
+      return matchesServer && matchesContains;
+    });
+
+    return sortRows(filteredRows, sortState, {
+      currentSizeGb: 'number',
+      growth7DaysGb: 'number',
+      growth30DaysGb: 'number',
+      averageGrowthPerDayGb: 'number',
+      estimatedDaysRemaining: 'number',
+      riskLevel: 'risk'
+    });
+  }, [containsFilter, databases, serverFilter, sortState]);
+
+  function handleSort(key) {
+    setSortState((currentState) => nextSortState(currentState, key));
+  }
+
   return (
     <section className="page-stack">
       <div className="toolbar-row">
@@ -66,14 +100,16 @@ export default function DashboardPage() {
           <h2>Dashboard</h2>
           <p className="subtle">Latest repository forecasts across active SQL Server inventory.</p>
         </div>
-        <label className="filter-control">
-          <span>Risk</span>
-          <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
-            {riskLevels.map((level) => (
-              <option key={level} value={level}>{level}</option>
-            ))}
-          </select>
-        </label>
+        <div className="toolbar-filters">
+          <label className="filter-control">
+            <span>Risk</span>
+            <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
+              {riskLevels.map((level) => (
+                <option key={level} value={level}>{level}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <DataState isLoading={isLoading} error={error} isEmpty={false}>
@@ -86,26 +122,49 @@ export default function DashboardPage() {
         <div className="table-panel">
           <div className="table-panel-header">
             <h3>Database Capacity</h3>
+            <span>{formatInteger(visibleDatabases.length)} rows</span>
           </div>
 
-          <DataState isLoading={false} error="" isEmpty={databases.length === 0}>
+          <div className="table-controls">
+            <label className="search-control">
+              <span>Contains</span>
+              <input
+                type="search"
+                value={containsFilter}
+                onChange={(event) => setContainsFilter(event.target.value)}
+                placeholder="Server, database, risk, recommendation"
+              />
+            </label>
+
+            <label className="filter-control">
+              <span>Server</span>
+              <select value={serverFilter} onChange={(event) => setServerFilter(event.target.value)}>
+                <option value="All">All</option>
+                {serverOptions.map((serverName) => (
+                  <option key={serverName} value={serverName}>{serverName}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <DataState isLoading={false} error="" isEmpty={visibleDatabases.length === 0}>
             <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
-                    <th>Server</th>
-                    <th>Database</th>
-                    <th>Current Size GB</th>
-                    <th>7-Day Growth GB</th>
-                    <th>30-Day Growth GB</th>
-                    <th>Growth/Day GB</th>
-                    <th>Days Remaining</th>
-                    <th>Risk Level</th>
-                    <th>Recommendation</th>
+                    <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Current Size GB" sortKey="currentSizeGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="7-Day Growth GB" sortKey="growth7DaysGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="30-Day Growth GB" sortKey="growth30DaysGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Growth/Day GB" sortKey="averageGrowthPerDayGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Days Remaining" sortKey="estimatedDaysRemaining" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Risk Level" sortKey="riskLevel" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Recommendation" sortKey="recommendation" sortState={sortState} onSort={handleSort} /></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {databases.map((item) => (
+                  {visibleDatabases.map((item) => (
                     <tr
                       key={`${item.serverName}-${item.databaseName}`}
                       className="clickable-row"

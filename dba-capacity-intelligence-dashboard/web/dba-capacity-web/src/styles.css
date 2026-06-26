@@ -18,6 +18,7 @@ body {
 }
 
 button,
+input,
 select {
   font: inherit;
 }
@@ -156,13 +157,67 @@ select {
   min-width: 172px;
 }
 
-.filter-control select {
+.filter-control select,
+.search-control input {
   height: 40px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   border-radius: 8px;
   padding: 0 10px;
   color: #17202a;
+}
+
+.toolbar-filters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.table-controls {
+  padding: 14px 18px;
+  border-bottom: 1px solid #dfe5ec;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(150px, 190px));
+  gap: 12px;
+  align-items: end;
+}
+
+.search-control {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-weight: 600;
+}
+
+.search-control input {
+  width: 100%;
+}
+
+.sort-header {
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.sort-header:hover,
+.sort-header.active {
+  color: #17202a;
+}
+
+.sort-header span {
+  overflow-wrap: anywhere;
 }
 
 .summary-grid {
@@ -406,6 +461,14 @@ td {
     flex-direction: column;
   }
 
+  .toolbar-filters {
+    width: 100%;
+  }
+
+  .table-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .summary-grid,
   .detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -419,7 +482,8 @@ td {
 
   .summary-grid,
   .detail-grid,
-  .nav-list {
+  .nav-list,
+  .table-controls {
     grid-template-columns: 1fr;
   }
 
