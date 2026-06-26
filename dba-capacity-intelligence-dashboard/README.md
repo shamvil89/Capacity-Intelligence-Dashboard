@@ -257,4 +257,5 @@ Set `credential_key = default` for SQL Servers that use `sa`, and `credential_ke
 
 - `docs/architecture.md`
 - `docs/setup.md`
-- `docs/screenshots-placeholder.md`
+- `docs/customer-lift-and-shift-wiki.md`
+- `docs/screenshots.md`
