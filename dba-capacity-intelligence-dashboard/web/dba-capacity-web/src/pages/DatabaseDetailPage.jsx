@@ -13,11 +13,13 @@ import {
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SummaryCard from '../components/SummaryCard.jsx';
+import { useTimezone } from '../components/TimezoneContext.jsx';
 import { formatDateTime, formatNumber } from '../components/formatters.js';
 import { api } from '../services/api.js';
 
 export default function DatabaseDetailPage() {
   const { serverName = '', databaseName = '' } = useParams();
+  const { effectiveTimeZone } = useTimezone();
   const [database, setDatabase] = useState(null);
   const [trend, setTrend] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,8 +66,8 @@ export default function DatabaseDetailPage() {
 
   const chartData = useMemo(() => trend.map((point) => ({
     ...point,
-    label: formatDateTime(point.collectionTime)
-  })), [trend]);
+    label: formatDateTime(point.collectionTime, effectiveTimeZone)
+  })), [effectiveTimeZone, trend]);
 
   return (
     <section className="page-stack">

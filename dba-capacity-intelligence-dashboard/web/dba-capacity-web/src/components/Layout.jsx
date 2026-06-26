@@ -1,5 +1,6 @@
 import { Activity, AlertTriangle, Database, Gauge, TableProperties } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { useTimezone } from './TimezoneContext.jsx';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: Gauge },
@@ -8,6 +9,8 @@ const navItems = [
 ];
 
 export default function Layout() {
+  const { setTimeZone, timeZone, timeZoneOptions } = useTimezone();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -38,9 +41,19 @@ export default function Layout() {
             <p className="eyebrow">DBAUtility repository</p>
             <h1>Capacity Intelligence Dashboard</h1>
           </div>
-          <div className="header-status">
-            <Activity aria-hidden="true" size={18} />
-            <span>Repository read-only API</span>
+          <div className="header-actions">
+            <label className="timezone-control">
+              <span>Time zone</span>
+              <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
+                {timeZoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="header-status">
+              <Activity aria-hidden="true" size={18} />
+              <span>Repository read-only API</span>
+            </div>
           </div>
         </header>
 

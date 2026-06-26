@@ -120,6 +120,33 @@ select {
   white-space: nowrap;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.timezone-control {
+  display: grid;
+  gap: 4px;
+  min-width: 250px;
+  color: #475467;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.timezone-control select {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #17202a;
+}
+
 .main-content {
   padding: 28px;
 }
@@ -159,6 +186,7 @@ select {
 
 .filter-control select,
 .search-control input {
+  width: 100%;
   height: 40px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
@@ -191,6 +219,21 @@ select {
 
 .search-control input {
   width: 100%;
+}
+
+.alerts-panel {
+  overflow: hidden;
+}
+
+.alerts-controls {
+  grid-template-columns: minmax(320px, 1fr) minmax(180px, 240px) minmax(140px, 180px) minmax(180px, 240px);
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.alerts-controls .filter-control,
+.alerts-controls .search-control {
+  min-width: 0;
 }
 
 .sort-header {
@@ -329,6 +372,41 @@ table {
   min-width: 980px;
 }
 
+.alerts-table {
+  min-width: 1380px;
+  table-layout: fixed;
+}
+
+.alerts-table th:nth-child(1),
+.alerts-table td:nth-child(1) {
+  width: 150px;
+}
+
+.alerts-table th:nth-child(2),
+.alerts-table td:nth-child(2) {
+  width: 230px;
+}
+
+.alerts-table th:nth-child(3),
+.alerts-table td:nth-child(3) {
+  width: 170px;
+}
+
+.alerts-table th:nth-child(4),
+.alerts-table td:nth-child(4) {
+  width: 260px;
+}
+
+.alerts-table th:nth-child(5),
+.alerts-table td:nth-child(5) {
+  width: 140px;
+}
+
+.alerts-table th:nth-child(6),
+.alerts-table td:nth-child(6) {
+  width: 430px;
+}
+
 th,
 td {
   padding: 13px 14px;
@@ -361,6 +439,14 @@ td {
 .recommendation-cell {
   min-width: 260px;
   max-width: 460px;
+}
+
+.alert-message-cell {
+  max-width: none;
+  min-width: 360px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .risk-badge {
@@ -461,11 +547,17 @@ td {
     flex-direction: column;
   }
 
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .toolbar-filters {
     width: 100%;
   }
 
-  .table-controls {
+  .table-controls,
+  .alerts-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -489,5 +581,10 @@ td {
 
   .header-status {
     white-space: normal;
+  }
+
+  .header-actions,
+  .timezone-control {
+    width: 100%;
   }
 }

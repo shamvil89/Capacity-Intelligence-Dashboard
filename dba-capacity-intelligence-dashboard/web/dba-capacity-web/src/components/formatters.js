@@ -17,13 +17,26 @@ export function formatInteger(value) {
   return Number(value).toLocaleString();
 }
 
-export function formatDateTime(value) {
+export function formatDateTime(value, timeZone) {
   if (!value) {
     return '-';
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  const options = {
     dateStyle: 'medium',
     timeStyle: 'short'
-  }).format(new Date(value));
+  };
+
+  if (timeZone) {
+    options.timeZone = timeZone;
+  }
+
+  try {
+    return new Intl.DateTimeFormat(undefined, options).format(new Date(value));
+  } catch {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    }).format(new Date(value));
+  }
 }

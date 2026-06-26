@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
+import { useTimezone } from '../components/TimezoneContext.jsx';
 import { formatDateTime } from '../components/formatters.js';
 import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
 export default function AlertsPage() {
+  const { effectiveTimeZone } = useTimezone();
   const [alerts, setAlerts] = useState([]);
   const [containsFilter, setContainsFilter] = useState('');
   const [serverFilter, setServerFilter] = useState('All');
@@ -85,13 +87,13 @@ export default function AlertsPage() {
       </div>
 
       <DataState isLoading={isLoading} error={error} isEmpty={alerts.length === 0}>
-        <div className="table-panel">
+        <div className="table-panel alerts-panel">
           <div className="table-panel-header">
             <h3>Alert Queue</h3>
             <span>{visibleAlerts.length} rows</span>
           </div>
 
-          <div className="table-controls">
+          <div className="table-controls alerts-controls">
             <label className="search-control">
               <span>Contains</span>
               <input
@@ -134,32 +136,32 @@ export default function AlertsPage() {
           </div>
 
           <DataState isLoading={false} error="" isEmpty={visibleAlerts.length === 0}>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th><SortableHeader label="Time" sortKey="alertTime" sortState={sortState} onSort={handleSort} /></th>
-                  <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
-                  <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
-                  <th><SortableHeader label="Alert Type" sortKey="alertType" sortState={sortState} onSort={handleSort} /></th>
-                  <th><SortableHeader label="Severity" sortKey="severity" sortState={sortState} onSort={handleSort} /></th>
-                  <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleAlerts.map((item) => (
-                  <tr key={`${item.alertTime}-${item.serverName}-${item.alertType}`}>
-                    <td>{formatDateTime(item.alertTime)}</td>
-                    <td>{item.serverName}</td>
-                    <td>{item.databaseName || '-'}</td>
-                    <td>{item.alertType}</td>
-                    <td><RiskBadge level={item.severity} /></td>
-                    <td className="recommendation-cell">{item.message}</td>
+            <div className="table-scroll">
+              <table className="alerts-table">
+                <thead>
+                  <tr>
+                    <th><SortableHeader label="Time" sortKey="alertTime" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Alert Type" sortKey="alertType" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Severity" sortKey="severity" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {visibleAlerts.map((item) => (
+                    <tr key={`${item.alertTime}-${item.serverName}-${item.alertType}`}>
+                      <td>{formatDateTime(item.alertTime, effectiveTimeZone)}</td>
+                      <td>{item.serverName}</td>
+                      <td>{item.databaseName || '-'}</td>
+                      <td>{item.alertType}</td>
+                      <td><RiskBadge level={item.severity} /></td>
+                      <td className="recommendation-cell alert-message-cell">{item.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </DataState>
         </div>
       </DataState>
