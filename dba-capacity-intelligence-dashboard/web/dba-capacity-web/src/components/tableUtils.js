@@ -1,3 +1,5 @@
+import { parseRepositoryDateTime } from './formatters.js';
+
 export function containsText(row, fields, searchText) {
   const normalizedSearch = normalize(searchText);
 
@@ -60,7 +62,7 @@ function compareValues(left, right, type) {
   }
 
   if (type === 'date') {
-    return new Date(left).getTime() - new Date(right).getTime();
+    return parseRepositoryDateTime(left).getTime() - parseRepositoryDateTime(right).getTime();
   }
 
   if (type === 'risk') {
