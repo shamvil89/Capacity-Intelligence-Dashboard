@@ -9,7 +9,6 @@
 - Node.js 22 or newer.
 - IIS with Management Scripts and Tools.
 - ASP.NET Core Hosting Bundle for IIS API hosting.
-- IIS URL Rewrite module for React client-side routing.
 - Azure DevOps pipeline access for scheduled collection.
 
 ## Database Setup
@@ -70,6 +69,12 @@ Swagger opens at:
 
 ```text
 http://localhost:5088/swagger
+```
+
+Health check:
+
+```text
+http://localhost:5088/health
 ```
 
 ## Local Web Run

@@ -40,14 +40,18 @@ var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 app.UseCors("DashboardFrontend");
+app.MapGet("/", () => Results.Redirect("/swagger"));
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    service = "DBA Capacity API",
+    timestampUtc = DateTimeOffset.UtcNow
+}));
 app.MapControllers();
 
 app.Run();

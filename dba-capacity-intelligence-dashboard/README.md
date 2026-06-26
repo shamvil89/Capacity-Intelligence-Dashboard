@@ -35,7 +35,6 @@ React Dashboard Web App
 - Node.js 22 or newer.
 - IIS with Management Scripts and Tools.
 - ASP.NET Core Hosting Bundle for IIS API hosting.
-- IIS URL Rewrite module for React client-side routing.
 - Azure DevOps for scheduled collector automation.
 
 ## Database Setup
@@ -104,6 +103,12 @@ Swagger:
 http://localhost:5088/swagger
 ```
 
+Health check:
+
+```text
+http://localhost:5088/health
+```
+
 The default local connection string is in `api/DBA.Capacity.Api/appsettings.json`.
 
 ## Run React App Locally
@@ -123,6 +128,8 @@ http://localhost:5173
 
 ## API Endpoints
 
+- `GET /`
+- `GET /health`
 - `GET /api/dashboard/summary`
 - `GET /api/capacity/databases`
 - `GET /api/capacity/databases/{serverName}/{databaseName}/trend?days=90`
