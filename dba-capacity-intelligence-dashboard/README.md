@@ -206,7 +206,7 @@ VITE_API_BASE_URL = http://localhost:5088/api
 DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
 ```
 
-The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API app pool also needs SQL Server access to `DBAUtility`, or set `DBA_API_CONNECTION_STRING` in the `configs` variable group.
+The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` on `DBAUtility` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
 
 ## Security Notes
 

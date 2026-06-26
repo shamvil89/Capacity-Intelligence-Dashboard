@@ -173,7 +173,7 @@ The Azure DevOps agent process must run as a local administrator to create IIS s
 
 For the API database connection, choose one of these options:
 
-1. Grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.
+1. Let `deploy-api.yml` grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.
 2. Set `DBA_API_CONNECTION_STRING` in the `configs` variable group. Example:
 
 ```text
