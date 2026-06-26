@@ -140,6 +140,7 @@ http://localhost:5173
 ## Azure DevOps Pipelines
 
 - `pipelines/collect-capacity.yml`: scheduled collector run, manual run supported.
+- `pipelines/onboard-server.yml`: manually adds or updates a row in `dbo.ServerInventory`.
 - `pipelines/deploy-database.yml`: deploys database scripts in order.
 - `pipelines/deploy-api.yml`: restores, builds, tests if present, publishes artifact, and deploys the API to IIS.
 - `pipelines/deploy-web.yml`: installs npm packages, builds React, publishes artifact, and deploys the static web app to IIS.

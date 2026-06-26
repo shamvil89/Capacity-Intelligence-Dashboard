@@ -23,6 +23,22 @@ Run the SQL scripts in this order:
 
 The `pipelines/deploy-database.yml` file performs the same order automatically.
 
+## Onboard A Server By Pipeline
+
+Use `pipelines/onboard-server.yml` to add or update one `dbo.ServerInventory` row from Azure DevOps.
+
+Default queue-time parameters match the local development server:
+
+```text
+serverName = DESKTOP-CIS3NI4
+environment = Development
+serverType = SQLServer
+connectionMode = SqlAuth
+isActive = true
+```
+
+After onboarding, run `pipelines/collect-capacity.yml` to collect metrics for active servers.
+
 ## Seed Server Inventory
 
 Update `dbo.ServerInventory` with active SQL Server instances:
