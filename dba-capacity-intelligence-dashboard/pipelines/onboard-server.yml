@@ -41,6 +41,9 @@ parameters:
     displayName: Source credential key
     type: string
     default: default
+    values:
+      - default
+      - azuresql
 
   - name: isActive
     displayName: Active
