@@ -1,0 +1,14 @@
+IF DB_ID(N'DBAUtility') IS NULL
+BEGIN
+    CREATE DATABASE [DBAUtility];
+END;
+GO
+
+USE [DBAUtility];
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'reporting')
+BEGIN
+    EXEC(N'CREATE SCHEMA reporting AUTHORIZATION dbo;');
+END;
+GO

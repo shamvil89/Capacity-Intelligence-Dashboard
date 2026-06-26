@@ -1,0 +1,70 @@
+trigger: none
+pr: none
+
+pool:
+  name: Shamvil-pool
+  demands:
+    - Agent.Name -equals shamvil
+    - Agent.OS -equals Windows_NT
+
+variables:
+  buildConfiguration: Release
+  apiProject: api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
+
+steps:
+  - checkout: self
+
+  - task: UseDotNet@2
+    displayName: Install .NET SDK
+    inputs:
+      packageType: sdk
+      version: 9.x
+
+  - task: DotNetCoreCLI@2
+    displayName: Restore API
+    inputs:
+      command: restore
+      projects: $(apiProject)
+      feedsToUse: config
+      nugetConfigPath: NuGet.config
+
+  - task: DotNetCoreCLI@2
+    displayName: Build API
+    inputs:
+      command: build
+      projects: $(apiProject)
+      arguments: --configuration $(buildConfiguration) --no-restore
+
+  - task: PowerShell@2
+    displayName: Run API tests if present
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        $testProjects = Get-ChildItem -Recurse -Filter '*.csproj' |
+          Where-Object { $_.FullName -match '[\\/]tests?[\\/]' -or $_.BaseName -match 'Tests?$' }
+
+        if (-not $testProjects) {
+          Write-Host 'No test projects found.'
+          return
+        }
+
+        foreach ($project in $testProjects) {
+          dotnet test $project.FullName --configuration $(buildConfiguration) --no-build
+        }
+
+  - task: DotNetCoreCLI@2
+    displayName: Publish API artifact
+    inputs:
+      command: publish
+      publishWebProjects: false
+      projects: $(apiProject)
+      arguments: --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/api
+      zipAfterPublish: true
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish API package
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/api
+      artifact: api
+      publishLocation: pipeline

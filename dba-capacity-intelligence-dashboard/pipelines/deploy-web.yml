@@ -1,0 +1,36 @@
+trigger: none
+pr: none
+
+pool:
+  name: Shamvil-pool
+  demands:
+    - Agent.Name -equals shamvil
+    - Agent.OS -equals Windows_NT
+
+variables:
+  webDirectory: web/dba-capacity-web
+
+steps:
+  - checkout: self
+
+  - task: NodeTool@0
+    displayName: Install Node.js
+    inputs:
+      versionSpec: 22.x
+
+  - script: npm ci
+    displayName: Install web dependencies
+    workingDirectory: $(webDirectory)
+
+  - script: npm run build
+    displayName: Build React app
+    workingDirectory: $(webDirectory)
+    env:
+      VITE_API_BASE_URL: $(VITE_API_BASE_URL)
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish web artifact
+    inputs:
+      targetPath: $(webDirectory)/dist
+      artifact: web
+      publishLocation: pipeline

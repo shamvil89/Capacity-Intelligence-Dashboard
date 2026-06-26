@@ -1,0 +1,8 @@
+﻿{
+  "agentId": 12,
+  "agentName": "shamvil",
+  "poolId": 12,
+  "poolName": "Shamvil-pool",
+  "serverUrl": "https://dev.azure.com/kaz-tec/",
+  "workFolder": "_work"
+}

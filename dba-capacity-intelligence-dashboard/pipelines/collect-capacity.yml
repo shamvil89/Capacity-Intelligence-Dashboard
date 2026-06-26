@@ -1,0 +1,50 @@
+trigger: none
+pr: none
+
+schedules:
+  - cron: "30 2 * * *"
+    displayName: Daily capacity collection at 2:30 AM UTC
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: Shamvil-pool
+  demands:
+    - Agent.Name -equals shamvil
+    - Agent.OS -equals Windows_NT
+
+variables:
+  DBA_REPOSITORY_DB: DBAUtility
+
+steps:
+  - checkout: self
+
+  - task: PowerShell@2
+    displayName: Install dbatools
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+        Install-Module dbatools -Scope CurrentUser -Force -AllowClobber
+
+  - task: PowerShell@2
+    displayName: Collect SQL Server capacity metrics
+    inputs:
+      pwsh: false
+      filePath: collector/Collect-CapacityMetrics.ps1
+    env:
+      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+      DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
+      SQL_USER: $(SQL_USER)
+      SQL_PASSWORD: $(SQL_PASSWORD)
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish collector logs
+    condition: always()
+    inputs:
+      targetPath: collector/logs
+      artifact: collector-logs
+      publishLocation: pipeline

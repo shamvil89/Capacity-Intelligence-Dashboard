@@ -1,0 +1,44 @@
+trigger: none
+pr: none
+
+pool:
+  name: Shamvil-pool
+  demands:
+    - Agent.Name -equals shamvil
+    - Agent.OS -equals Windows_NT
+
+steps:
+  - checkout: self
+
+  - task: PowerShell@2
+    displayName: Deploy DBAUtility database scripts
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+        Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
+
+        $orderedScripts = @()
+        $orderedScripts += (Resolve-Path 'database/001_Create_Database.sql').Path
+        $orderedScripts += Get-ChildItem 'database/tables' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem 'database/procedures' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem 'database/views' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+        $orderedScripts += Get-ChildItem 'database/seed' -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+
+        foreach ($script in $orderedScripts) {
+          Write-Host "Running $script"
+          Invoke-Sqlcmd `
+            -ServerInstance $env:DBA_REPOSITORY_SERVER `
+            -Username $env:SQL_USER `
+            -Password $env:SQL_PASSWORD `
+            -InputFile $script `
+            -TrustServerCertificate `
+            -ErrorAction Stop
+        }
+    env:
+      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+      SQL_USER: $(SQL_USER)
+      SQL_PASSWORD: $(SQL_PASSWORD)

@@ -1,0 +1,13 @@
+{
+  "environmentVariables": {
+    "DBA_REPOSITORY_SERVER": "sql-repository.example.net",
+    "DBA_REPOSITORY_DB": "DBAUtility",
+    "SQL_USER": "collector_login",
+    "SQL_PASSWORD": "use-a-secret-store-or-pipeline-secret"
+  },
+  "notes": [
+    "The MVP uses SQL authentication for both repository and source SQL Servers.",
+    "Add active source servers to dbo.ServerInventory before running Collect-CapacityMetrics.ps1.",
+    "Do not copy this file to config.json with real passwords in source control."
+  ]
+}

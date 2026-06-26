@@ -1,0 +1,21 @@
+USE [DBAUtility];
+GO
+
+IF OBJECT_ID(N'dbo.ServerInventory', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ServerInventory
+    (
+        server_id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ServerInventory PRIMARY KEY,
+        server_name SYSNAME NOT NULL,
+        environment VARCHAR(50) NOT NULL,
+        server_type VARCHAR(50) NOT NULL,
+        connection_mode VARCHAR(50) NULL,
+        is_active BIT NOT NULL CONSTRAINT DF_ServerInventory_is_active DEFAULT (1),
+        created_at DATETIME2(7) NOT NULL CONSTRAINT DF_ServerInventory_created_at DEFAULT (SYSUTCDATETIME()),
+        updated_at DATETIME2(7) NULL,
+        CONSTRAINT UQ_ServerInventory_server_name UNIQUE (server_name),
+        CONSTRAINT CK_ServerInventory_server_type CHECK (server_type IN ('SQLServer', 'AzureSQL', 'ManagedInstance')),
+        CONSTRAINT CK_ServerInventory_connection_mode CHECK (connection_mode IS NULL OR connection_mode IN ('SqlAuth', 'WindowsAuth', 'ManagedIdentity'))
+    );
+END;
+GO
