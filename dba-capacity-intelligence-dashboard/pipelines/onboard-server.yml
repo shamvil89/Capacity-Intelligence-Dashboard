@@ -89,6 +89,10 @@ steps:
         Write-Host "Repository target: $repositoryServer/$repositoryDatabase"
         Write-Host "Repository auth mode: $authMode"
 
+        if ($authMode -eq 'WindowsAuth' -and $repositoryServer -in @('localhost', '127.0.0.1')) {
+          Write-Warning "WindowsAuth with '$repositoryServer' can resolve as a network machine identity for services. For a local SQL Server on this self-hosted agent, prefer DBA_REPOSITORY_SERVER='.' or use SqlAuth."
+        }
+
         if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
           throw "DBA_REPOSITORY_SERVER is required in the configs variable group."
         }
@@ -202,7 +206,7 @@ steps:
         }
         catch {
           if ($authMode -eq 'WindowsAuth') {
-            Write-Warning "Windows authentication failed for pipeline identity '$windowsIdentity'. Grant this identity access to DBAUtility or switch DBA_SQL_AUTH_MODE to SqlAuth in the configs variable group."
+            Write-Warning "Windows authentication failed for pipeline identity '$windowsIdentity'. If the agent service runs as NETWORK SERVICE on the SQL Server host, set DBA_REPOSITORY_SERVER='.' and grant SQL access to 'NT AUTHORITY\NETWORK SERVICE'. Otherwise switch DBA_SQL_AUTH_MODE to SqlAuth."
           }
 
           throw

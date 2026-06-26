@@ -179,9 +179,11 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 For the local default SQL Server instance on the self-hosted agent, set:
 
 ```text
-DBA_REPOSITORY_SERVER = localhost
+DBA_REPOSITORY_SERVER = .
 DBA_SQL_AUTH_MODE = WindowsAuth
 ```
+
+Use `.` instead of `localhost` for local Windows authentication from the agent service. `localhost` can be treated as a network connection and may appear to SQL Server as an unresolvable workgroup machine account.
 
 Use `DBA_SQL_AUTH_MODE = SqlAuth` if deploying with a SQL login, and provide `SQL_USER` and `SQL_PASSWORD`.
 
