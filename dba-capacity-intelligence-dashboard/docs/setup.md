@@ -99,7 +99,7 @@ The agent currently uses Windows PowerShell for `PowerShell@2` tasks because `pw
 
 The YAMLs assume the project folder is checked out as `$(Build.SourcesDirectory)\dba-capacity-intelligence-dashboard`. If you later move the contents of that folder to the repository root, update the `projectRoot` variable in each pipeline to `.`.
 
-Create these variables in the pipeline or variable group. Mark secrets as secret.
+All pipeline YAMLs import the Azure DevOps variable group named `configs`. Create these variables in that group and mark secrets as secret.
 
 - `DBA_REPOSITORY_SERVER`
 - `DBA_REPOSITORY_DB`

@@ -8,9 +8,13 @@ pool:
     - Agent.OS -equals Windows_NT
 
 variables:
-  projectRoot: dba-capacity-intelligence-dashboard
-  buildConfiguration: Release
-  apiProject: $(projectRoot)/api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
+  - group: configs
+  - name: projectRoot
+    value: dba-capacity-intelligence-dashboard
+  - name: buildConfiguration
+    value: Release
+  - name: apiProject
+    value: $(projectRoot)/api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
 
 steps:
   - checkout: self

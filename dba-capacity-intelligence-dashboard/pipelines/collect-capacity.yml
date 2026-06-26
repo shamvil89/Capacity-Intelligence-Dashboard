@@ -16,8 +16,9 @@ pool:
     - Agent.OS -equals Windows_NT
 
 variables:
-  projectRoot: dba-capacity-intelligence-dashboard
-  DBA_REPOSITORY_DB: DBAUtility
+  - group: configs
+  - name: projectRoot
+    value: dba-capacity-intelligence-dashboard
 
 steps:
   - checkout: self
