@@ -2,8 +2,8 @@ trigger: none
 pr: none
 
 schedules:
-  - cron: "30 2 * * *"
-    displayName: Daily capacity collection at 2:30 AM UTC
+  - cron: "*/10 * * * *"
+    displayName: Run every 10 minutes
     branches:
       include:
         - main
