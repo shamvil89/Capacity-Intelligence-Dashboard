@@ -43,5 +43,6 @@ export const api = {
     request(`/capacity/databases/${encodeURIComponent(serverName)}/${encodeURIComponent(databaseName)}/trend${toQueryString({ days })}`),
   getTopGrowingTables: (limit = 20, filters = {}) => request(`/capacity/top-growing-tables${toQueryString({ limit, ...filters })}`),
   getActiveAlerts: () => request('/alerts/active'),
+  getAlertHistory: (limit = 250) => request(`/alerts/history${toQueryString({ limit })}`),
   getServers: () => request('/servers')
 };

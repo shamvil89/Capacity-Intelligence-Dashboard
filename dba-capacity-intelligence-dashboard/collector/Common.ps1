@@ -396,6 +396,7 @@ IF NOT EXISTS
     FROM dbo.AlertHistory
     WHERE alert_time >= @today
       AND alert_time < @tomorrow
+      AND is_resolved = 0
       AND server_name = @server_name
       AND ISNULL(database_name, N'') = ISNULL(@database_name, N'')
       AND alert_type = @alert_type
@@ -425,10 +426,13 @@ END;
 ELSE
 BEGIN
     UPDATE dbo.AlertHistory
-    SET source_script = COALESCE(source_script, @source_script),
-        details_json = COALESCE(details_json, @details_json)
+    SET alert_time = SYSUTCDATETIME(),
+        message = @message,
+        source_script = @source_script,
+        details_json = @details_json
     WHERE alert_time >= @today
       AND alert_time < @tomorrow
+      AND is_resolved = 0
       AND server_name = @server_name
       AND ISNULL(database_name, N'') = ISNULL(@database_name, N'')
       AND alert_type = @alert_type;
@@ -442,5 +446,60 @@ END;
         message       = $alertMessage
         source_script = $sourceScript
         details_json  = $details
+    } | Out-Null
+}
+
+function Resolve-CollectionFailureAlert {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServerName,
+
+        [AllowNull()]
+        [string]$DatabaseName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$MetricName
+    )
+
+    $query = @"
+UPDATE dbo.AlertHistory
+SET is_resolved = 1,
+    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME())
+WHERE is_resolved = 0
+  AND server_name = @server_name
+  AND ISNULL(database_name, N'') = ISNULL(@database_name, N'')
+  AND alert_type = @alert_type;
+"@
+
+    Invoke-RepositoryQuery -Query $query -SqlParameter @{
+        server_name   = $ServerName
+        database_name = $DatabaseName
+        alert_type    = "CollectionFailure:$MetricName"
+    } | Out-Null
+}
+
+function Resolve-CollectionFailureAlertsForMetric {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$MetricName
+    )
+
+    $query = @"
+UPDATE dbo.AlertHistory
+SET is_resolved = 1,
+    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME())
+WHERE is_resolved = 0
+  AND server_name = @server_name
+  AND alert_type = @alert_type;
+"@
+
+    Invoke-RepositoryQuery -Query $query -SqlParameter @{
+        server_name = $ServerName
+        alert_type  = "CollectionFailure:$MetricName"
     } | Out-Null
 }

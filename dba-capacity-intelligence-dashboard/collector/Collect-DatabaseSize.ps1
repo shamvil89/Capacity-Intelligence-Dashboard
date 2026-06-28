@@ -46,6 +46,8 @@ if ($env:DBA_SOURCE_SERVER_TYPE -eq "AzureSQL") {
     $databases = @(Invoke-SourceQuery -ServerName $ServerName -Database master -Query $azureSqlDatabaseQuery)
     $inserted = 0
 
+    Resolve-CollectionFailureAlertsForMetric -ServerName $ServerName -MetricName "DatabaseSize"
+
     foreach ($database in $databases) {
         $databaseName = [string]$database.name
 
@@ -63,6 +65,7 @@ if ($env:DBA_SOURCE_SERVER_TYPE -eq "AzureSQL") {
             }
 
             $inserted += $rows.Count
+            Resolve-CollectionFailureAlert -ServerName $ServerName -DatabaseName $databaseName -MetricName "DatabaseSize"
         }
         catch {
             Write-Warning "Database size collection failed for $ServerName/$databaseName. $($_.Exception.Message)"
@@ -86,4 +89,5 @@ foreach ($row in $rows) {
     }
 }
 
+Resolve-CollectionFailureAlert -ServerName $ServerName -DatabaseName $null -MetricName "DatabaseSize"
 Write-Host "Inserted $($rows.Count) database size rows for $ServerName."

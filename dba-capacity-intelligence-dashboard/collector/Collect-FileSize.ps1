@@ -82,6 +82,8 @@ Write-Host "Collecting file size metrics from $ServerName..."
 $databases = @(Invoke-SourceQuery -ServerName $ServerName -Database master -Query $databaseQuery)
 $inserted = 0
 
+Resolve-CollectionFailureAlertsForMetric -ServerName $ServerName -MetricName "FileSize"
+
 foreach ($database in $databases) {
     $databaseName = [string]$database.name
 
@@ -110,6 +112,7 @@ foreach ($database in $databases) {
         }
 
         $inserted += $rows.Count
+        Resolve-CollectionFailureAlert -ServerName $ServerName -DatabaseName $databaseName -MetricName "FileSize"
     }
     catch {
         Write-Warning "File size collection failed for $ServerName/$databaseName. $($_.Exception.Message)"

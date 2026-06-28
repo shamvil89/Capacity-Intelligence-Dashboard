@@ -16,6 +16,7 @@ export default function App() {
           <Route path="/databases/:serverName/:databaseName" element={<DatabaseDetailPage />} />
           <Route path="/top-growing-tables" element={<TopGrowingTablesPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/alerts/history" element={<AlertsPage mode="history" />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -13,7 +13,7 @@ import { api } from '../services/api.js';
 const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
 let queryPlanRendererPromise;
 
-export default function AlertsPage() {
+export default function AlertsPage({ mode = 'active' }) {
   const { effectiveTimeZone } = useTimezone();
   const [alerts, setAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -25,6 +25,7 @@ export default function AlertsPage() {
   const [sortState, setSortState] = useState({ key: 'alertTime', direction: 'desc' });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const isHistoryMode = mode === 'history';
 
   useEffect(() => {
     let isMounted = true;
@@ -34,7 +35,7 @@ export default function AlertsPage() {
       setError('');
 
       try {
-        const rows = await api.getActiveAlerts();
+        const rows = isHistoryMode ? await api.getAlertHistory(500) : await api.getActiveAlerts();
         if (isMounted) {
           setAlerts(rows);
         }
@@ -53,7 +54,7 @@ export default function AlertsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isHistoryMode]);
 
   const serverOptions = useMemo(() => getUniqueOptions(alerts, 'serverName'), [alerts]);
   const severityOptions = useMemo(() => getUniqueOptions(alerts, 'severity'), [alerts]);
@@ -71,6 +72,7 @@ export default function AlertsPage() {
         'databaseName',
         'alertType',
         'severity',
+        'isResolved',
         'message',
         'sourceScript',
         'detailsJson'
@@ -81,6 +83,7 @@ export default function AlertsPage() {
 
     return sortRows(filteredRows, sortState, {
       alertTime: 'date',
+      resolvedAt: 'date',
       severity: 'risk'
     });
   }, [alertTypeFilter, alerts, containsFilter, environmentFilter, serverFilter, severityFilter, sortState]);
@@ -93,15 +96,19 @@ export default function AlertsPage() {
     <section className="page-stack">
       <div className="toolbar-row">
         <div>
-          <h2>Active Alerts</h2>
-          <p className="subtle">Unresolved repository alerts from forecast and collector runs.</p>
+          <h2>{isHistoryMode ? 'Alert History' : 'Active Alerts'}</h2>
+          <p className="subtle">
+            {isHistoryMode
+              ? 'Historical alert snapshots from collector and forecast runs.'
+              : 'Current unresolved repository alerts from the latest collector and forecast runs.'}
+          </p>
         </div>
       </div>
 
       <DataState isLoading={isLoading} error={error} isEmpty={alerts.length === 0}>
         <div className="table-panel alerts-panel">
           <div className="table-panel-header">
-            <h3>Alert Queue</h3>
+            <h3>{isHistoryMode ? 'Historical Alerts' : 'Alert Queue'}</h3>
             <span>{visibleAlerts.length} rows</span>
           </div>
 
@@ -158,7 +165,7 @@ export default function AlertsPage() {
 
           <DataState isLoading={false} error="" isEmpty={visibleAlerts.length === 0}>
             <div className="table-scroll">
-              <table className="alerts-table">
+              <table className={isHistoryMode ? 'alerts-table alerts-history-table' : 'alerts-table'}>
                 <thead>
                   <tr>
                     <th><SortableHeader label="Time" sortKey="alertTime" sortState={sortState} onSort={handleSort} /></th>
@@ -167,6 +174,8 @@ export default function AlertsPage() {
                     <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Alert Type" sortKey="alertType" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Severity" sortKey="severity" sortState={sortState} onSort={handleSort} /></th>
+                    {isHistoryMode ? <th><SortableHeader label="Status" sortKey="isResolved" sortState={sortState} onSort={handleSort} /></th> : null}
+                    {isHistoryMode ? <th><SortableHeader label="Resolved" sortKey="resolvedAt" sortState={sortState} onSort={handleSort} /></th> : null}
                     <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
                     <th>More Info</th>
                   </tr>
@@ -180,6 +189,8 @@ export default function AlertsPage() {
                       <td>{item.databaseName || '-'}</td>
                       <td>{item.alertType}</td>
                       <td><RiskBadge level={item.severity} /></td>
+                      {isHistoryMode ? <td><AlertStatusBadge isResolved={item.isResolved} /></td> : null}
+                      {isHistoryMode ? <td>{item.resolvedAt ? formatDateTime(item.resolvedAt, effectiveTimeZone) : '-'}</td> : null}
                       <td className="recommendation-cell alert-message-cell">{item.message}</td>
                       <td>
                         <button type="button" className="secondary-action" onClick={() => setSelectedAlert(item)}>
@@ -238,6 +249,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <DetailItem label="Server" value={alert.serverName} />
             <DetailItem label="Database" value={alert.databaseName || '-'} />
             <DetailItem label="Severity" value={alert.severity} />
+            <DetailItem label="Status" value={alert.isResolved ? 'Resolved' : 'Active'} />
+            {alert.resolvedAt ? <DetailItem label="Resolved" value={formatDateTime(alert.resolvedAt, effectiveTimeZone)} /> : null}
             <DetailItem label="Source" value={alert.sourceScript || displayDetails?.sourceScripts || '-'} wide />
           </div>
 
@@ -261,6 +274,14 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function AlertStatusBadge({ isResolved }) {
+  return (
+    <span className={isResolved ? 'alert-status-badge resolved' : 'alert-status-badge active'}>
+      {isResolved ? 'Resolved' : 'Active'}
+    </span>
   );
 }
 

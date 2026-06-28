@@ -37,3 +37,31 @@ BEGIN
         ADD details_json NVARCHAR(MAX) NULL;
 END;
 GO
+
+IF COL_LENGTH(N'dbo.AlertHistory', N'is_resolved') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD is_resolved BIT NOT NULL CONSTRAINT DF_AlertHistory_is_resolved DEFAULT (0);
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AlertHistory', N'resolved_at') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD resolved_at DATETIME2(7) NULL;
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.AlertHistory')
+      AND name = N'IX_AlertHistory_Active'
+)
+BEGIN
+    CREATE INDEX IX_AlertHistory_Active
+        ON dbo.AlertHistory (is_resolved, severity, alert_time DESC)
+        INCLUDE (server_name, database_name, alert_type);
+END;
+GO

@@ -13,7 +13,9 @@ SELECT
     a.severity,
     a.message,
     a.source_script,
-    a.details_json
+    a.details_json,
+    a.is_resolved,
+    a.resolved_at
 FROM dbo.AlertHistory AS a
 LEFT JOIN dbo.ServerInventory AS si
     ON si.server_name = a.server_name

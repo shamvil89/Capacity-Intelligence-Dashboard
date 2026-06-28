@@ -5,12 +5,42 @@ CREATE OR ALTER PROCEDURE dbo.usp_GenerateAlerts
 AS
 BEGIN
     SET NOCOUNT ON;
+    SET XACT_ABORT ON;
 
     DECLARE @today DATETIME2(7) = CONVERT(DATE, SYSUTCDATETIME());
     DECLARE @tomorrow DATETIME2(7) = DATEADD(DAY, 1, @today);
+    DECLARE @runStartedAt DATETIME2(7) = SYSUTCDATETIME();
     DECLARE @maxLogFileMb DECIMAL(18,2) = 2097152.00; -- 2 TB SQL Server log file practical cap.
 
     BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- The alert table represents current state, not just append-only events.
+        -- Each run archives previous generated alerts, then inserts the issues
+        -- that are still true from the latest collected evidence. Collector
+        -- failure alerts are excluded because they are written directly by the
+        -- collectors and have their own lifecycle.
+        UPDATE dbo.AlertHistory
+            SET is_resolved = 1,
+                resolved_at = COALESCE(resolved_at, @runStartedAt)
+        WHERE is_resolved = 0
+          AND alert_type IN
+          (
+              'CapacityRisk',
+              'LogFileExhaustionRisk',
+              'FullRecoveryNoLogBackup',
+              'LongRunningTransaction',
+              'BlockingChain',
+              'ActiveTransactionLogReuseWait',
+              'AlwaysOnHealthIssue',
+              'AlwaysOnLogReuseWait',
+              'ReplicationAgentIssue',
+              'ReplicationLogReuseWait',
+              'TempDBUsage',
+              'DiskSpaceLow',
+              'BackupGrowth'
+          );
+
         ;WITH RankedForecast AS
         (
             SELECT
@@ -68,7 +98,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = f.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(f.database_name, N'')
@@ -292,7 +323,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = r.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(r.database_name, N'')
@@ -381,7 +413,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = l.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(l.database_name, N'')
@@ -657,7 +690,8 @@ BEGIN
         (
             SELECT 1
             FROM dbo.AlertHistory AS a
-            WHERE a.alert_time >= @today
+            WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
               AND a.alert_time < @tomorrow
               AND a.server_name = s.server_name
               AND a.alert_type = 'BlockingChain'
@@ -775,7 +809,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = l.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(l.database_name, N'')
@@ -917,7 +952,8 @@ BEGIN
         (
             SELECT 1
             FROM dbo.AlertHistory AS ah
-            WHERE ah.alert_time >= @today
+            WHERE ah.is_resolved = 0
+                AND ah.alert_time >= @today
               AND ah.alert_time < @tomorrow
               AND ah.server_name = s.server_name
               AND ah.alert_type = 'AlwaysOnHealthIssue'
@@ -1002,7 +1038,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS ah
-              WHERE ah.alert_time >= @today
+              WHERE ah.is_resolved = 0
+                AND ah.alert_time >= @today
                 AND ah.alert_time < @tomorrow
                 AND ah.server_name = l.server_name
                 AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
@@ -1088,7 +1125,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS ah
-              WHERE ah.alert_time >= @today
+              WHERE ah.is_resolved = 0
+                AND ah.alert_time >= @today
                 AND ah.alert_time < @tomorrow
                 AND ah.server_name = rh.server_name
                 AND ISNULL(ah.database_name, N'') = ISNULL(rh.database_name, N'')
@@ -1185,7 +1223,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS ah
-              WHERE ah.alert_time >= @today
+              WHERE ah.is_resolved = 0
+                AND ah.alert_time >= @today
                 AND ah.alert_time < @tomorrow
                 AND ah.server_name = l.server_name
                 AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
@@ -1277,7 +1316,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = t.server_name
                 AND ISNULL(a.database_name, N'') = N'tempdb'
@@ -1334,7 +1374,8 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = d.server_name
                 AND a.alert_type = 'DiskSpaceLow'
@@ -1414,14 +1455,22 @@ BEGIN
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
+              WHERE a.is_resolved = 0
+                AND a.alert_time >= @today
                 AND a.alert_time < @tomorrow
                 AND a.server_name = bg.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(bg.database_name, N'')
                 AND a.alert_type = 'BackupGrowth'
           );
+
+        COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
+        IF XACT_STATE() <> 0
+        BEGIN
+            ROLLBACK TRANSACTION;
+        END;
+
         THROW;
     END CATCH;
 END;

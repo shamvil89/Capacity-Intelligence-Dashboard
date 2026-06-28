@@ -1,11 +1,12 @@
-import { Activity, AlertTriangle, Database, Gauge, TableProperties } from 'lucide-react';
+import { Activity, AlertTriangle, Database, Gauge, History, TableProperties } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useTimezone } from './TimezoneContext.jsx';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: Gauge },
   { to: '/top-growing-tables', label: 'Top Tables', icon: TableProperties },
-  { to: '/alerts', label: 'Alerts', icon: AlertTriangle }
+  { to: '/alerts', label: 'Alerts', icon: AlertTriangle },
+  { to: '/alerts/history', label: 'History', icon: History }
 ];
 
 export default function Layout() {
@@ -26,7 +27,7 @@ export default function Layout() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <NavLink key={item.to} to={item.to} end={item.to === '/'} className="nav-link">
+              <NavLink key={item.to} to={item.to} end={item.to === '/' || item.to === '/alerts'} className="nav-link">
                 <Icon aria-hidden="true" size={18} />
                 <span>{item.label}</span>
               </NavLink>

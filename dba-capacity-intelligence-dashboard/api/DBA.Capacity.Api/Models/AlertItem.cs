@@ -12,4 +12,6 @@ public sealed class AlertItem
     public string Message { get; init; } = string.Empty;
     public string? SourceScript { get; init; }
     public string? DetailsJson { get; init; }
+    public bool IsResolved { get; init; }
+    public DateTime? ResolvedAt { get; init; }
 }

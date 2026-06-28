@@ -6,38 +6,7 @@ namespace DBA.Capacity.Api.Services;
 
 public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAlertService
 {
-    public async Task<IReadOnlyList<AlertItem>> GetActiveAlertsAsync(CancellationToken cancellationToken)
-    {
-        const string sql = """
-        SELECT
-            a.alert_id AS AlertId,
-            a.alert_time AS AlertTime,
-            a.server_name AS ServerName,
-            a.environment AS Environment,
-            a.database_name AS DatabaseName,
-            a.alert_type AS AlertType,
-            a.severity AS Severity,
-            a.message AS Message,
-            COALESCE(a.source_script, source_map.source_script) AS SourceScript,
-            COALESCE
-            (
-                a.details_json,
-                (
-                    SELECT
-                        'LegacyAlert' AS category,
-                        a.alert_id AS alertId,
-                        a.server_name AS serverName,
-                        a.environment AS environment,
-                        a.database_name AS databaseName,
-                        a.alert_type AS alertType,
-                        a.severity,
-                        a.message,
-                        COALESCE(a.source_script, source_map.source_script) AS sourceScripts,
-                        'This alert was created before structured evidence was captured. Run the collector again after deploying the latest database and collector scripts for full metric-specific details.' AS note
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                )
-            ) AS DetailsJson
-        FROM dbo.vw_ActiveAlerts AS a
+    private const string SourceMapSql = """
         CROSS APPLY
         (
             SELECT
@@ -73,6 +42,47 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
                     ELSE 'usp_GenerateAlerts.sql'
                 END AS source_script
         ) AS source_map
+        """;
+
+    private const string AlertProjectionSql = """
+            a.alert_id AS AlertId,
+            a.alert_time AS AlertTime,
+            a.server_name AS ServerName,
+            a.environment AS Environment,
+            a.database_name AS DatabaseName,
+            a.alert_type AS AlertType,
+            a.severity AS Severity,
+            a.message AS Message,
+            COALESCE(a.source_script, source_map.source_script) AS SourceScript,
+            COALESCE
+            (
+                a.details_json,
+                (
+                    SELECT
+                        'LegacyAlert' AS category,
+                        a.alert_id AS alertId,
+                        a.server_name AS serverName,
+                        a.environment AS environment,
+                        a.database_name AS databaseName,
+                        a.alert_type AS alertType,
+                        a.severity,
+                        a.message,
+                        COALESCE(a.source_script, source_map.source_script) AS sourceScripts,
+                        'This alert was created before structured evidence was captured. Run the collector again after deploying the latest database and collector scripts for full metric-specific details.' AS note
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )
+            ) AS DetailsJson,
+            a.is_resolved AS IsResolved,
+            a.resolved_at AS ResolvedAt
+        """;
+
+    public async Task<IReadOnlyList<AlertItem>> GetActiveAlertsAsync(CancellationToken cancellationToken)
+    {
+        var sql = $"""
+        SELECT
+        {AlertProjectionSql}
+        FROM dbo.vw_ActiveAlerts AS a
+        {SourceMapSql}
         ORDER BY
             CASE a.severity
                 WHEN 'Critical' THEN 1
@@ -87,6 +97,42 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
         using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<AlertItem>(
             new CommandDefinition(sql, cancellationToken: cancellationToken));
+
+        return rows.AsList();
+    }
+
+    public async Task<IReadOnlyList<AlertItem>> GetAlertHistoryAsync(int limit, CancellationToken cancellationToken)
+    {
+        var safeLimit = Math.Clamp(limit, 1, 1000);
+        var sql = $"""
+        SELECT TOP (@Limit)
+        {AlertProjectionSql}
+        FROM
+        (
+            SELECT
+                ah.alert_id,
+                ah.alert_time,
+                ah.server_name,
+                si.environment,
+                ah.database_name,
+                ah.alert_type,
+                ah.severity,
+                ah.message,
+                ah.source_script,
+                ah.details_json,
+                ah.is_resolved,
+                ah.resolved_at
+            FROM dbo.AlertHistory AS ah
+            LEFT JOIN dbo.ServerInventory AS si
+                ON si.server_name = ah.server_name
+        ) AS a
+        {SourceMapSql}
+        ORDER BY a.alert_time DESC, a.alert_id DESC;
+        """;
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<AlertItem>(
+            new CommandDefinition(sql, new { Limit = safeLimit }, cancellationToken: cancellationToken));
 
         return rows.AsList();
     }

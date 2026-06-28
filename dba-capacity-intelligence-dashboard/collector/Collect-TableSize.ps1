@@ -77,6 +77,8 @@ Write-Host "Collecting table size metrics from $ServerName..."
 $databases = @(Invoke-SourceQuery -ServerName $ServerName -Database master -Query $databaseQuery)
 $inserted = 0
 
+Resolve-CollectionFailureAlertsForMetric -ServerName $ServerName -MetricName "TableSize"
+
 foreach ($database in $databases) {
     $databaseName = [string]$database.name
 
@@ -98,6 +100,7 @@ foreach ($database in $databases) {
         }
 
         $inserted += $rows.Count
+        Resolve-CollectionFailureAlert -ServerName $ServerName -DatabaseName $databaseName -MetricName "TableSize"
     }
     catch {
         Write-Warning "Table size collection failed for $ServerName/$databaseName. $($_.Exception.Message)"

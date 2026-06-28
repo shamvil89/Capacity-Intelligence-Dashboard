@@ -72,6 +72,7 @@ try {
                 $env:DBA_SOURCE_CONNECTION_MODE = $connectionMode
                 $env:DBA_SOURCE_CREDENTIAL_KEY = $credentialKey
                 & $collector.Path -ServerName $serverName
+                Resolve-CollectionFailureAlert -ServerName $serverName -DatabaseName $null -MetricName $collector.Name
                 $successfulMetricCount++
             }
             catch {
