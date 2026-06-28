@@ -26,7 +26,7 @@ Keep the application layout the same and change only environment-specific config
 | Area | Low-effort choice |
 | --- | --- |
 | Repository database | `DBAUtility` on a customer SQL Server. |
-| Automation host | One Windows server that runs the Azure DevOps self-hosted agent and IIS. |
+| Automation host | Lowest effort: one Windows server runs the Azure DevOps self-hosted agent and IIS. Real-world split deployments can use separate automation and IIS VMs. |
 | API hosting | IIS site on port `5088` unless the customer requires another port. |
 | Web hosting | IIS static site on port `8080` unless the customer requires another port. |
 | Secrets | Azure DevOps variable group named `configs`. |
@@ -36,8 +36,8 @@ Keep the application layout the same and change only environment-specific config
 ### Fastest Deployment Checklist
 
 1. Copy or import the repository into the customer Azure DevOps project.
-2. Install a self-hosted Windows Azure DevOps agent on the customer IIS/automation host.
-3. Run the agent service as a dedicated local administrator account.
+2. Install a self-hosted Windows Azure DevOps agent on the customer automation host. If IIS is on a separate VM, see the topology note below.
+3. Run the deployment agent service as a dedicated local administrator account on the machine where IIS deployment tasks execute.
 4. Update only the `pool`, `Agent.Name`, and `projectRoot` values in the YAML files if they differ.
 5. Create the Azure DevOps variable group named `configs`.
 6. Fill the variables in section 12.
@@ -62,6 +62,19 @@ For a standard customer deployment, do not edit collector scripts, API code, Rea
 - IIS port/site variables.
 - `SOURCE_SQL_CREDENTIALS_JSON`.
 - Server rows through the onboard pipeline.
+
+### Agent And IIS Topology Options
+
+The self-hosted Azure DevOps agent and IIS do not have to be on the same VM in real customer environments.
+
+| Topology | When to use | Pipeline impact |
+| --- | --- | --- |
+| Single VM: agent and IIS together | Fastest proof-of-value or small customer estate. | Current YAML works as-is because IIS deployment is local to the agent. |
+| Split VMs: automation agent separate from IIS | Production environments with dedicated automation and web tiers. | Collection/database/onboard pipelines can run on the automation VM, but API/web IIS deployment must run on an agent installed on the IIS VM or use a remote deployment mechanism. |
+| Two agents: automation agent plus IIS deployment agent | Recommended split model. | Point `collect-capacity.yml`, `deploy-database.yml`, and `onboard-server.yml` at the automation pool; point `deploy-api.yml` and `deploy-web.yml` at the IIS deployment pool. |
+| Remote IIS deployment from automation agent | Use only when the customer standardizes on WinRM/PowerShell remoting or another deployment tool. | Extend `deploy-api.yml` and `deploy-web.yml` to copy artifacts and run IIS commands remotely. The current YAML does not do remote IIS deployment. |
+
+Important: the current `deploy-api.yml` and `deploy-web.yml` scripts use the local IIS `WebAdministration` module and local paths such as `C:\inetpub\...`. Therefore, out of the box, those deployment pipelines must execute on the IIS VM.
 
 ## 2. High-Level Architecture
 
@@ -714,7 +727,13 @@ URL: http://localhost:8080
 
 ### Agent Permission Requirement
 
-The deploy pipelines create or update IIS sites and app pools. The Azure DevOps agent service must run as a local administrator.
+The API and web deploy pipelines create or update IIS sites and app pools. With the current YAML, those pipelines execute IIS commands locally on the agent machine. Therefore, the agent that runs `deploy-api.yml` and `deploy-web.yml` must be on the IIS VM and must run as a local administrator.
+
+If the customer keeps the main automation agent on a separate VM, use one of these patterns:
+
+1. Install a second self-hosted agent on the IIS VM and point only `deploy-api.yml` and `deploy-web.yml` at that agent.
+2. Extend the deploy YAMLs to use WinRM/PowerShell remoting, copy artifacts to the IIS VM, and run IIS commands remotely.
+3. Use a customer-approved deployment tool such as Octopus Deploy, Azure DevOps Environments deployment groups, or a release pipeline that targets the IIS VM.
 
 Check the service account:
 
@@ -730,7 +749,7 @@ If the service runs as `NT AUTHORITY\NETWORK SERVICE`, IIS deployment will fail 
 IIS deployment requires the Azure DevOps agent process to run as local Administrator.
 ```
 
-Recommended customer setup:
+Recommended customer setup for the IIS deployment agent:
 
 1. Create a dedicated local account, for example `.\azdoagent`.
 2. Add it to the local Administrators group.
@@ -793,7 +812,8 @@ Start with a read-only SQL login and test. Add additional permissions only where
 
 For Azure SQL Database:
 
-- Allow the Azure DevOps agent machine through the Azure SQL firewall.
+- Allow the collector agent VM public IP through the Azure SQL firewall.
+- If `DBAUtility` is hosted in Azure SQL or Azure SQL Managed Instance, also allow the IIS/API VM because the API reads repository data.
 - Use a SQL login that can connect to `master` and the monitored user databases.
 - Do not use `sa`; Azure SQL Database does not support the SQL Server `sa` account.
 
@@ -805,8 +825,10 @@ Collect these details from the customer:
 
 - Azure DevOps organization and project
 - Repository name and default branch
-- Self-hosted agent machine name
-- Agent pool name and desired agent name
+- Self-hosted automation agent machine name
+- IIS deployment agent machine name when IIS is on a separate VM
+- Agent pool name and desired agent name for automation tasks
+- Agent pool name and desired agent name for IIS deployment tasks when separate
 - Automation identity that will own the Azure DevOps PAT
 - `DBA Capacity - Collect Metrics` pipeline id or confirmation that name-based lookup is acceptable
 - IIS host name
@@ -823,33 +845,38 @@ Collect these details from the customer:
 
 ### Phase 1 - Prepare Customer Infrastructure
 
-On the target Windows server:
+On the target Windows server or servers:
 
-1. Install IIS.
-2. Install IIS Management Scripts and Tools.
-3. Install ASP.NET Core Hosting Bundle.
-4. Install or allow pipeline installation of .NET SDK 9.
-5. Install or allow pipeline installation of Node.js 22.
-6. Confirm outbound access to Azure DevOps.
-7. Confirm network access to the repository SQL Server.
-8. Confirm network access to all source SQL Servers.
-9. Open required local ports, for example `5088` and `8080`.
+1. On the IIS VM, install IIS.
+2. On the IIS VM, install IIS Management Scripts and Tools.
+3. On the IIS VM, install ASP.NET Core Hosting Bundle.
+4. On the agent VM or VMs, install or allow pipeline installation of .NET SDK 9.
+5. On the web build agent VM, install or allow pipeline installation of Node.js 22.
+6. Confirm outbound access to Azure DevOps from every agent VM.
+7. Confirm outbound access to Azure DevOps from the IIS/API VM because `POST /api/collector-run` queues the pipeline from the API process.
+8. Confirm network access from the collector agent VM to the repository SQL Server.
+9. Confirm network access from the collector agent VM to all source SQL Servers.
+10. Confirm network access from the IIS VM to the repository SQL Server.
+11. Open required local ports on the IIS VM, for example `5088` and `8080`.
 
 ### Phase 2 - Install Self-Hosted Azure DevOps Agent
 
-Install the Azure DevOps agent on the customer IIS or automation host.
+Install the Azure DevOps agent on the customer automation host. If IIS is separate, install another Azure DevOps agent on the IIS VM for API and web deployment, or implement remote IIS deployment.
 
-Recommended path:
+Recommended paths:
 
 ```text
-C:\agent
+C:\agent              automation agent
+C:\iis-agent          optional IIS deployment agent
 ```
 
-Run the agent as a Windows service using a dedicated local administrator account:
+Run IIS deployment agents as a Windows service using a dedicated local administrator account on the IIS VM:
 
 ```text
 .\azdoagent
 ```
+
+The collector/database/onboard automation agent does not need to be local administrator unless customer policy or local tool installation requires it. It does need network access to Azure DevOps, the repository SQL Server, and monitored sources.
 
 Verify:
 
@@ -902,6 +929,26 @@ If the project files are at repo root, set:
 ```
 
 Low-effort rule: avoid changing pipeline task logic during migration. If a customer-specific value can be expressed as a variable in `configs`, use the variable instead of editing YAML.
+
+If the customer uses separate automation and IIS VMs, use two pools or two agent demands:
+
+| YAML | Recommended agent location |
+| --- | --- |
+| `deploy-database.yml` | Automation VM with repository SQL access. |
+| `onboard-server.yml` | Automation VM with repository SQL access. |
+| `collect-capacity.yml` | Automation VM with repository and source SQL access. |
+| `deploy-api.yml` | IIS VM, unless remote IIS deployment is added. |
+| `deploy-web.yml` | IIS VM, unless remote IIS deployment is added. |
+
+Example split-pool approach:
+
+```yaml
+pool:
+  name: <customer-iis-deployment-pool>
+  demands:
+    - Agent.Name -equals <customer-iis-agent-name>
+    - Agent.OS -equals Windows_NT
+```
 
 ### Phase 5 - Create Variable Group
 
@@ -1579,10 +1626,14 @@ Use this worksheet during lift-and-shift planning.
 | Collector pipeline id | |
 | Azure DevOps PAT owner | |
 | Azure DevOps PAT expiry date | |
-| Agent pool | |
-| Agent name | |
-| Agent machine | |
-| Agent service account | |
+| Automation agent pool | |
+| Automation agent name | |
+| Automation agent machine | |
+| Automation agent service account | |
+| IIS deployment agent pool | |
+| IIS deployment agent name | |
+| IIS deployment agent machine | |
+| IIS deployment agent service account | |
 | Repository SQL Server | |
 | Repository database | `DBAUtility` |
 | Repository auth mode | |
@@ -1610,19 +1661,20 @@ Use this final condensed sequence after the environment is prepared:
 4. Add repository, IIS, web, and source credential variables.
 5. Create an automation PAT and set `AZDO_PAT` as secret.
 6. Set `AZDO_ORGANIZATION`, `AZDO_PROJECT`, and `AZDO_COLLECTOR_PIPELINE_NAME`.
-7. Install and verify self-hosted agent.
+7. Install and verify self-hosted automation agent.
 8. Create the five Azure DevOps pipelines.
-9. Capture the collect pipeline `definitionId` and set `AZDO_COLLECTOR_PIPELINE_ID`.
-10. Run `DBA Capacity - Deploy Database`.
-11. Run `DBA Capacity - Onboard Server` for each source.
-12. Run `DBA Capacity - Collect Metrics`.
-13. Validate repository history rows and alerts.
-14. Run `DBA Capacity - Deploy API`.
-15. Validate API health, Swagger, dashboard summary, and `/api/collector-run`.
-16. Run `DBA Capacity - Deploy Web`.
-17. Validate dashboard, alerts, filters, time zone selector, and Run collector button.
-18. Confirm scheduled collector runs.
-19. Hand over URLs, runbooks, variable ownership, PAT renewal date, and ownership matrix.
+9. If IIS is on a separate VM, install and verify the IIS deployment agent or configure remote IIS deployment.
+10. Capture the collect pipeline `definitionId` and set `AZDO_COLLECTOR_PIPELINE_ID`.
+11. Run `DBA Capacity - Deploy Database`.
+12. Run `DBA Capacity - Onboard Server` for each source.
+13. Run `DBA Capacity - Collect Metrics`.
+14. Validate repository history rows and alerts.
+15. Run `DBA Capacity - Deploy API` on the IIS deployment agent or remote deployment path.
+16. Validate API health, Swagger, dashboard summary, and `/api/collector-run`.
+17. Run `DBA Capacity - Deploy Web` on the IIS deployment agent or remote deployment path.
+18. Validate dashboard, alerts, filters, time zone selector, and Run collector button.
+19. Confirm scheduled collector runs.
+20. Hand over URLs, runbooks, variable ownership, PAT renewal date, and ownership matrix.
 
 ## 22. Quick Reference URLs
 
