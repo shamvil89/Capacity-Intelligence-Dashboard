@@ -535,8 +535,14 @@ td {
 .modal-body {
   overflow: auto;
   padding: 18px 20px 20px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
+  min-height: 0;
+}
+
+.modal-body > * {
+  flex: 0 0 auto;
 }
 
 .detail-summary-grid {
@@ -583,6 +589,7 @@ td {
 }
 
 .collapsible-section {
+  display: block;
   border: 1px solid #e6ebf1;
   border-radius: 8px;
   overflow: hidden;
