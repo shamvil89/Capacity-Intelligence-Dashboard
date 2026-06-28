@@ -214,8 +214,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const emailAttachments = useMemo(() => collectEmailAttachments(alert, displayDetails), [alert, displayDetails]);
   const emailSubject = useMemo(() => buildAlertEmailSubject(alert), [alert]);
   const emailBody = useMemo(
-    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments),
-    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments]
+    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone),
+    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone]
   );
   const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
@@ -441,6 +441,7 @@ function ResolutionStepsSection({ steps }) {
 
 function EmailBodySection({ body, subject, attachments = [] }) {
   const [copyStatus, setCopyStatus] = useState('');
+  const [outlookStatus, setOutlookStatus] = useState('');
 
   if (!body) {
     return null;
@@ -458,7 +459,21 @@ function EmailBodySection({ body, subject, attachments = [] }) {
   }
 
   function handleOpenOutlookDraft() {
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const outlookBody = body;
+    const outlookUrl = buildOutlookComposeUrl(subject, outlookBody);
+
+    if (outlookUrl.length > 7500) {
+      navigator.clipboard.writeText(`Subject: ${subject}\n\n${outlookBody}`).catch(() => {});
+      window.open(buildOutlookComposeUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it here before sending.'), '_blank', 'noopener,noreferrer');
+      setOutlookStatus('Copied for Outlook');
+      window.setTimeout(() => setOutlookStatus(''), 2600);
+      return;
+    }
+
+    const openedWindow = window.open(outlookUrl, '_blank', 'noopener,noreferrer');
+    if (!openedWindow) {
+      window.location.href = buildMailtoUrl(subject, outlookBody);
+    }
   }
 
   function handleDownloadAllAttachments() {
@@ -476,7 +491,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
         </button>
         <button type="button" className="secondary-action" onClick={handleOpenOutlookDraft}>
           <Mail aria-hidden="true" size={14} />
-          Open Outlook draft
+          {outlookStatus || 'Open Outlook draft'}
         </button>
         {attachments.length > 0 ? (
           <button type="button" className="secondary-action" onClick={handleDownloadAllAttachments}>
@@ -514,6 +529,17 @@ function EmailBodySection({ body, subject, attachments = [] }) {
       <pre className="email-body-preview">{body}</pre>
     </CollapsibleSection>
   );
+}
+
+function buildOutlookComposeUrl(subject, body) {
+  const url = new URL('https://outlook.office.com/mail/deeplink/compose');
+  url.searchParams.set('subject', subject);
+  url.searchParams.set('body', body);
+  return url.toString();
+}
+
+function buildMailtoUrl(subject, body) {
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function QueryPlanSection({ alertType, sourceScript, details }) {
@@ -1291,13 +1317,21 @@ function buildLogFileExhaustionResolutionSteps(alert, details) {
 }
 
 function buildFullRecoveryNoLogBackupResolutionSteps(alert, details) {
+  const hasObservedLogBackup = hasRenderableDetail(details?.lastLogBackupFinishDate);
+  const logReuseWait = String(details?.logReuseWait ?? '').toUpperCase();
+
   return compactSteps([
-    `Backup evidence for ${describeAlertTarget(alert, details)}: recovery model ${formatDetailValue(details?.recoveryModel)}, current log ${formatGb(details?.currentLogSizeGb)}, log reuse wait ${formatDetailValue(details?.logReuseWait)}, last log backup ${formatDateEvidence(details?.lastLogBackupFinishDate)}, hours since last log backup ${formatHours(details?.hoursSinceLastLogBackup)}.`,
+    `Backup evidence for ${describeAlertTarget(alert, details)}: recovery model ${formatDetailValue(details?.recoveryModel)}, current log ${formatGb(details?.currentLogSizeGb)}, log reuse wait ${formatDetailValue(details?.logReuseWait)}, last observed log backup ${hasObservedLogBackup ? formatDateEvidence(details.lastLogBackupFinishDate) : 'none in collected backup history'}, hours since last log backup ${hasObservedLogBackup ? formatHours(details?.hoursSinceLastLogBackup) : 'not available'}.`,
+    logReuseWait === 'NOTHING'
+      ? 'Log reuse wait is NOTHING, so this is currently a recoverability/RPO gap rather than proof that the log is blocked from truncating right now.'
+      : `Log reuse wait is ${formatDetailValue(details?.logReuseWait)}. ${getLogReuseWaitAction(details?.logReuseWait)}`,
     'Confirm with the application/recovery owner whether FULL recovery is required for point-in-time restore, Always On, replication, or compliance.',
-    'If FULL recovery is required and the backup chain is valid, take an immediate log backup to approved storage. If the backup chain is broken, take a full backup first and then resume log backups.',
+    hasObservedLogBackup
+      ? 'If FULL recovery is required, take an immediate log backup to approved storage and investigate why the regular log backup interval was missed.'
+      : 'If FULL recovery is required and no valid backup chain exists, take a full backup first to establish the chain, then start recurring log backups.',
     'Fix the SQL Agent or enterprise backup job schedule, credentials, storage path, compression/encryption settings, and monitoring so log backups run at the required RPO interval.',
     'If point-in-time recovery is not required, document approval and switch to SIMPLE recovery during an agreed change window.',
-    'Rerun backup-size/file-size collection and alert generation. Confirm a recent log backup appears and log reuse wait is no longer LOG_BACKUP.'
+    'Rerun backup-size/file-size collection and alert generation. Confirm a recent log backup appears in collected history, or confirm the database was intentionally moved out of FULL recovery.'
   ]);
 }
 
@@ -1623,43 +1657,169 @@ function buildAlertEmailSubject(alert) {
   return `[${formatDetailValue(alert.severity)}] ${formatDetailValue(alert.alertType)} on ${formatDetailValue(alert.serverName)}${alert.databaseName ? `/${alert.databaseName}` : ''}`;
 }
 
-function buildAlertEmailBody(alert, details, message, steps, attachments = []) {
+function describeEmailIssue(alert, details) {
+  const target = describeAlertTarget(alert, details);
+
+  switch (String(alert.alertType ?? details?.category ?? '').toLowerCase()) {
+    case 'fullrecoverynologbackup':
+      return `a log backup coverage gap on ${target}`;
+    case 'logfileexhaustionrisk':
+      return `transaction log exhaustion risk on ${target}`;
+    case 'longrunningtransaction':
+      return `a long-running transaction on ${target}`;
+    case 'blockingchain':
+      return `a blocking chain on ${target}`;
+    case 'activetransactionlogreusewait':
+      return `log truncation blocked by an active transaction on ${target}`;
+    case 'alwaysonhealthissue':
+    case 'alwaysonlogreusewait':
+      return `an Always On health/log-truncation issue on ${target}`;
+    case 'replicationagentissue':
+    case 'replicationlogreusewait':
+      return `a replication health/log-truncation issue on ${target}`;
+    case 'tempdbusage':
+      return `high TempDB usage on ${target}`;
+    case 'diskspacelow':
+      return `low disk space on ${target}`;
+    case 'backupgrowth':
+      return `unusual backup growth on ${target}`;
+    case 'capacityrisk':
+      return `capacity risk on ${target}`;
+    default:
+      return `a ${formatDetailValue(alert.severity)} ${formatDetailValue(alert.alertType)} alert on ${target}`;
+  }
+}
+
+function getEmailImpactSummary(alert, details) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+
+  if (alertType === 'fullrecoverynologbackup') {
+    const logText = `Current log size is ${formatGb(details?.currentLogSizeGb)} and log reuse wait is ${formatDetailValue(details?.logReuseWait)}.`;
+    if (String(details?.logReuseWait ?? '').toUpperCase() === 'NOTHING') {
+      return `${logText} This is mainly a recoverability and RPO risk right now: the database is in FULL recovery, but the repository has not observed a recent log backup. Without recurring log backups, point-in-time restore coverage may be missing and the log can grow quickly when workload increases.`;
+    }
+
+    return `${logText} FULL recovery requires regular log backups. Missing or failing log backups can break RPO expectations and allow the transaction log to grow until storage or file limits are reached.`;
+  }
+
+  if (alertType === 'logfileexhaustionrisk') {
+    return `The transaction log is using ${formatPercent(details?.percentOfEffectiveCap)} of its effective cap with ${formatGb(details?.remainingToCapGb)} remaining. The effective cap accounts for configured max size, SQL Server's practical log-file cap, and observed disk headroom.`;
+  }
+
+  if (alertType === 'longrunningtransaction') {
+    return `Session ${formatDetailValue(details?.sessionId)} has an open transaction for ${formatDurationMinutes(details?.durationMinutes)} minutes. Long transactions can hold locks and prevent log truncation, especially in FULL recovery.`;
+  }
+
+  if (alertType === 'blockingchain') {
+    return `Lead blocker session ${formatDetailValue(details?.leadBlockerSessionId)} is blocking ${formatDetailValue(details?.blockedSessionCount)} session(s), with max wait ${formatMs(details?.maxBlockedWaitMs)}. This can cause application timeouts and downstream workload buildup.`;
+  }
+
+  if (alertType === 'activetransactionlogreusewait') {
+    return `SQL Server reports log reuse wait ${formatDetailValue(details?.logReuseWait)}. The log cannot truncate until the active transaction or blocker clears.`;
+  }
+
+  if (alertType === 'alwaysonhealthissue' || alertType === 'alwaysonlogreusewait') {
+    return `Always On evidence shows replica/database synchronization health needs review. Unhealthy or lagging replicas can delay failover readiness and hold log truncation.`;
+  }
+
+  if (alertType === 'replicationagentissue' || alertType === 'replicationlogreusewait') {
+    return `Replication evidence shows agent or distribution health needs review. Replication failures can delay downstream data delivery and prevent publisher log truncation.`;
+  }
+
+  if (alertType === 'tempdbusage') {
+    return `TempDB is ${formatPercent(details?.usedPercent)} used. High TempDB consumption can cause query failures, application errors, and instance-wide pressure.`;
+  }
+
+  if (alertType === 'diskspacelow') {
+    return `Volume ${formatDetailValue(details?.volumeMountPoint)} has ${formatGb(details?.availableGb)} available and is ${formatPercent(details?.usedPercent)} used. Low disk space can prevent data/log growth and interrupt SQL Server operations.`;
+  }
+
+  if (alertType === 'backupgrowth') {
+    return `${formatDetailValue(details?.backupType)} backup size increased to ${formatGb(details?.backupSizeGb)} versus a recent average of ${formatGb(details?.averageBackupSizeGb)}. This may affect backup duration, storage, and retention capacity.`;
+  }
+
+  if (alertType === 'capacityrisk') {
+    return `Forecast shows ${formatGb(details?.availableSpaceGb)} available and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}. Capacity exhaustion can stop data growth or cause application failures.`;
+  }
+
+  return 'Please review the dashboard evidence and confirm ownership, severity, and business impact.';
+}
+
+function selectEmailActionSteps(alert, details, steps) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+
+  if (alertType === 'fullrecoverynologbackup') {
+    return compactSteps([
+      'Confirm whether this database should remain in FULL recovery for point-in-time restore, Always On, replication, or compliance.',
+      hasRenderableDetail(details?.lastLogBackupFinishDate)
+        ? 'If FULL recovery is required, take or verify an immediate log backup and investigate why the regular log backup interval was missed.'
+        : 'If FULL recovery is required and no valid backup chain exists, take a full backup first, then start recurring log backups.',
+      'Fix or create the recurring log backup job and validate destination capacity, credentials, compression/encryption settings, and monitoring.',
+      'If FULL recovery is not required, get approval and switch to SIMPLE recovery during a change window.',
+      'Rerun the collector and confirm a recent log backup appears in the dashboard or the recovery model decision is reflected.'
+    ]);
+  }
+
+  return steps.slice(0, 6);
+}
+
+function getEmailSafetyNote(alertType) {
+  const normalizedType = String(alertType ?? '').toLowerCase();
+
+  if (['longrunningtransaction', 'blockingchain', 'activetransactionlogreusewait'].includes(normalizedType)) {
+    return 'Please confirm business impact and rollback risk before killing sessions or forcing transaction rollback.';
+  }
+
+  if (['fullrecoverynologbackup', 'logfileexhaustionrisk'].includes(normalizedType)) {
+    return 'Please confirm recovery requirements before changing recovery model, backup cadence, file growth, max size, or storage layout.';
+  }
+
+  return 'Please confirm application ownership and business impact before making production-impacting changes.';
+}
+
+function buildAlertEmailBody(alert, details, message, steps, attachments = [], timeZone) {
   const evidenceLines = getEmailEvidenceLines(alert, details);
-  const actionLines = steps.map((step, index) => `${index + 1}. ${step}`);
+  const actionLines = selectEmailActionSteps(alert, details, steps).map((step, index) => `${index + 1}. ${step}`);
   const hasSqlAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sql'));
   const hasPlanAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sqlplan'));
-  const attachmentLines = attachments.length > 0
-    ? attachments.map((attachment) => `- ${attachment.fileName}: ${attachment.description}`)
-    : ['- No SQL text or SQL Server execution plan attachment was captured for this alert.'];
+  const attachmentSection = attachments.length > 0
+    ? [
+        '',
+        'Evidence files prepared:',
+        ...attachments.map((attachment) => `- ${attachment.fileName}: ${attachment.description}`),
+        '',
+        'Attach the downloaded evidence files before sending. .sql files contain captured query text; .sqlplan files can be opened in SSMS or another SQL Server plan viewer.'
+      ]
+    : [];
 
   return [
     'Hi team,',
     '',
-    `The DBA Capacity dashboard raised a ${formatDetailValue(alert.severity)} alert that needs review.`,
+    `DBA Capacity detected ${describeEmailIssue(alert, details)}.`,
+    '',
+    'Why this matters:',
+    getEmailImpactSummary(alert, details),
     '',
     'Alert summary:',
     `- Environment: ${formatDetailValue(alert.environment)}`,
     `- Server: ${formatDetailValue(alert.serverName)}`,
     `- Database: ${formatDetailValue(alert.databaseName)}`,
     `- Alert type: ${formatDetailValue(alert.alertType)}`,
+    `- Severity: ${formatDetailValue(alert.severity)}`,
     `- Status: ${alert.isResolved ? 'Resolved' : 'Active'}`,
-    `- Time: ${formatDetailValue(alert.alertTime)}`,
+    `- Detected: ${formatDateTime(alert.alertTime, timeZone)}`,
     `- Message: ${message}`,
-    `- SQL text captured: ${hasSqlAttachment ? 'Yes, attached as .sql evidence' : 'No'}`,
-    `- Query plan captured: ${hasPlanAttachment ? 'Yes, attached as .sqlplan evidence' : 'No'}`,
+    ...(hasSqlAttachment ? ['- SQL text captured: Yes, prepared as .sql evidence'] : []),
+    ...(hasPlanAttachment ? ['- Query plan captured: Yes, prepared as .sqlplan evidence'] : []),
     '',
     'Relevant evidence:',
     ...evidenceLines.map((line) => `- ${line}`),
-    '',
-    'Attachments to include:',
-    ...attachmentLines,
-    '',
-    'The .sql attachment contains the captured query text. The .sqlplan attachment can be opened in SSMS or another SQL Server plan viewer when present.',
+    ...attachmentSection,
     '',
     'Recommended next actions:',
     ...actionLines,
     '',
-    'Please review the application impact and confirm ownership before taking any disruptive action such as killing sessions, changing recovery model, or moving data files.',
+    getEmailSafetyNote(alert.alertType),
     '',
     'Regards,',
     'DBA Team'
@@ -1688,10 +1848,30 @@ function getEmailEvidenceLines(alert, details) {
     lines.push(`Duration: ${formatDurationMinutes(details.durationMinutes)} minutes`);
   }
   if (details?.currentLogSizeGb) {
-    lines.push(`Current log size: ${formatDetailValue(details.currentLogSizeGb)} GB`);
+    lines.push(`Current log size: ${formatGb(details.currentLogSizeGb)}`);
+  }
+  if (details?.usedLogGb) {
+    lines.push(`Used log: ${formatGb(details.usedLogGb)}`);
+  }
+  if (details?.remainingToCapGb) {
+    lines.push(`Remaining log headroom: ${formatGb(details.remainingToCapGb)}`);
   }
   if (details?.logReuseWait) {
     lines.push(`Log reuse wait: ${details.logReuseWait}`);
+  }
+  if (details?.recoveryModel) {
+    lines.push(`Recovery model: ${details.recoveryModel}`);
+  }
+  if (details?.lastLogBackupFinishDate) {
+    lines.push(`Last observed log backup: ${formatDateEvidence(details.lastLogBackupFinishDate)}`);
+  }
+  if (details?.hoursSinceLastLogBackup) {
+    lines.push(`Hours since last observed log backup: ${formatHours(details.hoursSinceLastLogBackup)}`);
+  }
+  if (details?.lastLogBackupFinishDate === null || details?.lastLogBackupFinishDate === undefined) {
+    if (String(alert.alertType ?? details?.category ?? '').toLowerCase() === 'fullrecoverynologbackup') {
+      lines.push('Last observed log backup: none in collected backup history');
+    }
   }
   if (details?.availabilityGroupName) {
     lines.push(`Availability group: ${details.availabilityGroupName}`);
