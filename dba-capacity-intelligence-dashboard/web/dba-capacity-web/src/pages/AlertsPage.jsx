@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Info, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
 import DataState from '../components/DataState.jsx';
@@ -209,7 +209,7 @@ export default function AlertsPage() {
 
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
-  const evidenceDetails = useMemo(() => stripQueryPlanXml(details), [details]);
+  const evidenceDetails = useMemo(() => stripDedicatedEvidence(stripQueryPlanXml(details)), [details]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -269,8 +269,7 @@ function BlockingEvidenceSection({ details }) {
   return (
     <>
       {heldLocks.length > 0 ? (
-        <section className="modal-section">
-          <h4>Lead Blocker Held Locks</h4>
+        <CollapsibleSection title="Lead Blocker Held Locks" summary={`${heldLocks.length} lock${heldLocks.length === 1 ? '' : 's'}`}>
           <div className="evidence-table-scroll">
             <table className="evidence-mini-table">
               <thead>
@@ -295,12 +294,11 @@ function BlockingEvidenceSection({ details }) {
               </tbody>
             </table>
           </div>
-        </section>
+        </CollapsibleSection>
       ) : null}
 
       {blockedSessions.length > 0 ? (
-        <section className="modal-section">
-          <h4>Blocked Sessions</h4>
+        <CollapsibleSection title="Blocked Sessions" summary={`${blockedSessions.length} session${blockedSessions.length === 1 ? '' : 's'}`}>
           <div className="evidence-table-scroll">
             <table className="evidence-mini-table">
               <thead>
@@ -329,12 +327,11 @@ function BlockingEvidenceSection({ details }) {
               </tbody>
             </table>
           </div>
-        </section>
+        </CollapsibleSection>
       ) : null}
 
       {blockingEvidence.length > 0 ? (
-        <section className="modal-section">
-          <h4>Blocking Evidence</h4>
+        <CollapsibleSection title="Blocking Evidence" summary={`${blockingEvidence.length} row${blockingEvidence.length === 1 ? '' : 's'}`}>
           <div className="evidence-table-scroll">
             <table className="evidence-mini-table">
               <thead>
@@ -361,7 +358,7 @@ function BlockingEvidenceSection({ details }) {
               </tbody>
             </table>
           </div>
-        </section>
+        </CollapsibleSection>
       ) : null}
     </>
   );
@@ -371,6 +368,7 @@ function QueryPlanSection({ alertType, details }) {
   const containerRef = useRef(null);
   const planEntries = useMemo(() => collectQueryPlans(details), [details]);
   const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category);
+  const [isOpen, setIsOpen] = useState(false);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
 
@@ -382,7 +380,7 @@ function QueryPlanSection({ alertType, details }) {
     const container = containerRef.current;
     let isCancelled = false;
 
-    if (!container || !selectedPlan) {
+    if (!isOpen || !container || !selectedPlan) {
       return undefined;
     }
 
@@ -408,7 +406,7 @@ function QueryPlanSection({ alertType, details }) {
       isCancelled = true;
       container.innerHTML = '';
     };
-  }, [selectedPlan]);
+  }, [isOpen, selectedPlan]);
 
   if (planEntries.length === 0 && !isPlanAwareAlert) {
     return null;
@@ -416,27 +414,31 @@ function QueryPlanSection({ alertType, details }) {
 
   if (planEntries.length === 0) {
     return (
-      <section className="modal-section query-plan-section">
-        <div className="query-plan-header">
-          <div>
-            <h4>Query Plan</h4>
-            <p>No cached SQL Server execution plan was captured for this alert.</p>
-          </div>
-        </div>
+      <CollapsibleSection
+        title="Query Plan"
+        summary="No cached plan"
+        className="query-plan-section"
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+      >
+        <p>No cached SQL Server execution plan was captured for this alert.</p>
         <div className="query-plan-empty">
           The session may have been idle with an open transaction, the cached plan may have aged out, or the collector identity may need DMV visibility such as VIEW SERVER STATE.
         </div>
-      </section>
+      </CollapsibleSection>
     );
   }
 
   return (
-    <section className="modal-section query-plan-section">
+    <CollapsibleSection
+      title="Query Plan"
+      summary={`${planEntries.length} plan${planEntries.length === 1 ? '' : 's'}`}
+      className="query-plan-section"
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+    >
       <div className="query-plan-header">
-        <div>
-          <h4>Query Plan</h4>
-          <p>Cached SQL Server execution plan captured during collection.</p>
-        </div>
+        <p>Cached SQL Server execution plan captured during collection.</p>
 
         {planEntries.length > 1 ? (
           <label className="query-plan-select">
@@ -456,6 +458,43 @@ function QueryPlanSection({ alertType, details }) {
       </div>
 
       <div className="query-plan-viewer" ref={containerRef} />
+    </CollapsibleSection>
+  );
+}
+
+function CollapsibleSection({ title, summary, className = '', defaultOpen = false, isOpen: controlledOpen, onOpenChange, children }) {
+  const contentId = useId();
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isOpen = controlledOpen ?? internalOpen;
+
+  function handleToggle() {
+    const nextOpen = !isOpen;
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  }
+
+  return (
+    <section className={`modal-section collapsible-section ${className}`.trim()}>
+      <button
+        type="button"
+        className="collapsible-header"
+        aria-expanded={isOpen}
+        aria-controls={contentId}
+        onClick={handleToggle}
+      >
+        <span className="collapsible-title">
+          {isOpen ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" size={16} />}
+          <span>{title}</span>
+        </span>
+        {summary ? <span className="collapsible-summary">{summary}</span> : null}
+      </button>
+      {isOpen ? (
+        <div id={contentId} className="collapsible-content">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -596,12 +635,35 @@ function stripQueryPlanXml(value) {
   return value;
 }
 
+function stripDedicatedEvidence(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripDedicatedEvidence(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const cleanedEntries = Object.entries(value)
+      .filter(([key]) => !isDedicatedEvidenceField(key))
+      .map(([key, itemValue]) => [key, stripDedicatedEvidence(itemValue)])
+      .filter(([, itemValue]) => itemValue !== undefined);
+
+    return Object.fromEntries(cleanedEntries);
+  }
+
+  return value;
+}
+
 function isQueryPlanXmlField(key, value) {
   return (
     typeof value === 'string' &&
     value.trim().length > 0 &&
     (/(^|_)query_plan_xml$/i.test(key) || /queryPlanXml$/i.test(key) || value.trimStart().startsWith('<ShowPlanXML'))
   );
+}
+
+function isDedicatedEvidenceField(key) {
+  return ['leadBlockerHeldLocks', 'blockedSessions', 'blockingEvidence'].includes(key);
 }
 
 function hasRenderableDetail(value) {
