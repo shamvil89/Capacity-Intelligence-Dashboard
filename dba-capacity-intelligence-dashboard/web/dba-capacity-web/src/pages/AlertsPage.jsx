@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Info, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info, Maximize2, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
 import DataState from '../components/DataState.jsx';
@@ -385,22 +385,138 @@ function BlockingEvidenceSection({ details }) {
 
 function QueryPlanSection({ alertType, sourceScript, details }) {
   const containerRef = useRef(null);
+  const fullscreenContainerRef = useRef(null);
   const planEntries = useMemo(() => collectQueryPlans(details), [details]);
   const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category, sourceScript, details?.sourceScripts);
   const [isOpen, setIsOpen] = useState(() => planEntries.length > 0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
 
   useEffect(() => {
     setSelectedPlanIndex(0);
     setIsOpen(planEntries.length > 0);
+    setIsFullscreen(false);
   }, [planEntries.length]);
 
+  useEffect(() => {
+    if (!isFullscreen) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsFullscreen(false);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
+  useRenderedQueryPlan(containerRef, selectedPlan, isOpen && Boolean(selectedPlan));
+  useRenderedQueryPlan(fullscreenContainerRef, selectedPlan, isFullscreen && Boolean(selectedPlan));
+
+  function handlePlanChange(event) {
+    setSelectedPlanIndex(Number(event.target.value));
+  }
+
+  if (planEntries.length === 0 && !isPlanAwareAlert) {
+    return null;
+  }
+
+  if (planEntries.length === 0) {
+    return (
+      <CollapsibleSection
+        title="Query Plan"
+        summary="No cached plan"
+        className="query-plan-section"
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+      >
+        <p>No cached SQL Server execution plan was captured for this alert.</p>
+        <div className="query-plan-empty">
+          The session may have been idle with an open transaction, the cached plan may have aged out, or the collector identity may need DMV visibility such as VIEW SERVER STATE.
+        </div>
+      </CollapsibleSection>
+    );
+  }
+
+  function renderPlanSelector() {
+    return planEntries.length > 1 ? (
+      <label className="query-plan-select">
+        <span>Plan</span>
+        <select value={selectedPlanIndex} onChange={handlePlanChange}>
+          {planEntries.map((plan, index) => (
+            <option key={`${plan.label}-${index}`} value={index}>
+              {plan.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    ) : null;
+  }
+
+  return (
+    <>
+      <CollapsibleSection
+        title="Query Plan"
+        summary={`${planEntries.length} plan${planEntries.length === 1 ? '' : 's'}`}
+        className="query-plan-section"
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+      >
+        <div className="query-plan-header">
+          <p>Cached SQL Server execution plan captured during collection.</p>
+
+          <div className="query-plan-header-actions">
+            {renderPlanSelector()}
+            <button type="button" className="secondary-action" onClick={() => setIsFullscreen(true)}>
+              <Maximize2 aria-hidden="true" size={14} />
+              Fullscreen
+            </button>
+          </div>
+        </div>
+
+        <div className="query-plan-viewer" ref={containerRef} />
+      </CollapsibleSection>
+
+      {isFullscreen ? (
+        <div className="query-plan-fullscreen-backdrop" role="presentation" onMouseDown={() => setIsFullscreen(false)}>
+          <section
+            className="query-plan-fullscreen-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="query-plan-fullscreen-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="query-plan-fullscreen-header">
+              <div>
+                <p className="eyebrow">Query plan</p>
+                <h3 id="query-plan-fullscreen-title">{selectedPlan?.label || 'Execution plan'}</h3>
+              </div>
+              <div className="query-plan-fullscreen-actions">
+                {renderPlanSelector()}
+                <button type="button" className="icon-action" aria-label="Close fullscreen query plan" onClick={() => setIsFullscreen(false)}>
+                  <X aria-hidden="true" size={18} />
+                </button>
+              </div>
+            </header>
+
+            <div className="query-plan-viewer query-plan-viewer-fullscreen" ref={fullscreenContainerRef} />
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function useRenderedQueryPlan(containerRef, selectedPlan, shouldRender) {
   useEffect(() => {
     const container = containerRef.current;
     let isCancelled = false;
 
-    if (!isOpen || !container || !selectedPlan) {
+    if (!shouldRender || !container || !selectedPlan) {
       return undefined;
     }
 
@@ -426,60 +542,7 @@ function QueryPlanSection({ alertType, sourceScript, details }) {
       isCancelled = true;
       container.innerHTML = '';
     };
-  }, [isOpen, selectedPlan]);
-
-  if (planEntries.length === 0 && !isPlanAwareAlert) {
-    return null;
-  }
-
-  if (planEntries.length === 0) {
-    return (
-      <CollapsibleSection
-        title="Query Plan"
-        summary="No cached plan"
-        className="query-plan-section"
-        isOpen={isOpen}
-        onOpenChange={setIsOpen}
-      >
-        <p>No cached SQL Server execution plan was captured for this alert.</p>
-        <div className="query-plan-empty">
-          The session may have been idle with an open transaction, the cached plan may have aged out, or the collector identity may need DMV visibility such as VIEW SERVER STATE.
-        </div>
-      </CollapsibleSection>
-    );
-  }
-
-  return (
-    <CollapsibleSection
-      title="Query Plan"
-      summary={`${planEntries.length} plan${planEntries.length === 1 ? '' : 's'}`}
-      className="query-plan-section"
-      isOpen={isOpen}
-      onOpenChange={setIsOpen}
-    >
-      <div className="query-plan-header">
-        <p>Cached SQL Server execution plan captured during collection.</p>
-
-        {planEntries.length > 1 ? (
-          <label className="query-plan-select">
-            <span>Plan</span>
-            <select
-              value={selectedPlanIndex}
-              onChange={(event) => setSelectedPlanIndex(Number(event.target.value))}
-            >
-              {planEntries.map((plan, index) => (
-                <option key={`${plan.label}-${index}`} value={index}>
-                  {plan.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </div>
-
-      <div className="query-plan-viewer" ref={containerRef} />
-    </CollapsibleSection>
-  );
+  }, [containerRef, selectedPlan, shouldRender]);
 }
 
 function CollapsibleSection({ title, summary, className = '', defaultOpen = false, isOpen: controlledOpen, onOpenChange, children }) {
