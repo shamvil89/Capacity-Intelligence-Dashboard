@@ -783,8 +783,8 @@ Run these commands from an elevated PowerShell session on the relevant Windows V
 
 | Identity | Where | Required Windows-level access | Why |
 | --- | --- | --- | --- |
-| Automation agent service account | Automation VM | Log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, network access to repository/source SQL Servers. Local admin is optional unless customer policy requires it for tool installation. | Runs database deploy, onboard, and collector pipelines. |
-| IIS deployment agent service account | IIS VM | Local Administrators, log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, modify access to IIS publish paths. | Current API/web deploy YAML creates IIS sites, app pools, bindings, file copies, and ACLs locally. |
+| Automation agent service account | Automation VM | Log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, network access to repository/source SQL Servers. Local admin is optional unless customer policy requires it for tool installation. Standard domain service account or gMSA is supported. | Runs database deploy, onboard, and collector pipelines. |
+| IIS deployment agent service account | IIS VM | Local Administrators, log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, modify access to IIS publish paths. Standard domain service account or gMSA is supported. | Current API/web deploy YAML creates IIS sites, app pools, bindings, file copies, and ACLs locally. |
 | `IIS APPPOOL\DBACapacityApi` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-api`. | Runs the ASP.NET Core API. SQL permissions are handled separately in SQL Server. |
 | `IIS APPPOOL\DBACapacityWeb` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-web`. | Serves the static React build. |
 | DBA or deployment admin | IIS VM | Temporary local Administrator during installation, or equivalent delegated IIS administration. | Installs Windows features, hosting bundle, firewall rules, and agents. |
@@ -817,6 +817,42 @@ Add-LocalGroupMember -Group "Administrators" -Member "CONTOSO\svc-dba-iisdeploy"
 
 Do not add the automation-only collector agent to local Administrators unless it also performs local IIS deployment or the customer requires admin rights for software installation.
 
+#### Use A Group Managed Service Account
+
+If the customer provides a managed service account or gMSA, the account normally ends with `$`, for example:
+
+```text
+CONTOSO\svc-dba-automation$
+CONTOSO\svc-dba-iisdeploy$
+```
+
+Do not provide `--windowsLogonPassword` for a gMSA. Windows retrieves and rotates the password automatically.
+
+Prerequisites:
+
+- The gMSA already exists in Active Directory.
+- The target VM is allowed to retrieve the gMSA password.
+- The agent VM has the AD PowerShell module or equivalent customer tooling to install/test the gMSA locally.
+
+On the target VM, run elevated:
+
+```powershell
+Install-WindowsFeature RSAT-AD-PowerShell
+Install-ADServiceAccount svc-dba-automation
+Test-ADServiceAccount svc-dba-automation
+```
+
+For an IIS deployment gMSA:
+
+```powershell
+Install-WindowsFeature RSAT-AD-PowerShell
+Install-ADServiceAccount svc-dba-iisdeploy
+Test-ADServiceAccount svc-dba-iisdeploy
+Add-LocalGroupMember -Group "Administrators" -Member 'CONTOSO\svc-dba-iisdeploy$'
+```
+
+Use single quotes around gMSA names in PowerShell commands so the trailing `$` is treated as literal text.
+
 #### Create Agent And Publish Folders
 
 Automation VM:
@@ -844,6 +880,15 @@ If using the local account from the previous example:
 icacls "C:\iis-agent" /grant ".\azdoagent:(OI)(CI)F" /T
 icacls "C:\inetpub\dba-capacity-api" /grant ".\azdoagent:(OI)(CI)M" /T
 icacls "C:\inetpub\dba-capacity-web" /grant ".\azdoagent:(OI)(CI)M" /T
+```
+
+If using a gMSA:
+
+```powershell
+icacls "C:\agent" /grant 'CONTOSO\svc-dba-automation$:(OI)(CI)F' /T
+icacls "C:\iis-agent" /grant 'CONTOSO\svc-dba-iisdeploy$:(OI)(CI)F' /T
+icacls "C:\inetpub\dba-capacity-api" /grant 'CONTOSO\svc-dba-iisdeploy$:(OI)(CI)M' /T
+icacls "C:\inetpub\dba-capacity-web" /grant 'CONTOSO\svc-dba-iisdeploy$:(OI)(CI)M' /T
 ```
 
 #### Install IIS Windows Features
@@ -951,6 +996,42 @@ cd C:\iis-agent
   --windowsLogonPassword "<service-account-password>" `
   --replace
 ```
+
+Automation agent gMSA example:
+
+```powershell
+cd C:\agent
+.\config.cmd `
+  --unattended `
+  --url "https://dev.azure.com/<organization>" `
+  --auth pat `
+  --token "<agent-registration-pat>" `
+  --pool "<automation-agent-pool>" `
+  --agent "<automation-agent-name>" `
+  --work "_work" `
+  --runAsService `
+  --windowsLogonAccount 'CONTOSO\svc-dba-automation$' `
+  --replace
+```
+
+IIS deployment agent gMSA example:
+
+```powershell
+cd C:\iis-agent
+.\config.cmd `
+  --unattended `
+  --url "https://dev.azure.com/<organization>" `
+  --auth pat `
+  --token "<agent-registration-pat>" `
+  --pool "<iis-deployment-agent-pool>" `
+  --agent "<iis-agent-name>" `
+  --work "_work" `
+  --runAsService `
+  --windowsLogonAccount 'CONTOSO\svc-dba-iisdeploy$' `
+  --replace
+```
+
+For gMSA accounts, omit `--windowsLogonPassword`. If the command asks for a password, the account is not being recognized as a managed service account on that VM; re-check `Install-ADServiceAccount` and `Test-ADServiceAccount`.
 
 If the customer uses group policy to control `Log on as a service`, grant that right to the agent service accounts before running `config.cmd`, or ask the Windows team to add it through GPO.
 
