@@ -43,6 +43,7 @@ parameters:
     type: string
     default: default
     values:
+      - default
       - azuresql-sql
       - azuresql-aad
 
