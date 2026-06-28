@@ -21,23 +21,61 @@ $fileQuery = @"
 SELECT
     @@SERVERNAME AS server_name,
     DB_NAME() AS database_name,
-    name AS logical_file_name,
-    physical_name AS physical_file_name,
-    type_desc AS file_type,
-    CAST(size * 8.0 / 1024.0 AS DECIMAL(18,2)) AS file_size_mb,
-    CAST(FILEPROPERTY(name, 'SpaceUsed') * 8.0 / 1024.0 AS DECIMAL(18,2)) AS used_space_mb,
-    CAST((size - FILEPROPERTY(name, 'SpaceUsed')) * 8.0 / 1024.0 AS DECIMAL(18,2)) AS free_space_mb,
+    df.name AS logical_file_name,
+    df.physical_name AS physical_file_name,
+    df.type_desc AS file_type,
+    CAST(df.size * 8.0 / 1024.0 AS DECIMAL(18,2)) AS file_size_mb,
+    CAST(FILEPROPERTY(df.name, 'SpaceUsed') * 8.0 / 1024.0 AS DECIMAL(18,2)) AS used_space_mb,
+    CAST((df.size - FILEPROPERTY(df.name, 'SpaceUsed')) * 8.0 / 1024.0 AS DECIMAL(18,2)) AS free_space_mb,
     CASE
-        WHEN is_percent_growth = 1 THEN CONCAT(growth, '%')
-        ELSE CONCAT(CAST(growth * 8.0 / 1024.0 AS DECIMAL(18,2)), ' MB')
+        WHEN df.is_percent_growth = 1 THEN CONCAT(df.growth, '%')
+        ELSE CONCAT(CAST(df.growth * 8.0 / 1024.0 AS DECIMAL(18,2)), ' MB')
     END AS growth_setting,
     CASE
-        WHEN max_size = -1 THEN NULL
-        WHEN max_size = 268435456 THEN NULL
-        ELSE CAST(max_size * 8.0 / 1024.0 AS DECIMAL(18,2))
-    END AS max_size_mb
-FROM sys.database_files
-ORDER BY type_desc, name;
+        WHEN df.max_size = -1 THEN NULL
+        WHEN df.max_size = 268435456 THEN NULL
+        ELSE CAST(df.max_size * 8.0 / 1024.0 AS DECIMAL(18,2))
+    END AS max_size_mb,
+    d.recovery_model_desc,
+    d.log_reuse_wait_desc,
+    vs.volume_mount_point,
+    CAST(vs.total_bytes / 1073741824.0 AS DECIMAL(18,2)) AS volume_total_gb,
+    CAST(vs.available_bytes / 1073741824.0 AS DECIMAL(18,2)) AS volume_available_gb
+FROM sys.database_files AS df
+INNER JOIN sys.databases AS d
+    ON d.name = DB_NAME()
+CROSS APPLY sys.dm_os_volume_stats(DB_ID(), df.file_id) AS vs
+ORDER BY df.type_desc, df.name;
+"@
+
+$azureSqlFileQuery = @"
+SELECT
+    @@SERVERNAME AS server_name,
+    DB_NAME() AS database_name,
+    df.name AS logical_file_name,
+    df.physical_name AS physical_file_name,
+    df.type_desc AS file_type,
+    CAST(df.size * 8.0 / 1024.0 AS DECIMAL(18,2)) AS file_size_mb,
+    CAST(FILEPROPERTY(df.name, 'SpaceUsed') * 8.0 / 1024.0 AS DECIMAL(18,2)) AS used_space_mb,
+    CAST((df.size - FILEPROPERTY(df.name, 'SpaceUsed')) * 8.0 / 1024.0 AS DECIMAL(18,2)) AS free_space_mb,
+    CASE
+        WHEN df.is_percent_growth = 1 THEN CONCAT(df.growth, '%')
+        ELSE CONCAT(CAST(df.growth * 8.0 / 1024.0 AS DECIMAL(18,2)), ' MB')
+    END AS growth_setting,
+    CASE
+        WHEN df.max_size = -1 THEN NULL
+        WHEN df.max_size = 268435456 THEN NULL
+        ELSE CAST(df.max_size * 8.0 / 1024.0 AS DECIMAL(18,2))
+    END AS max_size_mb,
+    d.recovery_model_desc,
+    d.log_reuse_wait_desc,
+    CAST(NULL AS NVARCHAR(512)) AS volume_mount_point,
+    CAST(NULL AS DECIMAL(18,2)) AS volume_total_gb,
+    CAST(NULL AS DECIMAL(18,2)) AS volume_available_gb
+FROM sys.database_files AS df
+INNER JOIN sys.databases AS d
+    ON d.name = DB_NAME()
+ORDER BY df.type_desc, df.name;
 "@
 
 Write-Host "Collecting file size metrics from $ServerName..."
@@ -48,7 +86,8 @@ foreach ($database in $databases) {
     $databaseName = [string]$database.name
 
     try {
-        $rows = @(Invoke-SourceQuery -ServerName $ServerName -Database $databaseName -Query $fileQuery)
+        $query = if ($env:DBA_SOURCE_SERVER_TYPE -eq "AzureSQL") { $azureSqlFileQuery } else { $fileQuery }
+        $rows = @(Invoke-SourceQuery -ServerName $ServerName -Database $databaseName -Query $query)
 
         foreach ($row in $rows) {
             Invoke-RepositoryProcedure -ProcedureName "dbo.usp_InsertFileSizeHistory" -SqlParameter @{
@@ -62,6 +101,11 @@ foreach ($database in $databases) {
                 free_space_mb      = ConvertTo-NullableValue $row.free_space_mb
                 growth_setting     = ConvertTo-NullableValue $row.growth_setting
                 max_size_mb        = ConvertTo-NullableValue $row.max_size_mb
+                recovery_model_desc = ConvertTo-NullableValue $row.recovery_model_desc
+                log_reuse_wait_desc = ConvertTo-NullableValue $row.log_reuse_wait_desc
+                volume_mount_point  = ConvertTo-NullableValue $row.volume_mount_point
+                volume_total_gb     = ConvertTo-NullableValue $row.volume_total_gb
+                volume_available_gb = ConvertTo-NullableValue $row.volume_available_gb
             }
         }
 

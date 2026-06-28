@@ -19,6 +19,8 @@ There are two procedure categories:
 | `dbo.usp_InsertTableSizeHistory` | `Collect-TableSize.ps1` | Inserts table size and row count rows. |
 | `dbo.usp_InsertBackupSizeHistory` | `Collect-BackupSize.ps1` | Inserts backup size rows. |
 | `dbo.usp_InsertTempDBUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts TempDB usage rows. |
+| `dbo.usp_InsertLongRunningTransactionHistory` | `Collect-LongRunningTransactions.ps1` | Inserts open transaction evidence, duration, session metadata, and current SQL text. |
+| `dbo.usp_InsertTempDBSessionUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts top session-level TempDB consumers for alert drill-through. |
 
 Insert procedures centralize writes so collector scripts do not need direct table-specific insert logic scattered throughout the code.
 
@@ -51,7 +53,22 @@ The MVP forecast is intentionally simple. It is based on historical deltas rathe
 dbo.usp_GenerateAlerts
 ```
 
-This procedure creates alert rows based on forecast risk and operational failures.
+This procedure creates alert rows based on forecast risk, operational failures, and fast-moving SQL Server pressure signals.
+
+Current alert categories include:
+
+| Alert type | Main evidence |
+| --- | --- |
+| `CapacityRisk` | Latest forecast row from `dbo.CapacityForecastResult`. |
+| `LogFileExhaustionRisk` | Current log size, effective cap, disk headroom, recent growth rate, and projected hours to cap. |
+| `FullRecoveryNoLogBackup` | FULL recovery model, last observed log backup, and log reuse wait. |
+| `LongRunningTransaction` | Open transaction duration, session, login, wait, blocking session, and SQL text. |
+| `TempDBUsage` | Aggregate TempDB usage and top session-level consumers. |
+| `DiskSpaceLow` | Latest disk capacity row by volume. |
+| `BackupGrowth` | Latest backup size compared with recent average. |
+| `CollectionFailure:*` | Collector error captured by `Common.ps1`. |
+
+Each generated alert writes `source_script` and `details_json` into `dbo.AlertHistory`. The web UI reads those fields and shows them in the alert More info popup.
 
 The collector also directly writes `CollectionFailure:*` alerts when individual metric scripts fail.
 
@@ -103,4 +120,3 @@ Manual forecast run:
 EXEC dbo.usp_GenerateCapacityForecast;
 EXEC dbo.usp_GenerateAlerts;
 ```
-

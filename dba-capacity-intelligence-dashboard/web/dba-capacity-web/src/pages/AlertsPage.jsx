@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Info, X } from 'lucide-react';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
@@ -10,6 +11,7 @@ import { api } from '../services/api.js';
 export default function AlertsPage() {
   const { effectiveTimeZone } = useTimezone();
   const [alerts, setAlerts] = useState([]);
+  const [selectedAlert, setSelectedAlert] = useState(null);
   const [containsFilter, setContainsFilter] = useState('');
   const [serverFilter, setServerFilter] = useState('All');
   const [severityFilter, setSeverityFilter] = useState('All');
@@ -61,7 +63,9 @@ export default function AlertsPage() {
         'databaseName',
         'alertType',
         'severity',
-        'message'
+        'message',
+        'sourceScript',
+        'detailsJson'
       ], containsFilter);
 
       return matchesServer && matchesSeverity && matchesAlertType && matchesContains;
@@ -146,17 +150,24 @@ export default function AlertsPage() {
                     <th><SortableHeader label="Alert Type" sortKey="alertType" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Severity" sortKey="severity" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
+                    <th>More Info</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleAlerts.map((item) => (
-                    <tr key={`${item.alertTime}-${item.serverName}-${item.alertType}`}>
+                    <tr key={item.alertId ?? `${item.alertTime}-${item.serverName}-${item.alertType}`}>
                       <td>{formatDateTime(item.alertTime, effectiveTimeZone)}</td>
                       <td>{item.serverName}</td>
                       <td>{item.databaseName || '-'}</td>
                       <td>{item.alertType}</td>
                       <td><RiskBadge level={item.severity} /></td>
                       <td className="recommendation-cell alert-message-cell">{item.message}</td>
+                      <td>
+                        <button type="button" className="secondary-action" onClick={() => setSelectedAlert(item)}>
+                          <Info aria-hidden="true" size={14} />
+                          More info
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -165,6 +176,133 @@ export default function AlertsPage() {
           </DataState>
         </div>
       </DataState>
+
+      {selectedAlert ? (
+        <AlertDetailsModal
+          alert={selectedAlert}
+          effectiveTimeZone={effectiveTimeZone}
+          onClose={() => setSelectedAlert(null)}
+        />
+      ) : null}
     </section>
   );
+}
+
+function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
+  const details = parseAlertDetails(alert.detailsJson);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="alert-details-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Alert evidence</p>
+            <h3 id="alert-details-title">{alert.alertType}</h3>
+          </div>
+          <button type="button" className="icon-action" aria-label="Close details" onClick={onClose}>
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="detail-summary-grid">
+            <DetailItem label="Time" value={formatDateTime(alert.alertTime, effectiveTimeZone)} />
+            <DetailItem label="Server" value={alert.serverName} />
+            <DetailItem label="Database" value={alert.databaseName || '-'} />
+            <DetailItem label="Severity" value={alert.severity} />
+            <DetailItem label="Source" value={alert.sourceScript || details?.sourceScripts || '-'} wide />
+          </div>
+
+          <section className="modal-section">
+            <h4>Message</h4>
+            <p>{alert.message}</p>
+          </section>
+
+          <section className="modal-section">
+            <h4>Evidence</h4>
+            {details ? <StructuredDetails value={details} /> : <p>No structured details were stored for this alert.</p>}
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DetailItem({ label, value, wide = false }) {
+  return (
+    <div className={wide ? 'detail-item detail-item-wide' : 'detail-item'}>
+      <span>{label}</span>
+      <strong>{formatDetailValue(value)}</strong>
+    </div>
+  );
+}
+
+function StructuredDetails({ value }) {
+  if (Array.isArray(value)) {
+    return (
+      <div className="nested-detail-list">
+        {value.map((item, index) => (
+          <div className="nested-detail" key={index}>
+            <StructuredDetails value={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (value && typeof value === 'object') {
+    return (
+      <div className="detail-key-values">
+        {Object.entries(value).map(([key, itemValue]) => (
+          <div className="detail-row" key={key}>
+            <span>{formatDetailLabel(key)}</span>
+            <div>{renderDetailValue(itemValue)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <span>{formatDetailValue(value)}</span>;
+}
+
+function renderDetailValue(value) {
+  if (Array.isArray(value) || (value && typeof value === 'object')) {
+    return <StructuredDetails value={value} />;
+  }
+
+  return <span>{formatDetailValue(value)}</span>;
+}
+
+function parseAlertDetails(detailsJson) {
+  if (!detailsJson) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(detailsJson);
+  } catch {
+    return {
+      rawDetails: detailsJson
+    };
+  }
+}
+
+function formatDetailLabel(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatDetailValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+
+  return String(value);
 }

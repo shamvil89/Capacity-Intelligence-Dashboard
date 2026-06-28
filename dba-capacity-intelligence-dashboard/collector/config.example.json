@@ -5,10 +5,12 @@
     "DBA_SQL_AUTH_MODE": "SqlAuth",
     "SQL_USER": "collector_login",
     "SQL_PASSWORD": "use-a-secret-store-or-pipeline-secret",
-    "SOURCE_SQL_CREDENTIALS_JSON": "{\"default\":{\"user\":\"sa\",\"password\":\"local-source-password\"},\"azuresql\":{\"user\":\"azure_sql_admin\",\"password\":\"azure-source-password\"}}"
+    "SOURCE_SQL_CREDENTIALS_JSON": "{\"default\":{\"user\":\"sa\",\"password\":\"local-source-password\"},\"azuresql-sql\":{\"user\":\"azure_sql_admin\",\"password\":\"azure-source-password\"},\"azuresql-aad\":{\"user\":\"dba.user@contoso.com\",\"password\":\"entra-id-password\"}}"
   },
   "notes": [
-    "The MVP uses SQL authentication for both repository and source SQL Servers.",
+    "The repository connection supports SqlAuth or WindowsAuth.",
+    "Source SQL Servers support SqlAuth, WindowsAuth, AzureADPassword, and AzureADIntegrated.",
+    "WindowsAuth and AzureADIntegrated use the Windows identity running the collector process; they do not read usernames or passwords from SOURCE_SQL_CREDENTIALS_JSON.",
     "Add active source servers to dbo.ServerInventory before running Collect-CapacityMetrics.ps1.",
     "Do not copy this file to config.json with real passwords in source control."
   ]

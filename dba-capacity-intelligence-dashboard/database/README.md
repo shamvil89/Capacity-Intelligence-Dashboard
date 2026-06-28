@@ -55,8 +55,10 @@ flowchart TD
 | `dbo.TableSizeHistory` | Table-level size and row count history. |
 | `dbo.BackupSizeHistory` | Backup size history from `msdb`. |
 | `dbo.TempDBUsageHistory` | TempDB usage history. |
+| `dbo.LongRunningTransactionHistory` | Long-running transaction evidence used by log-risk alerts. |
+| `dbo.TempDBSessionUsageHistory` | Session-level TempDB consumers used by TempDB alerts. |
 | `dbo.CapacityForecastResult` | Latest calculated growth and capacity risk results. |
-| `dbo.AlertHistory` | Active and historical alerts, including collector failures. |
+| `dbo.AlertHistory` | Active and historical alerts, including collector failures, source scripts, and structured evidence JSON. |
 
 ## Repository Procedures
 
@@ -68,8 +70,28 @@ flowchart TD
 | `dbo.usp_InsertTableSizeHistory` | Inserts table size rows. |
 | `dbo.usp_InsertBackupSizeHistory` | Inserts backup size rows. |
 | `dbo.usp_InsertTempDBUsageHistory` | Inserts TempDB rows. |
+| `dbo.usp_InsertLongRunningTransactionHistory` | Inserts long-running transaction evidence rows. |
+| `dbo.usp_InsertTempDBSessionUsageHistory` | Inserts session-level TempDB consumer rows. |
 | `dbo.usp_GenerateCapacityForecast` | Calculates latest growth and risk. |
-| `dbo.usp_GenerateAlerts` | Inserts forecast and operational alerts. |
+| `dbo.usp_GenerateAlerts` | Inserts forecast, log-risk, backup, TempDB, long-transaction, disk, and operational alerts. |
+
+## Alert Evidence Model
+
+`dbo.AlertHistory` stores two fields used by the web alert popup:
+
+| Column | Purpose |
+| --- | --- |
+| `source_script` | Script or procedure chain that produced the alert. |
+| `details_json` | Structured alert evidence, such as log growth rate, projected hours to cap, last log backup time, TempDB top consumers, or collector failure text. |
+
+The log-risk alert calculation uses:
+
+- Current log file size from `dbo.FileSizeHistory`.
+- Recovery model and log reuse wait from `dbo.FileSizeHistory`.
+- Explicit file max size when configured.
+- SQL Server log file cap of 2 TB.
+- Observed disk headroom when volume metadata is available.
+- Recent log growth to estimate projected hours until the effective cap is reached.
 
 ## Repository Views
 
@@ -123,4 +145,3 @@ SELECT server_name, server_type, connection_mode, credential_key, is_active
 FROM dbo.ServerInventory
 ORDER BY server_name;
 ```
-

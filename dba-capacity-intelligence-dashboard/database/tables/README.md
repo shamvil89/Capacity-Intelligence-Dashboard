@@ -29,7 +29,7 @@ The files are numbered so deployment order is predictable.
 | `server_name` | Source SQL Server instance or Azure SQL logical server. |
 | `environment` | Business environment label. |
 | `server_type` | `SQLServer`, `AzureSQL`, or `ManagedInstance`. |
-| `connection_mode` | `SqlAuth`, `WindowsAuth`, or `ManagedIdentity`. |
+| `connection_mode` | `SqlAuth`, `WindowsAuth`, `AzureADPassword`, `AzureADIntegrated`, or `ManagedIdentity`. |
 | `credential_key` | Key used to select credentials from `SOURCE_SQL_CREDENTIALS_JSON`. |
 | `is_active` | Controls whether the collector processes the server. |
 
@@ -57,6 +57,20 @@ VALUES
 ```
 
 ## History Table Pattern
+
+## Connection Mode Reference
+
+| Mode | Intended use |
+| --- | --- |
+| `SqlAuth` | SQL username/password for SQL Server or Azure SQL Database. |
+| `WindowsAuth` | Trusted SQL Server connection using the Windows identity running the collector. |
+| `AzureADPassword` | Azure SQL Database authentication using an Entra ID user/password. |
+| `AzureADIntegrated` | Azure SQL Database integrated authentication using the running Windows identity. |
+| `ManagedIdentity` | Future token-based path; not implemented by the current Windows PowerShell collector. |
+
+For `WindowsAuth`, SQL Server does not accept a Windows username/password in the connection string. Grant SQL permissions to the Azure DevOps agent service account, a domain service account, or a gMSA.
+
+For `AzureADIntegrated`, the agent host and service identity must be able to perform integrated Entra ID authentication to Azure SQL Database.
 
 Most metric history tables include:
 
@@ -121,4 +135,3 @@ ORDER BY name;
 ```sql
 SELECT COL_LENGTH(N'dbo.ServerInventory', N'credential_key') AS credential_key_exists;
 ```
-

@@ -65,6 +65,16 @@ Program.cs
 | `GET /api/alerts/active` | `AlertsController` | Active alerts page. |
 | `GET /api/servers` | `ServersController` | Active server inventory. |
 
+The active alerts response includes drill-through fields used by the web popup:
+
+| Field | Meaning |
+| --- | --- |
+| `alertId` | Stable alert row identifier. |
+| `sourceScript` | Script or procedure chain that produced the alert. |
+| `detailsJson` | Structured evidence stored by the collector or `dbo.usp_GenerateAlerts`. |
+
+For alerts created before evidence fields existed, the API returns a legacy fallback JSON object so the web popup can still show the likely source script and a note to rerun collection for full metric-specific evidence.
+
 ## Configuration
 
 The API reads its repository connection string from:
@@ -159,4 +169,3 @@ http://localhost:5088/health
 | Browser CORS error | Web origin is not allowed. | Add web URL to `DBA_API_ALLOWED_ORIGINS` and redeploy API. |
 | `/swagger` does not load on IIS | Hosting bundle or IIS deployment issue. | Install ASP.NET Core Hosting Bundle and redeploy. |
 | API returns `Database temporarily unavailable` | SQL exception caught by middleware. | Check SQL Server availability, app pool identity, and connection string. |
-

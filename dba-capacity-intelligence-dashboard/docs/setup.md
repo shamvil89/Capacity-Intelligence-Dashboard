@@ -42,15 +42,24 @@ After onboarding, run `pipelines/collect-capacity.yml` to collect metrics for ac
 
 If `DBA_SQL_AUTH_MODE = WindowsAuth`, SQL Server must allow the Azure DevOps agent service identity to write to `dbo.ServerInventory`. On this self-hosted agent the service runs as `NT AUTHORITY\NETWORK SERVICE`; for local SQL Server, set `DBA_REPOSITORY_SERVER = .` instead of `localhost`, then grant that identity access. If this is awkward, use `SqlAuth`.
 
-For Azure SQL Database rows, use `serverType = AzureSQL` and `connectionMode = SqlAuth`. Instance-level collectors such as disk space, backup history, and TempDB usage are skipped because Azure SQL Database does not expose the SQL Server instance DMVs those collectors require.
+For Azure SQL Database rows, use `serverType = AzureSQL`. Instance-level collectors such as disk space, backup history, and TempDB usage are skipped because Azure SQL Database does not expose the SQL Server instance DMVs those collectors require.
 
 Use `credentialKey` to select source credentials without storing passwords in `DBAUtility`. Put the secret JSON below in the Azure DevOps `configs` variable group as `SOURCE_SQL_CREDENTIALS_JSON`:
 
 ```json
-{"default":{"user":"sa","password":"local-source-password"},"azuresql":{"user":"azure_sql_admin","password":"azure-source-password"}}
+{"default":{"user":"sa","password":"local-source-password"},"azuresql-sql":{"user":"azure_sql_admin","password":"azure-source-password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"}}
 ```
 
-Then onboard Azure SQL with `credentialKey = azuresql` and local SQL Servers with `credentialKey = default`.
+Implemented source connection modes:
+
+```text
+SqlAuth
+WindowsAuth
+AzureADPassword
+AzureADIntegrated
+```
+
+Use `SqlAuth` with `credentialKey = azuresql-sql` for Azure SQL SQL authentication. Use `AzureADPassword` with `credentialKey = azuresql-aad` for Entra ID username/password authentication. Use `WindowsAuth` for SQL Server trusted connections; the trusted Windows identity is the account running the Azure DevOps agent service, not a username/password inside the JSON. Use `AzureADIntegrated` only when the agent process runs under an Entra ID/domain identity that can authenticate to Azure SQL Database interactively/integrated from that host. `ManagedIdentity` is reserved in the database schema for a future Microsoft.Data.SqlClient token-based collector path and is not exposed in the onboarding pipeline yet.
 
 ## Seed Server Inventory
 

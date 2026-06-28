@@ -12,6 +12,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_InsertFileSizeHistory
     @free_space_mb DECIMAL(18,2) = NULL,
     @growth_setting NVARCHAR(100) = NULL,
     @max_size_mb DECIMAL(18,2) = NULL,
+    @recovery_model_desc VARCHAR(60) = NULL,
+    @log_reuse_wait_desc NVARCHAR(120) = NULL,
+    @volume_mount_point NVARCHAR(512) = NULL,
+    @volume_total_gb DECIMAL(18,2) = NULL,
+    @volume_available_gb DECIMAL(18,2) = NULL,
     @collection_time DATETIME2(7) = NULL
 AS
 BEGIN
@@ -30,7 +35,12 @@ BEGIN
             used_space_mb,
             free_space_mb,
             growth_setting,
-            max_size_mb
+            max_size_mb,
+            recovery_model_desc,
+            log_reuse_wait_desc,
+            volume_mount_point,
+            volume_total_gb,
+            volume_available_gb
         )
         VALUES
         (
@@ -44,7 +54,12 @@ BEGIN
             @used_space_mb,
             @free_space_mb,
             @growth_setting,
-            @max_size_mb
+            @max_size_mb,
+            @recovery_model_desc,
+            @log_reuse_wait_desc,
+            @volume_mount_point,
+            @volume_total_gb,
+            @volume_available_gb
         );
     END TRY
     BEGIN CATCH

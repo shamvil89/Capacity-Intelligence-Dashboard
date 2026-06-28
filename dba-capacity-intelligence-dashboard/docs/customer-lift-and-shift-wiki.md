@@ -44,7 +44,7 @@ flowchart LR
 2. The collector connects to the `DBAUtility` repository.
 3. `Collect-CapacityMetrics.ps1` reads active rows from `dbo.ServerInventory`.
 4. Each active server is processed with its configured `server_type`, `connection_mode`, and `credential_key`.
-5. Metric scripts collect database size, file size, disk space, table size, backup size, and TempDB usage where supported.
+5. Metric scripts collect database size, file size, disk space, table size, backup size, TempDB usage, TempDB top consumers, and long-running transactions where supported.
 6. Collector scripts call repository insert stored procedures.
 7. `Run-Forecast.ps1` executes forecast and alert generation procedures.
 8. The API reads from repository views and tables.
@@ -89,8 +89,10 @@ It stores:
 - Table size history
 - Backup size history
 - TempDB usage history
+- Long-running transaction history
+- Session-level TempDB consumer history
 - Forecast results
-- Alert history
+- Alert history with source scripts and structured evidence JSON
 
 ### Deployment Script Order
 
@@ -121,7 +123,7 @@ Important columns:
 | `server_name` | SQL Server instance name or Azure SQL logical server name. |
 | `environment` | Environment label such as Development, Test, Production, DR. |
 | `server_type` | `SQLServer`, `AzureSQL`, or `ManagedInstance`. |
-| `connection_mode` | `SqlAuth`, `WindowsAuth`, or `ManagedIdentity`. MVP collector implements `SqlAuth` and `WindowsAuth`. |
+| `connection_mode` | `SqlAuth`, `WindowsAuth`, `AzureADPassword`, `AzureADIntegrated`, or `ManagedIdentity`. Current collector supports `SqlAuth`, `WindowsAuth`, `AzureADPassword`, and `AzureADIntegrated`. |
 | `credential_key` | Logical key used to pick source credentials from `SOURCE_SQL_CREDENTIALS_JSON`. |
 | `is_active` | `1` means the collector processes the server. |
 
@@ -168,7 +170,8 @@ It performs these steps:
 | `Collect-DiskSpace.ps1` | Instance disk volumes. | Skipped for Azure SQL Database. |
 | `Collect-TableSize.ps1` | Table size and row counts. | Supported where permissions allow. |
 | `Collect-BackupSize.ps1` | Backup history from `msdb`. | Skipped for Azure SQL Database. |
-| `Collect-TempDBUsage.ps1` | TempDB usage. | Skipped for Azure SQL Database. |
+| `Collect-TempDBUsage.ps1` | Aggregate TempDB usage and top session-level consumers. | Skipped for Azure SQL Database. |
+| `Collect-LongRunningTransactions.ps1` | Open transaction duration, owning session, blocking/wait data, and SQL text. | Skipped for Azure SQL Database. |
 | `Run-Forecast.ps1` | Forecast and alert generation. | Repository only. |
 
 ### Azure SQL Database Notes
@@ -178,8 +181,30 @@ Azure SQL Database does not expose the same instance-level DMVs as SQL Server. F
 - Disk space collection is skipped.
 - Backup size collection is skipped.
 - TempDB usage collection is skipped.
+- Long-running transaction collection is skipped.
 - Database size and file size are collected per database.
 - Table size is collected per database where the login has permission.
+
+## 7.1 Alert Evidence And More Info Popup
+
+Alerts are not just plain messages. `dbo.AlertHistory` stores:
+
+| Column | Purpose |
+| --- | --- |
+| `source_script` | Script or procedure chain that generated the alert. |
+| `details_json` | Structured evidence shown by the web More info popup. |
+
+Important alert signals:
+
+| Alert type | What it checks | Main source |
+| --- | --- | --- |
+| `LogFileExhaustionRisk` | Whether the transaction log can hit the lower of configured max size, SQL Server 2 TB log-file cap, or available disk headroom; estimates hours to cap from recent growth. | `Collect-FileSize.ps1`, `dbo.FileSizeHistory`, `dbo.usp_GenerateAlerts`. |
+| `FullRecoveryNoLogBackup` | FULL recovery databases with no observed log backup, stale log backup, or `LOG_BACKUP` reuse wait. | `Collect-FileSize.ps1`, `Collect-BackupSize.ps1`. |
+| `LongRunningTransaction` | Open user transactions over the threshold because they can block log truncation. | `Collect-LongRunningTransactions.ps1`. |
+| `TempDBUsage` | High TempDB usage and the top sessions consuming TempDB at collection time. | `Collect-TempDBUsage.ps1`. |
+| `CollectionFailure:*` | Collector failures with the failing metric script and error text. | `collector/Common.ps1`. |
+
+After deploying this version, existing alerts will not have evidence JSON. Run a new collection so newly generated alerts populate the popup.
 
 ## 8. Source Credential Model
 
@@ -189,7 +214,8 @@ The inventory row only stores a `credential_key`, for example:
 
 ```text
 default
-azuresql
+azuresql-sql
+azuresql-aad
 prod-east
 customer-a
 ```
@@ -203,7 +229,7 @@ SOURCE_SQL_CREDENTIALS_JSON
 Example:
 
 ```json
-{"default":{"user":"sa","password":"local-source-password"},"azuresql":{"user":"azure_sql_admin","password":"azure-source-password"}}
+{"default":{"user":"sa","password":"local-source-password"},"azuresql-sql":{"user":"azure_sql_admin","password":"azure-source-password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"}}
 ```
 
 The collector resolves credentials as follows:
@@ -212,6 +238,16 @@ The collector resolves credentials as follows:
 2. Find that key in `SOURCE_SQL_CREDENTIALS_JSON`.
 3. Use the matching `user` or `username` and `password`.
 4. If the key is `default` and no JSON entry exists, fall back to `SQL_USER` and `SQL_PASSWORD`.
+
+Connection mode behavior:
+
+| Mode | Credential behavior |
+| --- | --- |
+| `SqlAuth` | Reads SQL username/password from `SOURCE_SQL_CREDENTIALS_JSON` or default `SQL_USER`/`SQL_PASSWORD`. |
+| `WindowsAuth` | Uses the Windows identity running the collector process. A Windows username/password cannot be passed in the SQL connection string. |
+| `AzureADPassword` | Reads Entra ID username/password from `SOURCE_SQL_CREDENTIALS_JSON`. |
+| `AzureADIntegrated` | Uses the Windows/domain/AAD-joined identity running the collector process for integrated Azure SQL authentication. |
+| `ManagedIdentity` | Reserved for a future Microsoft.Data.SqlClient token-based collector implementation. |
 
 ### Example Inventory Updates
 
@@ -232,9 +268,31 @@ Azure SQL Database using an Azure SQL admin login:
 UPDATE dbo.ServerInventory
 SET server_type = 'AzureSQL',
     connection_mode = 'SqlAuth',
-    credential_key = 'azuresql',
+    credential_key = 'azuresql-sql',
     updated_at = SYSUTCDATETIME()
 WHERE server_name = N'shamvil.database.windows.net';
+```
+
+Azure SQL Database using Entra ID password authentication:
+
+```sql
+UPDATE dbo.ServerInventory
+SET server_type = 'AzureSQL',
+    connection_mode = 'AzureADPassword',
+    credential_key = 'azuresql-aad',
+    updated_at = SYSUTCDATETIME()
+WHERE server_name = N'shamvil.database.windows.net';
+```
+
+SQL Server using Windows trusted authentication:
+
+```sql
+UPDATE dbo.ServerInventory
+SET server_type = 'SQLServer',
+    connection_mode = 'WindowsAuth',
+    credential_key = 'default',
+    updated_at = SYSUTCDATETIME()
+WHERE server_name = N'prod-sql-01';
 ```
 
 ## 9. API
@@ -718,7 +776,7 @@ Mark these variables secret:
 Example source credential JSON:
 
 ```json
-{"default":{"user":"source_readonly","password":"source-password"},"azuresql":{"user":"azure_admin","password":"azure-password"},"prod":{"user":"prod_readonly","password":"prod-password"}}
+{"default":{"user":"source_readonly","password":"source-password"},"azuresql-sql":{"user":"azure_admin","password":"azure-password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"},"prod":{"user":"prod_readonly","password":"prod-password"}}
 ```
 
 ### Phase 6 - Create Pipelines In Azure DevOps
@@ -763,6 +821,14 @@ Validate `credential_key` exists:
 SELECT COL_LENGTH(N'dbo.ServerInventory', N'credential_key') AS credential_key_column_id;
 ```
 
+Validate alert evidence columns:
+
+```sql
+SELECT
+    COL_LENGTH(N'dbo.AlertHistory', N'source_script') AS source_script_column_id,
+    COL_LENGTH(N'dbo.AlertHistory', N'details_json') AS details_json_column_id;
+```
+
 ### Phase 8 - Onboard Source Servers
 
 Run:
@@ -791,7 +857,18 @@ serverName = customer-sql.database.windows.net
 environment = Production
 serverType = AzureSQL
 connectionMode = SqlAuth
-credentialKey = azuresql
+credentialKey = azuresql-sql
+isActive = true
+```
+
+Azure SQL Entra ID password example:
+
+```text
+serverName = customer-sql.database.windows.net
+environment = Production
+serverType = AzureSQL
+connectionMode = AzureADPassword
+credentialKey = azuresql-aad
 isActive = true
 ```
 
@@ -815,7 +892,7 @@ Expected log pattern:
 
 ```text
 Starting collection for prod-sql-01 (SQLServer, SqlAuth, credential key: prod)...
-Starting collection for customer-sql.database.windows.net (AzureSQL, SqlAuth, credential key: azuresql)...
+Starting collection for customer-sql.database.windows.net (AzureSQL, SqlAuth, credential key: azuresql-sql)...
 Skipping DiskSpace for customer-sql.database.windows.net because server_type 'AzureSQL' is not supported by that collector.
 ```
 
@@ -827,6 +904,21 @@ FROM DBAUtility.dbo.DatabaseSizeHistory
 ORDER BY collection_time DESC;
 
 SELECT TOP (20) *
+FROM DBAUtility.dbo.AlertHistory
+ORDER BY alert_time DESC;
+```
+
+Validate evidence-rich alerts:
+
+```sql
+SELECT TOP (20)
+    alert_time,
+    server_name,
+    database_name,
+    alert_type,
+    severity,
+    source_script,
+    details_json
 FROM DBAUtility.dbo.AlertHistory
 ORDER BY alert_time DESC;
 ```
@@ -949,6 +1041,7 @@ Provide the customer:
 - API calls succeed from browser.
 - Time zone selector changes displayed times.
 - Alerts page filters and table layout render correctly.
+- Alerts page More info popup shows source scripts and structured evidence for newly generated alerts.
 
 ## 17. Troubleshooting
 
@@ -1022,7 +1115,7 @@ Fix:
 UPDATE dbo.ServerInventory
 SET server_type = 'AzureSQL',
     connection_mode = 'SqlAuth',
-    credential_key = 'azuresql',
+    credential_key = 'azuresql-sql',
     updated_at = SYSUTCDATETIME()
 WHERE server_name = N'<server>.database.windows.net';
 ```
@@ -1039,13 +1132,13 @@ Failed to authenticate the user NT Authority\Anonymous Logon in Active Directory
 
 Common causes:
 
-- Inventory row is not `connection_mode = 'SqlAuth'`.
+- Inventory row is not using the intended source mode, such as `SqlAuth`, `AzureADPassword`, or `AzureADIntegrated`.
 - Old collector code is running.
 - A connection string or dbatools path is forcing Active Directory integrated authentication.
 
 Fix:
 
-1. Confirm `connection_mode = 'SqlAuth'`.
+1. Confirm `connection_mode` matches the intended authentication method.
 2. Confirm collector log prints `credential key: <key>`.
 3. Push latest collector changes.
 4. Rerun collection.
@@ -1289,4 +1382,3 @@ SELECT server_name, environment, server_type, connection_mode, credential_key, i
 FROM DBAUtility.dbo.ServerInventory
 ORDER BY server_name;
 ```
-

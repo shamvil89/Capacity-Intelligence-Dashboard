@@ -10,7 +10,9 @@ SELECT
     database_name,
     alert_type,
     severity,
-    message
+    message,
+    source_script,
+    details_json
 FROM dbo.AlertHistory
 WHERE is_resolved = 0;
 GO

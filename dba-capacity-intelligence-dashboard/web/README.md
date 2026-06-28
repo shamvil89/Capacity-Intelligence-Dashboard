@@ -31,7 +31,7 @@ web/dba-capacity-web
 | Dashboard | `#/` | Summary cards and database capacity table. |
 | Database Detail | `#/databases/:serverName/:databaseName` | Size trend chart and forecast details for one database. |
 | Top Tables | `#/top-growing-tables` | Table growth ranking. |
-| Alerts | `#/alerts` | Active alert queue with filters, sorting, and contains search. |
+| Alerts | `#/alerts` | Active alert queue with filters, sorting, contains search, and More info evidence popup. |
 
 ## Important Files
 
@@ -48,6 +48,22 @@ web/dba-capacity-web
 | `src/pages/TopGrowingTablesPage.jsx` | Top tables page. |
 | `src/pages/AlertsPage.jsx` | Alert queue page. |
 | `src/styles.css` | Global layout, table, dashboard, alert, and responsive styles. |
+
+## Alert More Info Popup
+
+The alerts page reads `sourceScript` and `detailsJson` from `GET /api/alerts/active`.
+
+The More info button opens a popup with:
+
+- Alert time in the selected UI time zone.
+- Server, database, severity, and alert type.
+- Source script or procedure chain.
+- Original alert message.
+- Structured evidence from `detailsJson`.
+
+For log and TempDB alerts, this can include projected hours to log cap, effective cap calculation inputs, recovery model, log reuse wait, last log backup time, long-running transaction details, or top TempDB-consuming sessions.
+
+Older active alerts may show a legacy evidence note until the next collector run creates fresh structured evidence.
 
 ## API URL Configuration
 
@@ -165,4 +181,3 @@ For a customer environment:
 | Web calls old API URL | `VITE_API_BASE_URL` was wrong at build time. | Correct variable and rerun Deploy Web. |
 | Routes fail on refresh | BrowserRouter or IIS rewrite issue. | Current app uses HashRouter, redeploy current build. |
 | Chart shows wrong time zone | Old web build deployed. | Deploy build with `parseRepositoryDateTime`. |
-

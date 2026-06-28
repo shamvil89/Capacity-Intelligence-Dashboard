@@ -12,6 +12,8 @@ BEGIN
         alert_type VARCHAR(100) NOT NULL,
         severity VARCHAR(20) NOT NULL,
         message NVARCHAR(2000) NOT NULL,
+        source_script NVARCHAR(260) NULL,
+        details_json NVARCHAR(MAX) NULL,
         is_resolved BIT NOT NULL CONSTRAINT DF_AlertHistory_is_resolved DEFAULT (0),
         resolved_at DATETIME2(7) NULL
     );
@@ -19,5 +21,19 @@ BEGIN
     CREATE INDEX IX_AlertHistory_Active
         ON dbo.AlertHistory (is_resolved, severity, alert_time DESC)
         INCLUDE (server_name, database_name, alert_type);
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AlertHistory', N'source_script') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD source_script NVARCHAR(260) NULL;
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AlertHistory', N'details_json') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD details_json NVARCHAR(MAX) NULL;
 END;
 GO

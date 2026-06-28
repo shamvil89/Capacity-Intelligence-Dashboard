@@ -38,7 +38,8 @@ flowchart TD
 | `Collect-DiskSpace.ps1` | Collects disk volume capacity using instance-level SQL Server metadata. Skipped for Azure SQL Database. |
 | `Collect-TableSize.ps1` | Collects user table size and row count metrics. |
 | `Collect-BackupSize.ps1` | Collects backup size history from `msdb`. Skipped for Azure SQL Database. |
-| `Collect-TempDBUsage.ps1` | Collects TempDB usage. Skipped for Azure SQL Database. |
+| `Collect-TempDBUsage.ps1` | Collects aggregate TempDB usage and top session-level TempDB consumers. Skipped for Azure SQL Database. |
+| `Collect-LongRunningTransactions.ps1` | Collects open transactions that have exceeded the configured duration threshold. Skipped for Azure SQL Database. |
 | `Run-Forecast.ps1` | Executes forecast and alert generation stored procedures. |
 | `config.example.json` | Example local environment settings. Do not store real passwords in this file. |
 
@@ -64,19 +65,37 @@ DBA_REPOSITORY_SERVER = .
 
 Source credentials are chosen per inventory row.
 
-Inventory row:
+SQL authentication inventory row:
 
 ```text
 server_name = shamvil.database.windows.net
 server_type = AzureSQL
 connection_mode = SqlAuth
-credential_key = azuresql
+credential_key = azuresql-sql
+```
+
+Entra ID password inventory row:
+
+```text
+server_name = shamvil.database.windows.net
+server_type = AzureSQL
+connection_mode = AzureADPassword
+credential_key = azuresql-aad
+```
+
+Trusted SQL Server inventory row:
+
+```text
+server_name = prod-sql-01
+server_type = SQLServer
+connection_mode = WindowsAuth
+credential_key = default
 ```
 
 Secret JSON in Azure DevOps variable group `configs`:
 
 ```json
-{"default":{"user":"sa","password":"local-password"},"azuresql":{"user":"azure_admin","password":"azure-password"}}
+{"default":{"user":"sa","password":"local-password"},"azuresql-sql":{"user":"azure_admin","password":"azure-password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"}}
 ```
 
 Resolution logic:
@@ -85,6 +104,18 @@ Resolution logic:
 2. Look up matching credentials in `SOURCE_SQL_CREDENTIALS_JSON`.
 3. Build a SQL authentication connection string for the source.
 4. Fall back to `SQL_USER` and `SQL_PASSWORD` only for `credential_key = default`.
+
+Supported source connection modes:
+
+| Mode | Credential source | Notes |
+| --- | --- | --- |
+| `SqlAuth` | `SOURCE_SQL_CREDENTIALS_JSON` or `SQL_USER`/`SQL_PASSWORD` for default. | Works for SQL Server and Azure SQL SQL authentication. |
+| `WindowsAuth` | Windows identity running the collector process. | Use for trusted SQL Server connections. To use a domain account, run the agent service as that account or a gMSA. |
+| `AzureADPassword` | Entra ID user/password in `SOURCE_SQL_CREDENTIALS_JSON`. | Works for Azure SQL Database when Entra admin/user access is configured. |
+| `AzureADIntegrated` | Windows identity running the collector process. | Requires a domain/AAD-joined host and an identity that can perform integrated Azure SQL authentication. |
+| `ManagedIdentity` | Not implemented in the current Windows PowerShell collector. | Reserved for a future Microsoft.Data.SqlClient token-based path. |
+
+Important: Windows trusted authentication cannot pass a Windows username/password in the SQL connection string. SQL Server uses the Windows access token of the running process.
 
 ## Azure SQL Database Behavior
 
@@ -98,6 +129,7 @@ Azure SQL Database does not support every SQL Server instance-level DMV. The coo
 | Table size | Runs per database where permissions allow. |
 | Backup size | Skipped. |
 | TempDB usage | Skipped. |
+| Long-running transactions | Skipped. |
 
 Expected log examples:
 
@@ -122,6 +154,16 @@ collector-logs
 
 When a metric collector fails for a server or database, the collector writes a `CollectionFailure:*` alert into `dbo.AlertHistory`. This makes collector failures visible on the dashboard alerts page.
 
+The collector also stores alert evidence for the More info popup:
+
+| Signal | Collected by | Used by |
+| --- | --- | --- |
+| Recovery model and log reuse wait | `Collect-FileSize.ps1` | `FullRecoveryNoLogBackup` and `LogFileExhaustionRisk` alerts. |
+| Log file size, max size, and volume free space | `Collect-FileSize.ps1` | Log-cap projection and remaining headroom calculation. |
+| Last log backup time | `Collect-BackupSize.ps1` | FULL recovery without recent log backup detection. |
+| Open transaction duration and SQL text | `Collect-LongRunningTransactions.ps1` | Long-running transaction alerts and log-truncation evidence. |
+| TempDB top consumers | `Collect-TempDBUsage.ps1` | TempDB alert popup drill-through. |
+
 ## Local Run
 
 Windows authentication:
@@ -141,7 +183,7 @@ $env:DBA_REPOSITORY_DB = "DBAUtility"
 $env:DBA_SQL_AUTH_MODE = "SqlAuth"
 $env:SQL_USER = "repo_collector"
 $env:SQL_PASSWORD = "password"
-$env:SOURCE_SQL_CREDENTIALS_JSON = '{"default":{"user":"source_user","password":"source_password"}}'
+$env:SOURCE_SQL_CREDENTIALS_JSON = '{"default":{"user":"source_user","password":"source_password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"}}'
 .\collector\Collect-CapacityMetrics.ps1
 ```
 
@@ -180,4 +222,3 @@ For a customer:
 | `Invalid object name sys.master_files` | Old database size collector against Azure SQL. | Deploy current collector code. |
 | No scheduled runs | Branch filter or UI schedule conflict. | Check `collect-capacity.yml`, active branch, and Azure DevOps Scheduled runs page. |
 | Pre-login handshake timeout | Firewall, network, or paused Azure SQL database. | Test from agent host and update firewall rules. |
-

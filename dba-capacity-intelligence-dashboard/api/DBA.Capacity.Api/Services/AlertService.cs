@@ -10,22 +10,64 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
     {
         const string sql = """
         SELECT
-            alert_time AS AlertTime,
-            server_name AS ServerName,
-            database_name AS DatabaseName,
-            alert_type AS AlertType,
-            severity AS Severity,
-            message AS Message
-        FROM dbo.vw_ActiveAlerts
+            a.alert_id AS AlertId,
+            a.alert_time AS AlertTime,
+            a.server_name AS ServerName,
+            a.database_name AS DatabaseName,
+            a.alert_type AS AlertType,
+            a.severity AS Severity,
+            a.message AS Message,
+            COALESCE(a.source_script, source_map.source_script) AS SourceScript,
+            COALESCE
+            (
+                a.details_json,
+                (
+                    SELECT
+                        'LegacyAlert' AS category,
+                        a.alert_id AS alertId,
+                        a.server_name AS serverName,
+                        a.database_name AS databaseName,
+                        a.alert_type AS alertType,
+                        a.severity,
+                        a.message,
+                        COALESCE(a.source_script, source_map.source_script) AS sourceScripts,
+                        'This alert was created before structured evidence was captured. Run the collector again after deploying the latest database and collector scripts for full metric-specific details.' AS note
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )
+            ) AS DetailsJson
+        FROM dbo.vw_ActiveAlerts AS a
+        CROSS APPLY
+        (
+            SELECT
+                CASE
+                    WHEN a.alert_type LIKE 'CollectionFailure:%'
+                        THEN CONCAT('Collect-', SUBSTRING(a.alert_type, CHARINDEX(':', a.alert_type) + 1, 100), '.ps1')
+                    WHEN a.alert_type = 'CapacityRisk'
+                        THEN 'Run-Forecast.ps1; usp_GenerateCapacityForecast.sql; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'LogFileExhaustionRisk'
+                        THEN 'Collect-FileSize.ps1; Collect-DiskSpace.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'FullRecoveryNoLogBackup'
+                        THEN 'Collect-FileSize.ps1; Collect-BackupSize.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'LongRunningTransaction'
+                        THEN 'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'TempDBUsage'
+                        THEN 'Collect-TempDBUsage.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'DiskSpaceLow'
+                        THEN 'Collect-DiskSpace.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'BackupGrowth'
+                        THEN 'Collect-BackupSize.ps1; usp_GenerateAlerts.sql'
+                    ELSE 'usp_GenerateAlerts.sql'
+                END AS source_script
+        ) AS source_map
         ORDER BY
-            CASE severity
+            CASE a.severity
                 WHEN 'Critical' THEN 1
                 WHEN 'High' THEN 2
                 WHEN 'Medium' THEN 3
                 WHEN 'Low' THEN 4
                 ELSE 5
             END,
-            alert_time DESC;
+            a.alert_time DESC;
         """;
 
         using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);

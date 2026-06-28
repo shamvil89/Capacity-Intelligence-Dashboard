@@ -111,7 +111,7 @@ steps:
             [string]$Destination
           )
 
-          robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP
+          robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP /R:5 /W:2
           $exitCode = $LASTEXITCODE
 
           if ($exitCode -gt 7) {
@@ -119,6 +119,60 @@ steps:
           }
 
           $global:LASTEXITCODE = 0
+        }
+
+        function Stop-IisApplication {
+          param(
+            [string]$SiteName,
+            [string]$AppPoolName,
+            [string]$PhysicalPath
+          )
+
+          $appOfflinePath = Join-Path $PhysicalPath 'app_offline.htm'
+          Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
+
+          Write-Host "Stopping IIS site '$SiteName'..."
+          Stop-Website -Name $SiteName -ErrorAction SilentlyContinue
+
+          if (Test-Path "IIS:\AppPools\$AppPoolName") {
+            Write-Host "Stopping IIS app pool '$AppPoolName'..."
+            Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+
+            $deadline = (Get-Date).AddSeconds(30)
+            do {
+              Start-Sleep -Milliseconds 500
+              $poolState = (Get-WebAppPoolState -Name $AppPoolName).Value
+            } while ($poolState -ne 'Stopped' -and (Get-Date) -lt $deadline)
+
+            if ($poolState -ne 'Stopped') {
+              Write-Warning "App pool '$AppPoolName' did not report Stopped within 30 seconds. Checking worker processes."
+            }
+
+            $appcmd = Join-Path $env:SystemRoot 'System32\inetsrv\appcmd.exe'
+            if (Test-Path $appcmd) {
+              $workerProcessLines = & $appcmd list wp "/apppool.name:$AppPoolName" 2>$null
+              foreach ($line in $workerProcessLines) {
+                if ($line -match 'WP \"(?<pid>\d+)\"') {
+                  $processId = [int]$Matches.pid
+                  Write-Warning "Stopping lingering IIS worker process $processId for app pool '$AppPoolName'."
+                  Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+                }
+              }
+            }
+          }
+        }
+
+        function Start-IisApplication {
+          param(
+            [string]$SiteName,
+            [string]$AppPoolName
+          )
+
+          if ((Get-WebAppPoolState -Name $AppPoolName).Value -ne 'Started') {
+            Start-WebAppPool -Name $AppPoolName
+          }
+
+          Start-Website -Name $SiteName
         }
 
         function Grant-ApiDatabaseReader {
@@ -233,10 +287,9 @@ steps:
         }
 
         $appOfflinePath = Join-Path $physicalPath 'app_offline.htm'
-        Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
 
         try {
-          Stop-Website -Name $siteName -ErrorAction SilentlyContinue
+          Stop-IisApplication -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $physicalPath
           Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
           Grant-ApiDatabaseReader -AppPoolName $appPoolName
 
@@ -262,10 +315,9 @@ steps:
         }
         finally {
           Remove-Item -Path $appOfflinePath -ErrorAction SilentlyContinue
+          Start-IisApplication -SiteName $siteName -AppPoolName $appPoolName
         }
 
-        Start-WebAppPool -Name $appPoolName
-        Start-Website -Name $siteName
         Write-Host "API deployed to http://localhost:$port"
     env:
       IIS_API_SITE_NAME: $(IIS_API_SITE_NAME)

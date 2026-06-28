@@ -40,7 +40,9 @@ function New-SqlCredentialFromEnvironment {
 function Get-SourceCredentialFromEnvironment {
     [CmdletBinding()]
     param(
-        [string]$CredentialKey
+        [string]$CredentialKey,
+
+        [switch]$Optional
     )
 
     $normalizedKey = if ([string]::IsNullOrWhiteSpace($CredentialKey) -or $CredentialKey -like '$(*') { "default" } else { $CredentialKey }
@@ -60,13 +62,26 @@ function Get-SourceCredentialFromEnvironment {
             $userProperty = $credential.PSObject.Properties["user"]
             $usernameProperty = $credential.PSObject.Properties["username"]
             $passwordProperty = $credential.PSObject.Properties["password"]
+            $clientIdProperty = $credential.PSObject.Properties["clientId"]
+            $clientIdSnakeProperty = $credential.PSObject.Properties["client_id"]
             $user = if ($userProperty) { $userProperty.Value } elseif ($usernameProperty) { $usernameProperty.Value } else { $null }
             $password = if ($passwordProperty) { $passwordProperty.Value } else { $null }
+            $clientId = if ($clientIdProperty) { $clientIdProperty.Value } elseif ($clientIdSnakeProperty) { $clientIdSnakeProperty.Value } else { $null }
 
             if (-not [string]::IsNullOrWhiteSpace($user) -and -not [string]::IsNullOrWhiteSpace($password)) {
                 return [pscustomobject]@{
                     User = [string]$user
                     Password = [string]$password
+                    ClientId = if ($clientId) { [string]$clientId } else { $null }
+                    Key = $normalizedKey
+                }
+            }
+
+            if ($Optional -and -not [string]::IsNullOrWhiteSpace($clientId)) {
+                return [pscustomobject]@{
+                    User = $null
+                    Password = $null
+                    ClientId = [string]$clientId
                     Key = $normalizedKey
                 }
             }
@@ -78,15 +93,20 @@ function Get-SourceCredentialFromEnvironment {
             return [pscustomobject]@{
                 User = $env:SQL_USER
                 Password = $env:SQL_PASSWORD
+                ClientId = $null
                 Key = $normalizedKey
             }
         }
     }
 
+    if ($Optional) {
+        return $null
+    }
+
     throw "No source SQL credential found for key '$normalizedKey'. Add it to SOURCE_SQL_CREDENTIALS_JSON or use key 'default' with SQL_USER/SQL_PASSWORD."
 }
 
-function Get-SqlAuthMode {
+function Get-SqlConnectionMode {
     [CmdletBinding()]
     param(
         [string]$PreferredMode
@@ -102,11 +122,22 @@ function Get-SqlAuthMode {
         return "SqlAuth"
     }
 
-    if ($authMode -notin @("SqlAuth", "WindowsAuth")) {
-        throw "DBA_SQL_AUTH_MODE must be either 'SqlAuth' or 'WindowsAuth'. Current value: $authMode"
+    $supportedModes = @("SqlAuth", "WindowsAuth", "AzureADPassword", "AzureADIntegrated", "ManagedIdentity")
+
+    if ($authMode -notin $supportedModes) {
+        throw "Connection mode must be one of: $($supportedModes -join ', '). Current value: $authMode"
     }
 
     return $authMode
+}
+
+function Get-SqlAuthMode {
+    [CmdletBinding()]
+    param(
+        [string]$PreferredMode
+    )
+
+    Get-SqlConnectionMode -PreferredMode $PreferredMode
 }
 
 function New-SourceSqlConnectionString {
@@ -131,16 +162,30 @@ function New-SourceSqlConnectionString {
     $builder["TrustServerCertificate"] = $true
     $builder["Connection Timeout"] = 30
 
-    if ($AuthMode -eq "SqlAuth") {
-        $credential = Get-SourceCredentialFromEnvironment -CredentialKey $CredentialKey
-        $builder["User ID"] = $credential.User
-        $builder["Password"] = $credential.Password
-    }
-    elseif ($AuthMode -eq "WindowsAuth") {
-        $builder["Integrated Security"] = $true
-    }
-    else {
-        throw "Source connection mode '$AuthMode' is not implemented by the MVP collector."
+    switch ($AuthMode) {
+        "SqlAuth" {
+            $credential = Get-SourceCredentialFromEnvironment -CredentialKey $CredentialKey
+            $builder["User ID"] = $credential.User
+            $builder["Password"] = $credential.Password
+        }
+        "WindowsAuth" {
+            $builder["Integrated Security"] = $true
+        }
+        "AzureADPassword" {
+            $credential = Get-SourceCredentialFromEnvironment -CredentialKey $CredentialKey
+            $builder["Authentication"] = "Active Directory Password"
+            $builder["User ID"] = $credential.User
+            $builder["Password"] = $credential.Password
+        }
+        "AzureADIntegrated" {
+            $builder["Authentication"] = "Active Directory Integrated"
+        }
+        "ManagedIdentity" {
+            throw "Source connection mode 'ManagedIdentity' is not supported by the current Windows PowerShell System.Data.SqlClient collector. Use AzureADPassword, AzureADIntegrated, SqlAuth, or WindowsAuth, or upgrade the collector to Microsoft.Data.SqlClient token-based authentication."
+        }
+        default {
+            throw "Source connection mode '$AuthMode' is not implemented by the collector."
+        }
     }
 
     $builder.ConnectionString
@@ -161,7 +206,7 @@ function Get-RepositoryConfig {
     [pscustomobject]@{
         Server   = $env:DBA_REPOSITORY_SERVER
         Database = $env:DBA_REPOSITORY_DB
-        AuthMode = Get-SqlAuthMode
+        AuthMode = Get-SqlConnectionMode
     }
 }
 
@@ -186,6 +231,9 @@ function Invoke-RepositoryQuery {
 
     if ($repository.AuthMode -eq "SqlAuth") {
         $invokeParams.SqlCredential = New-SqlCredentialFromEnvironment
+    }
+    elseif ($repository.AuthMode -ne "WindowsAuth") {
+        throw "Repository DBA_SQL_AUTH_MODE supports only SqlAuth or WindowsAuth. Use source server connection_mode for AzureADPassword or AzureADIntegrated."
     }
 
     if ($SqlParameter.Count -gt 0) {
@@ -212,7 +260,7 @@ function Invoke-SourceQuery {
 
     # Source SQL Servers can use a different connection mode from the local
     # DBAUtility repository. The value comes from ServerInventory.connection_mode.
-    $authMode = Get-SqlAuthMode -PreferredMode $env:DBA_SOURCE_CONNECTION_MODE
+    $authMode = Get-SqlConnectionMode -PreferredMode $env:DBA_SOURCE_CONNECTION_MODE
     $connectionString = New-SourceSqlConnectionString -ServerName $ServerName -Database $Database -AuthMode $authMode -CredentialKey $env:DBA_SOURCE_CREDENTIAL_KEY
     $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
     $command = $connection.CreateCommand()
@@ -326,6 +374,17 @@ function Write-CollectionFailureAlert {
         [string]$Message
     )
 
+    $sourceScript = "Collect-$MetricName.ps1"
+    $details = [ordered]@{
+        category = "CollectionFailure"
+        sourceScripts = @($sourceScript)
+        metricName = $MetricName
+        serverName = $ServerName
+        databaseName = $DatabaseName
+        errorMessage = $Message
+        collectedAtUtc = [DateTime]::UtcNow.ToString("o")
+    } | ConvertTo-Json -Depth 6 -Compress
+
     $alertMessage = Limit-AlertMessage -Message "Collection failed for $MetricName. $Message"
     $query = @"
 DECLARE @today DATETIME2(7) = CONVERT(DATE, SYSUTCDATETIME());
@@ -348,7 +407,9 @@ BEGIN
         database_name,
         alert_type,
         severity,
-        message
+        message,
+        source_script,
+        details_json
     )
     VALUES
     (
@@ -356,8 +417,21 @@ BEGIN
         @database_name,
         @alert_type,
         'High',
-        @message
+        @message,
+        @source_script,
+        @details_json
     );
+END;
+ELSE
+BEGIN
+    UPDATE dbo.AlertHistory
+    SET source_script = COALESCE(source_script, @source_script),
+        details_json = COALESCE(details_json, @details_json)
+    WHERE alert_time >= @today
+      AND alert_time < @tomorrow
+      AND server_name = @server_name
+      AND ISNULL(database_name, N'') = ISNULL(@database_name, N'')
+      AND alert_type = @alert_type;
 END;
 "@
 
@@ -366,5 +440,7 @@ END;
         database_name = $DatabaseName
         alert_type    = "CollectionFailure:$MetricName"
         message       = $alertMessage
+        source_script = $sourceScript
+        details_json  = $details
     } | Out-Null
 }

@@ -35,7 +35,8 @@ try {
         @{ Name = 'DiskSpace';    Path = Join-Path $PSScriptRoot 'Collect-DiskSpace.ps1';    SkipFor = @('AzureSQL') },
         @{ Name = 'TableSize';    Path = Join-Path $PSScriptRoot 'Collect-TableSize.ps1';    SkipFor = @() },
         @{ Name = 'BackupSize';   Path = Join-Path $PSScriptRoot 'Collect-BackupSize.ps1';   SkipFor = @('AzureSQL') },
-        @{ Name = 'TempDBUsage';  Path = Join-Path $PSScriptRoot 'Collect-TempDBUsage.ps1';  SkipFor = @('AzureSQL') }
+        @{ Name = 'TempDBUsage';  Path = Join-Path $PSScriptRoot 'Collect-TempDBUsage.ps1';  SkipFor = @('AzureSQL') },
+        @{ Name = 'LongRunningTransactions'; Path = Join-Path $PSScriptRoot 'Collect-LongRunningTransactions.ps1'; SkipFor = @('AzureSQL') }
     )
 
     $failureCount = 0

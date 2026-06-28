@@ -212,15 +212,23 @@ DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
 
 The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` on `DBAUtility` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
 
-Azure SQL Database inventory rows should use `server_type = AzureSQL` and `connection_mode = SqlAuth`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
+Azure SQL Database inventory rows should use `server_type = AzureSQL`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
 
 Source server credentials can vary by server. Store source credentials in the `configs` variable group as a secret named `SOURCE_SQL_CREDENTIALS_JSON`:
 
 ```json
-{"default":{"user":"sa","password":"local-source-password"},"azuresql":{"user":"azure_sql_admin","password":"azure-source-password"}}
+{"default":{"user":"sa","password":"local-source-password"},"azuresql-sql":{"user":"azure_sql_admin","password":"azure-source-password"},"azuresql-aad":{"user":"dba.user@contoso.com","password":"entra-id-password"}}
 ```
 
-Set `credential_key = default` for SQL Servers that use `sa`, and `credential_key = azuresql` for Azure SQL Database.
+Supported source `connection_mode` values:
+
+- `SqlAuth`: uses `SOURCE_SQL_CREDENTIALS_JSON` or `SQL_USER`/`SQL_PASSWORD` for `credential_key = default`.
+- `WindowsAuth`: uses the Windows identity running the collector process or Azure DevOps agent service.
+- `AzureADPassword`: uses an Entra ID user/password from `SOURCE_SQL_CREDENTIALS_JSON`.
+- `AzureADIntegrated`: uses the signed-in/domain/AAD-joined Windows identity running the collector process.
+- `ManagedIdentity`: reserved for a future Microsoft.Data.SqlClient token-based collector path.
+
+For SQL auth Azure SQL, use `connection_mode = SqlAuth` and `credential_key = azuresql-sql`. For Entra ID password auth, use `connection_mode = AzureADPassword` and `credential_key = azuresql-aad`. For trusted Windows SQL Server auth, use `connection_mode = WindowsAuth` and run the agent service as the Windows or domain account that SQL Server trusts.
 
 ## Security Notes
 
