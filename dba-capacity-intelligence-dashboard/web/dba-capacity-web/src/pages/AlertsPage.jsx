@@ -239,6 +239,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <p>{alert.message}</p>
           </section>
 
+          <BlockingEvidenceSection details={details} />
+
           <QueryPlanSection alertType={alert.alertType} details={details} />
 
           <section className="modal-section">
@@ -252,6 +254,116 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function BlockingEvidenceSection({ details }) {
+  const heldLocks = Array.isArray(details?.leadBlockerHeldLocks) ? details.leadBlockerHeldLocks : [];
+  const blockedSessions = Array.isArray(details?.blockedSessions) ? details.blockedSessions : [];
+  const blockingEvidence = Array.isArray(details?.blockingEvidence) ? details.blockingEvidence : [];
+
+  if (heldLocks.length === 0 && blockedSessions.length === 0 && blockingEvidence.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {heldLocks.length > 0 ? (
+        <section className="modal-section">
+          <h4>Lead Blocker Held Locks</h4>
+          <div className="evidence-table-scroll">
+            <table className="evidence-mini-table">
+              <thead>
+                <tr>
+                  <th>Database</th>
+                  <th>Object</th>
+                  <th>Resource</th>
+                  <th>Mode</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {heldLocks.map((lock, index) => (
+                  <tr key={`${lock.databaseName}-${lock.objectName}-${lock.lockMode}-${index}`}>
+                    <td>{formatDetailValue(lock.databaseName)}</td>
+                    <td>{formatDetailValue(lock.objectName)}</td>
+                    <td>{formatDetailValue(lock.resourceType)}</td>
+                    <td>{formatDetailValue(lock.lockMode)}</td>
+                    <td>{formatDetailValue(lock.lockStatus)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {blockedSessions.length > 0 ? (
+        <section className="modal-section">
+          <h4>Blocked Sessions</h4>
+          <div className="evidence-table-scroll">
+            <table className="evidence-mini-table">
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>Database</th>
+                  <th>Login</th>
+                  <th>Wait</th>
+                  <th>Wait ms</th>
+                  <th>Blocked Object</th>
+                  <th>Lock Mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                {blockedSessions.map((session, index) => (
+                  <tr key={`${session.blockedSessionId}-${session.waitResource}-${index}`}>
+                    <td>{formatDetailValue(session.blockedSessionId)}</td>
+                    <td>{formatDetailValue(session.databaseName)}</td>
+                    <td>{formatDetailValue(session.loginName)}</td>
+                    <td>{formatDetailValue(session.waitType)}</td>
+                    <td>{formatDetailValue(session.waitDurationMs)}</td>
+                    <td>{formatDetailValue(session.blockedObjectName)}</td>
+                    <td>{formatDetailValue(session.blockedLockMode)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {blockingEvidence.length > 0 ? (
+        <section className="modal-section">
+          <h4>Blocking Evidence</h4>
+          <div className="evidence-table-scroll">
+            <table className="evidence-mini-table">
+              <thead>
+                <tr>
+                  <th>Lead Blocker</th>
+                  <th>Blocked Session</th>
+                  <th>Wait</th>
+                  <th>Wait ms</th>
+                  <th>Blocked Object</th>
+                  <th>Login</th>
+                </tr>
+              </thead>
+              <tbody>
+                {blockingEvidence.map((item, index) => (
+                  <tr key={`${item.leadBlockerSessionId}-${item.blockedSessionId}-${index}`}>
+                    <td>{formatDetailValue(item.leadBlockerSessionId)}</td>
+                    <td>{formatDetailValue(item.blockedSessionId)}</td>
+                    <td>{formatDetailValue(item.waitType)}</td>
+                    <td>{formatDetailValue(item.waitDurationMs)}</td>
+                    <td>{formatDetailValue(item.blockedObjectName)}</td>
+                    <td>{formatDetailValue(item.leadBlockerLoginName)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </>
   );
 }
 
