@@ -29,7 +29,7 @@ flowchart LR
 | --- | --- | --- |
 | `DashboardController.cs` | `api/dashboard` | Returns dashboard summary cards. |
 | `CapacityController.cs` | `api/capacity` | Returns database capacity rows, trend rows, and top growing tables. |
-| `AlertsController.cs` | `api/alerts` | Returns active repository alerts. |
+| `AlertsController.cs` | `api/alerts` | Returns active repository alerts and deletes selected alert rows. |
 | `ServersController.cs` | `api/servers` | Returns active server inventory. |
 
 ## DashboardController
@@ -99,9 +99,10 @@ Endpoint:
 
 ```text
 GET /api/alerts/active
+DELETE /api/alerts/{alertId}
 ```
 
-Returns active unresolved alerts from `dbo.vw_ActiveAlerts`. Used by the Alerts page.
+Returns active unresolved alerts from `dbo.vw_ActiveAlerts`. The delete endpoint removes one row from `dbo.AlertHistory`; if the underlying issue is still active, a later collector run can raise a fresh alert.
 
 ## ServersController
 
@@ -153,4 +154,3 @@ Change controllers only when adding a new API capability.
 | `400 Bad Request` | Invalid query parameter, such as unsupported risk level. | Check request URL and allowed values. |
 | Endpoint missing from Swagger | Controller route/action missing or app not redeployed. | Rebuild and redeploy API. |
 | Endpoint returns empty array | Service query found no rows. | Validate repository views directly in SQL Server. |
-

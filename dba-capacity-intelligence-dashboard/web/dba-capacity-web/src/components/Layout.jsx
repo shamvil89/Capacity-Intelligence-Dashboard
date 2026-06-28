@@ -53,7 +53,7 @@ export default function Layout() {
             </label>
             <div className="header-status">
               <Activity aria-hidden="true" size={18} />
-              <span>Repository read-only API</span>
+              <span>Repository API</span>
             </div>
           </div>
         </header>

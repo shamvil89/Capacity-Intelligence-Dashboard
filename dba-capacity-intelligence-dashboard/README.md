@@ -1,6 +1,6 @@
 # DBA Capacity Intelligence Dashboard
 
-DBA Capacity Intelligence Dashboard is an MVP DBA automation system for collecting SQL Server capacity metrics into a central `DBAUtility` repository, generating growth forecasts, and exposing a secure read-only dashboard through an ASP.NET Core API and React frontend.
+DBA Capacity Intelligence Dashboard is an MVP DBA automation system for collecting SQL Server capacity metrics into a central `DBAUtility` repository, generating growth forecasts, and exposing a secure dashboard through an ASP.NET Core API and React frontend.
 
 ```text
 Source SQL Servers
@@ -135,6 +135,7 @@ http://localhost:5173
 - `GET /api/capacity/databases/{serverName}/{databaseName}/trend?days=90`
 - `GET /api/capacity/top-growing-tables?limit=20`
 - `GET /api/alerts/active`
+- `DELETE /api/alerts/{alertId}`
 - `GET /api/servers`
 
 ## Azure DevOps Pipelines
@@ -210,7 +211,7 @@ VITE_API_BASE_URL = http://localhost:5088/api
 DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
 ```
 
-The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` on `DBAUtility` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
+The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
 
 Azure SQL Database inventory rows should use `server_type = AzureSQL`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
 

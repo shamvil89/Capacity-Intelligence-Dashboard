@@ -1,9 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5088/api';
 
-async function request(path) {
+async function request(path, options = {}) {
+  const { headers, ...fetchOptions } = options;
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...fetchOptions,
     headers: {
-      Accept: 'application/json'
+      Accept: 'application/json',
+      ...(headers ?? {})
     }
   });
 
@@ -20,7 +23,12 @@ async function request(path) {
     throw new Error(message);
   }
 
-  return response.json();
+  if (response.status === 204) {
+    return null;
+  }
+
+  const body = await response.text();
+  return body ? JSON.parse(body) : null;
 }
 
 function toQueryString(params) {
@@ -44,5 +52,6 @@ export const api = {
   getTopGrowingTables: (limit = 20, filters = {}) => request(`/capacity/top-growing-tables${toQueryString({ limit, ...filters })}`),
   getActiveAlerts: () => request('/alerts/active'),
   getAlertHistory: (limit = 250) => request(`/alerts/history${toQueryString({ limit })}`),
+  deleteAlert: (alertId) => request(`/alerts/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
   getServers: () => request('/servers')
 };

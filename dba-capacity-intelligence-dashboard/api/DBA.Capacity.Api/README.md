@@ -2,9 +2,9 @@
 
 ## Purpose
 
-`DBA.Capacity.Api` is the ASP.NET Core read-only API for the DBA Capacity Intelligence Dashboard. It is the server-side boundary between the React dashboard and the `DBAUtility` SQL Server repository.
+`DBA.Capacity.Api` is the ASP.NET Core API for the DBA Capacity Intelligence Dashboard. It is the server-side boundary between the React dashboard and the `DBAUtility` SQL Server repository.
 
-The API does not collect metrics and does not connect to monitored source servers. It only reads the already-collected repository data and returns JSON to the web app.
+The API does not collect metrics and does not connect to monitored source servers. It reads the already-collected repository data, returns JSON to the web app, and supports deleting selected alert rows from `dbo.AlertHistory`.
 
 ## How The API Works
 
@@ -63,6 +63,7 @@ Program.cs
 | `GET /api/capacity/databases/{serverName}/{databaseName}/trend?days=90` | `CapacityController` | Database size trend chart. |
 | `GET /api/capacity/top-growing-tables?limit=20` | `CapacityController` | Top growing tables page. |
 | `GET /api/alerts/active` | `AlertsController` | Active alerts page. |
+| `DELETE /api/alerts/{alertId}` | `AlertsController` | Deletes one alert row from `dbo.AlertHistory`. |
 | `GET /api/servers` | `ServersController` | Active server inventory. |
 
 Capacity and summary endpoints support environment filtering from `dbo.ServerInventory.environment`:
@@ -136,13 +137,14 @@ The IIS host must have the ASP.NET Core Hosting Bundle installed.
 
 ## Database Access
 
-The API should have read-only repository access. The default IIS deployment grants:
+The API should have read repository access plus the narrow alert-cleanup permission. The default IIS deployment grants:
 
 ```text
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
+IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
 ```
 
-If using SQL authentication instead, set `DBA_API_CONNECTION_STRING` to a read-only SQL login.
+If using SQL authentication instead, set `DBA_API_CONNECTION_STRING` to a SQL login with equivalent permissions.
 
 ## Local Development
 

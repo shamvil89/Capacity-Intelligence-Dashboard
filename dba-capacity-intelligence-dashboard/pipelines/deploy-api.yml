@@ -175,7 +175,7 @@ steps:
           Start-Website -Name $SiteName
         }
 
-        function Grant-ApiDatabaseReader {
+        function Grant-ApiDatabaseAccess {
           param(
             [string]$AppPoolName
           )
@@ -225,6 +225,22 @@ steps:
         BEGIN
             ALTER ROLE db_datareader ADD MEMBER [$principalName];
         END;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.database_permissions AS permission
+            INNER JOIN sys.database_principals AS principal
+                ON principal.principal_id = permission.grantee_principal_id
+            WHERE principal.name = N'$escapedPrincipalName'
+              AND permission.class = 1
+              AND permission.major_id = OBJECT_ID(N'dbo.AlertHistory')
+              AND permission.permission_name = N'DELETE'
+              AND permission.state_desc IN (N'GRANT', N'GRANT_WITH_GRANT_OPTION')
+        )
+        BEGIN
+            GRANT DELETE ON dbo.AlertHistory TO [$principalName];
+        END;
         "@
 
           $sqlParams = @{
@@ -238,7 +254,7 @@ steps:
             $sqlParams.Password = $env:SQL_PASSWORD
           }
 
-          Write-Host "Granting DBAUtility read access to $principalName..."
+          Write-Host "Granting DBAUtility dashboard API access to $principalName..."
           Invoke-Sqlcmd @sqlParams -Query $grantScript | Out-Null
         }
 
@@ -291,7 +307,7 @@ steps:
         try {
           Stop-IisApplication -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $physicalPath
           Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
-          Grant-ApiDatabaseReader -AppPoolName $appPoolName
+          Grant-ApiDatabaseAccess -AppPoolName $appPoolName
 
           if (-not [string]::IsNullOrWhiteSpace($connectionString)) {
             $productionSettings = @{

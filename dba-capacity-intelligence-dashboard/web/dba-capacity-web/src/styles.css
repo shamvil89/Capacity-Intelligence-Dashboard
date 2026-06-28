@@ -410,7 +410,7 @@ table {
 }
 
 .alerts-table {
-  min-width: 1670px;
+  min-width: 1750px;
   table-layout: fixed;
 }
 
@@ -451,11 +451,11 @@ table {
 
 .alerts-table th:nth-child(8),
 .alerts-table td:nth-child(8) {
-  width: 150px;
+  width: 230px;
 }
 
 .alerts-history-table {
-  min-width: 1960px;
+  min-width: 2040px;
 }
 
 .alerts-history-table th:nth-child(7),
@@ -475,7 +475,7 @@ table {
 
 .alerts-history-table th:nth-child(10),
 .alerts-history-table td:nth-child(10) {
-  width: 150px;
+  width: 230px;
 }
 
 th,
@@ -544,6 +544,30 @@ td {
 .icon-action:hover {
   background: #f8fafc;
   border-color: #98a2b3;
+}
+
+.secondary-action:disabled {
+  color: #98a2b3;
+  cursor: not-allowed;
+  background: #f8fafc;
+}
+
+.danger-action {
+  color: #b42318;
+  border-color: #fecdca;
+}
+
+.danger-action:hover {
+  color: #991b1b;
+  background: #fff5f5;
+  border-color: #fda29b;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .icon-action {
@@ -946,6 +970,75 @@ body > .qp-tt td {
 
 .resolution-steps li + li {
   margin-top: 8px;
+}
+
+.email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.email-subject-preview,
+.email-attachments {
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.email-subject-preview span {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.email-subject-preview strong {
+  color: #17202a;
+  overflow-wrap: anywhere;
+}
+
+.email-attachments > strong {
+  color: #17202a;
+}
+
+.email-attachments p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.email-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.email-attachment-item {
+  min-height: 34px;
+  max-width: 100%;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #17202a;
+  border-radius: 8px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.email-attachment-item:hover {
+  background: #ffffff;
+  border-color: #98a2b3;
+}
+
+.email-attachment-item span {
+  overflow-wrap: anywhere;
 }
 
 .email-body-preview {

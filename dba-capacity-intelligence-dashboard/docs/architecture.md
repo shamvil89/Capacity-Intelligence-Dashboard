@@ -22,7 +22,7 @@ React Dashboard Web App
 
 - `database/` contains idempotent SQL Server scripts for DBAUtility tables, insert procedures, forecast procedures, alert procedures, views, and seed data.
 - `collector/` contains PowerShell scripts that use dbatools to query active servers from `dbo.ServerInventory`, collect metrics, and write rows to DBAUtility.
-- `api/DBA.Capacity.Api/` exposes read-only dashboard endpoints over DBAUtility using Dapper.
+- `api/DBA.Capacity.Api/` exposes dashboard endpoints over DBAUtility using Dapper and supports deleting selected alert rows.
 - `web/dba-capacity-web/` provides the React admin dashboard.
 - `pipelines/` contains Azure DevOps YAMLs for collection, database deployment, API build, and web build.
 

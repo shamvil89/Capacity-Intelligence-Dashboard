@@ -33,7 +33,7 @@ flowchart LR
 | --- | --- | --- |
 | Repository database | `database/` | Creates `DBAUtility`, history tables, inventory, alerts, forecast procedures, and reporting views. |
 | Collector scripts | `collector/` | PowerShell scripts that read active inventory, collect metrics, and insert repository history rows. |
-| API | `api/DBA.Capacity.Api/` | ASP.NET Core read-only API that queries `DBAUtility` through Dapper. |
+| API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper and deletes selected alert rows. |
 | Web app | `web/dba-capacity-web/` | React Vite dashboard for capacity trends, top growing tables, and alerts. |
 | Pipelines | `pipelines/` | Azure DevOps YAML pipelines for database deployment, server onboarding, collection, API deploy, and web deploy. |
 | Documentation | `docs/` | Architecture, setup, screenshots, and this lift-and-shift guide. |
@@ -654,15 +654,16 @@ For MVP deployment, the same repository credential can be used for database depl
 
 ### API Repository User
 
-The API is read-only.
+The API is mostly read-oriented, but the Alerts page can delete selected alert rows.
 
 The deploy API pipeline can grant:
 
 ```text
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
+IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
 ```
 
-Alternative: provide a SQL connection string in `DBA_API_CONNECTION_STRING` that uses a read-only SQL login.
+Alternative: provide a SQL connection string in `DBA_API_CONNECTION_STRING` that uses a SQL login with equivalent permissions.
 
 ### Source SQL User
 
@@ -1121,6 +1122,7 @@ CREATE LOGIN [IIS APPPOOL\DBACapacityApi] FROM WINDOWS;
 USE [DBAUtility];
 CREATE USER [IIS APPPOOL\DBACapacityApi] FOR LOGIN [IIS APPPOOL\DBACapacityApi];
 ALTER ROLE db_datareader ADD MEMBER [IIS APPPOOL\DBACapacityApi];
+GRANT DELETE ON dbo.AlertHistory TO [IIS APPPOOL\DBACapacityApi];
 ```
 
 ### Web page loads but API calls fail

@@ -23,4 +23,13 @@ public sealed class AlertsController(IAlertService alertService) : ControllerBas
         var rows = await alertService.GetAlertHistoryAsync(limit, cancellationToken);
         return Ok(rows);
     }
+
+    [HttpDelete("{alertId:long}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteAlert(long alertId, CancellationToken cancellationToken = default)
+    {
+        var wasDeleted = await alertService.DeleteAlertAsync(alertId, cancellationToken);
+        return wasDeleted ? NoContent() : NotFound();
+    }
 }

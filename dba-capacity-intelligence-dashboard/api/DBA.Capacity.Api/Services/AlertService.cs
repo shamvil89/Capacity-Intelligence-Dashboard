@@ -168,4 +168,18 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
 
         return rows.AsList();
     }
+
+    public async Task<bool> DeleteAlertAsync(long alertId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+        DELETE FROM dbo.AlertHistory
+        WHERE alert_id = @AlertId;
+        """;
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        var affectedRows = await connection.ExecuteAsync(
+            new CommandDefinition(sql, new { AlertId = alertId }, cancellationToken: cancellationToken));
+
+        return affectedRows > 0;
+    }
 }

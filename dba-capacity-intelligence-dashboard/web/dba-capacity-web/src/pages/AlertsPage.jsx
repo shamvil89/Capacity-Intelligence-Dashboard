@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Info, Maximize2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Download, Info, Mail, Maximize2, Trash2, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
 import ColumnFilter from '../components/ColumnFilter.jsx';
@@ -7,7 +7,7 @@ import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
 import { useTimezone } from '../components/TimezoneContext.jsx';
-import { formatDateTime } from '../components/formatters.js';
+import { formatDateTime, formatRemainingTimeFromDays, formatStorageFromGb } from '../components/formatters.js';
 import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
@@ -83,6 +83,31 @@ export default function AlertsPage({ mode = 'active' }) {
     setSortState((currentState) => nextSortState(currentState, key));
   }
 
+  async function handleDeleteAlert(alert) {
+    if (!alert.alertId) {
+      setError('This alert cannot be deleted because it does not have an alert id.');
+      return;
+    }
+
+    const databaseText = alert.databaseName ? `/${alert.databaseName}` : '';
+    const confirmed = window.confirm(
+      `Delete ${alert.alertType} for ${alert.serverName}${databaseText}? If the issue is still active, the next collector run can raise it again.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError('');
+      await api.deleteAlert(alert.alertId);
+      setAlerts((currentRows) => currentRows.filter((row) => row.alertId !== alert.alertId));
+      setSelectedAlert((currentAlert) => (currentAlert?.alertId === alert.alertId ? null : currentAlert));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <section className="page-stack">
       <div className="toolbar-row">
@@ -128,7 +153,7 @@ export default function AlertsPage({ mode = 'active' }) {
                     {isHistoryMode ? <th><SortableHeader label="Status" sortKey="isResolved" sortState={sortState} onSort={handleSort} /></th> : null}
                     {isHistoryMode ? <th><SortableHeader label="Resolved" sortKey="resolvedAt" sortState={sortState} onSort={handleSort} /></th> : null}
                     <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
-                    <th>More Info</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -144,10 +169,21 @@ export default function AlertsPage({ mode = 'active' }) {
                       {isHistoryMode ? <td>{item.resolvedAt ? formatDateTime(item.resolvedAt, effectiveTimeZone) : '-'}</td> : null}
                       <td className="recommendation-cell alert-message-cell">{item.message}</td>
                       <td>
-                        <button type="button" className="secondary-action" onClick={() => setSelectedAlert(item)}>
-                          <Info aria-hidden="true" size={14} />
-                          More info
-                        </button>
+                        <div className="row-actions">
+                          <button type="button" className="secondary-action" onClick={() => setSelectedAlert(item)}>
+                            <Info aria-hidden="true" size={14} />
+                            More info
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-action danger-action"
+                            onClick={() => handleDeleteAlert(item)}
+                            disabled={!item.alertId}
+                          >
+                            <Trash2 aria-hidden="true" size={14} />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -175,7 +211,12 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
   const displayMessage = useMemo(() => formatAlertMessage(alert, displayDetails), [alert, displayDetails]);
   const resolutionSteps = useMemo(() => getResolutionSteps(alert, displayDetails), [alert, displayDetails]);
-  const emailBody = useMemo(() => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps), [alert, displayDetails, displayMessage, resolutionSteps]);
+  const emailAttachments = useMemo(() => collectEmailAttachments(alert, displayDetails), [alert, displayDetails]);
+  const emailSubject = useMemo(() => buildAlertEmailSubject(alert), [alert]);
+  const emailBody = useMemo(
+    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments),
+    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments]
+  );
   const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
     const cleanedDetails = stripQueryPlanXml(displayDetails);
@@ -227,7 +268,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 
           <ResolutionStepsSection steps={resolutionSteps} />
 
-          <EmailBodySection body={emailBody} />
+          <EmailBodySection body={emailBody} subject={emailSubject} attachments={emailAttachments} />
         </div>
       </section>
     </div>
@@ -398,13 +439,78 @@ function ResolutionStepsSection({ steps }) {
   );
 }
 
-function EmailBodySection({ body }) {
+function EmailBodySection({ body, subject, attachments = [] }) {
+  const [copyStatus, setCopyStatus] = useState('');
+
   if (!body) {
     return null;
   }
 
+  async function handleCopyBody() {
+    try {
+      await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+      setCopyStatus('Copied');
+      window.setTimeout(() => setCopyStatus(''), 2200);
+    } catch {
+      setCopyStatus('Copy failed');
+      window.setTimeout(() => setCopyStatus(''), 2200);
+    }
+  }
+
+  function handleOpenOutlookDraft() {
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  function handleDownloadAllAttachments() {
+    attachments.forEach((attachment, index) => {
+      window.setTimeout(() => downloadTextAttachment(attachment), index * 100);
+    });
+  }
+
   return (
-    <CollapsibleSection title="Email Body" summary="Stakeholder summary">
+    <CollapsibleSection title="Email Body" summary={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}>
+      <div className="email-actions">
+        <button type="button" className="secondary-action" onClick={handleCopyBody}>
+          <Copy aria-hidden="true" size={14} />
+          {copyStatus || 'Copy text'}
+        </button>
+        <button type="button" className="secondary-action" onClick={handleOpenOutlookDraft}>
+          <Mail aria-hidden="true" size={14} />
+          Open Outlook draft
+        </button>
+        {attachments.length > 0 ? (
+          <button type="button" className="secondary-action" onClick={handleDownloadAllAttachments}>
+            <Download aria-hidden="true" size={14} />
+            Download all evidence
+          </button>
+        ) : null}
+      </div>
+
+      <div className="email-subject-preview">
+        <span>Subject</span>
+        <strong>{subject}</strong>
+      </div>
+
+      {attachments.length > 0 ? (
+        <div className="email-attachments">
+          <strong>Evidence attachments</strong>
+          <div className="email-attachment-list">
+            {attachments.map((attachment) => (
+              <button
+                type="button"
+                className="email-attachment-item"
+                key={attachment.fileName}
+                onClick={() => downloadTextAttachment(attachment)}
+              >
+                <Download aria-hidden="true" size={14} />
+                <span>{attachment.fileName}</span>
+              </button>
+            ))}
+          </div>
+          <p>Download these files and attach them before sending the Outlook draft.</p>
+        </div>
+      ) : null}
+
       <pre className="email-body-preview">{body}</pre>
     </CollapsibleSection>
   );
@@ -815,6 +921,132 @@ function collectQueryPlans(value, path = [], plans = []) {
   return plans;
 }
 
+function collectEmailAttachments(alert, details) {
+  const baseName = buildAttachmentBaseName(alert);
+  const sqlTextEntries = uniqueContentEntries(collectSqlTextEntries(details), 'sqlText');
+  const queryPlanEntries = uniqueContentEntries(collectQueryPlans(details), 'planXml');
+
+  return [
+    ...sqlTextEntries.map((entry, index) => ({
+      fileName: `${baseName}_${String(index + 1).padStart(2, '0')}_${sanitizeFileName(entry.label || 'query')}.sql`,
+      mimeType: 'application/sql',
+      description: `${entry.label} query text`,
+      content: buildSqlAttachmentContent(alert, entry)
+    })),
+    ...queryPlanEntries.map((entry, index) => ({
+      fileName: `${baseName}_${String(index + 1).padStart(2, '0')}_${sanitizeFileName(entry.label || 'query-plan')}.sqlplan`,
+      mimeType: 'application/sqlplan+xml',
+      description: `${entry.label} execution plan`,
+      content: entry.planXml.trim()
+    }))
+  ];
+}
+
+function collectSqlTextEntries(value, path = [], entries = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectSqlTextEntries(item, [...path, `item ${index + 1}`], entries));
+    return entries;
+  }
+
+  if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([key, itemValue]) => {
+      if (isSqlTextField(key, itemValue)) {
+        entries.push({
+          label: formatSqlTextLabel([...path, key]),
+          sqlText: itemValue
+        });
+        return;
+      }
+
+      collectSqlTextEntries(itemValue, [...path, key], entries);
+    });
+  }
+
+  return entries;
+}
+
+function isSqlTextField(key, value) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return false;
+  }
+
+  return (
+    !value.trimStart().startsWith('<ShowPlanXML') &&
+    (/(^|_)sql_text$/i.test(key) || /sqlText$/i.test(key) || /queryText$/i.test(key) || /statementText$/i.test(key))
+  );
+}
+
+function uniqueContentEntries(entries, contentKey) {
+  const seen = new Set();
+
+  return entries.filter((entry) => {
+    const content = String(entry?.[contentKey] ?? '').trim();
+    if (!content) {
+      return false;
+    }
+
+    const key = `${entry.label ?? ''}|${content}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildAttachmentBaseName(alert) {
+  return sanitizeFileName(
+    [
+      'dba-alert',
+      alert.alertId ?? alert.alertTime ?? '',
+      alert.alertType ?? 'alert',
+      alert.serverName ?? 'server',
+      alert.databaseName ?? 'database'
+    ]
+      .filter(Boolean)
+      .join('_')
+  );
+}
+
+function sanitizeFileName(value) {
+  const sanitized = String(value)
+    .replace(/[^a-z0-9._-]+/gi, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120);
+
+  return sanitized || 'evidence';
+}
+
+function buildSqlAttachmentContent(alert, entry) {
+  return [
+    '-- DBA Capacity alert evidence',
+    `-- Alert id: ${formatDetailValue(alert.alertId)}`,
+    `-- Alert type: ${formatDetailValue(alert.alertType)}`,
+    `-- Severity: ${formatDetailValue(alert.severity)}`,
+    `-- Server: ${formatDetailValue(alert.serverName)}`,
+    `-- Database: ${formatDetailValue(alert.databaseName)}`,
+    `-- Captured field: ${formatDetailValue(entry.label)}`,
+    '',
+    entry.sqlText.trim(),
+    ''
+  ].join('\n');
+}
+
+function downloadTextAttachment(attachment) {
+  const blob = new Blob([attachment.content], { type: `${attachment.mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = attachment.fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function stripQueryPlanXml(value) {
   if (Array.isArray(value)) {
     return value
@@ -974,113 +1206,433 @@ function formatAlertMessage(alert, details) {
 
 function getResolutionSteps(alert, details) {
   const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
-  const defaultSteps = [
-    'Confirm the alert is still active by checking the latest collector run time and source evidence.',
-    'Validate the affected server, database, owner, application, and business impact before making changes.',
-    'Resolve the root cause, then rerun the collector to retire the active alert.'
-  ];
 
   if (alertType.includes('collectionfailure')) {
-    return [
-      'Open the latest collector pipeline log and capture the exact source script and error message.',
-      'Verify repository and source SQL connectivity, credentials, firewall rules, and certificate settings for the affected server.',
-      'Grant the collector account the required SQL permissions, then rerun the failed collector metric.'
-    ];
+    return buildCollectionFailureResolutionSteps(alert, details);
   }
 
   switch (alertType) {
     case 'capacityrisk':
-      return [
-        'Review growth trend, current size, available space, and estimated time remaining for the affected database.',
-        'Confirm whether the growth is expected from a release, load, index rebuild, or retention change.',
-        'Plan the right remediation: purge/archive data, compress data/indexes, add storage, or adjust file growth settings.',
-        'After remediation, rerun collection and forecast generation to verify the risk level drops.'
-      ];
+      return buildCapacityRiskResolutionSteps(alert, details);
     case 'logfileexhaustionrisk':
-      return [
-        'Check the current log size, used log space, max size, growth rate, and available disk headroom.',
-        'Review log reuse wait and correlate with open transactions, Always On, replication, or missing log backups.',
-        'Clear the blocker first, then take a log backup if the database is in FULL recovery.',
-        'Add disk or increase max size if growth is legitimate; shrink only after the root cause is fixed and with DBA approval.'
-      ];
+      return buildLogFileExhaustionResolutionSteps(alert, details);
     case 'fullrecoverynologbackup':
-      return [
-        'Confirm the database must remain in FULL recovery for point-in-time restore or HA requirements.',
-        'Take an immediate log backup if the backup chain is valid and storage is available.',
-        'Fix or create the recurring log backup job and validate job history after the next scheduled run.',
-        'If point-in-time recovery is not required, discuss switching to SIMPLE recovery with the application and recovery owners.'
-      ];
+      return buildFullRecoveryNoLogBackupResolutionSteps(alert, details);
     case 'longrunningtransaction':
-      return [
-        `Contact the owner of session ${formatDetailValue(details?.sessionId)} from login ${formatDetailValue(details?.loginName)} and host ${formatDetailValue(details?.hostName)}.`,
-        'Review the SQL text and query plan to determine whether the transaction is waiting, scanning, or blocked.',
-        'Ask the owner to commit or roll back if safe; kill the session only after business approval and rollback impact review.',
-        'After the transaction clears, rerun collection and confirm log reuse wait, blocking, and alert status recover.'
-      ];
+      return buildLongRunningTransactionResolutionSteps(alert, details);
     case 'blockingchain':
-      return [
-        `Identify lead blocker session ${formatDetailValue(details?.leadBlockerSessionId)} and the blocked session count.`,
-        'Review lead blocker SQL, query plan, held locks, wait resource, and blocked session SQL before taking action.',
-        'Contact the application/user owner to commit, roll back, or stop the lead blocking workload.',
-        'If blocking recurs, tune the query/indexes, reduce transaction scope, and review isolation level or batching.'
-      ];
+      return buildBlockingChainResolutionSteps(alert, details);
     case 'activetransactionlogreusewait':
-      return [
-        'Find the open transaction or blocker preventing log truncation using the long-running transaction and blocking sections.',
-        'Resolve or safely terminate the open transaction after confirming business impact.',
-        'Run a log backup after the transaction clears if the database is in FULL recovery.',
-        'Confirm log reuse wait changes from ACTIVE_TRANSACTION and log used space starts decreasing.'
-      ];
+      return buildActiveTransactionLogReuseResolutionSteps(alert, details);
     case 'alwaysonhealthissue':
     case 'alwaysonlogreusewait':
-      return [
-        'Open the Always On dashboard and identify the unhealthy replica, database, synchronization state, and send/redo queue.',
-        'Check SQL Server error logs, endpoint state, cluster health, DNS, firewall, and network connectivity between replicas.',
-        'Resume data movement or fix suspended databases only after confirming the reason for suspension.',
-        'Confirm replicas return to connected and healthy state, then rerun the collector.'
-      ];
+      return buildAlwaysOnResolutionSteps(alert, details);
     case 'replicationagentissue':
     case 'replicationlogreusewait':
-      return [
-        'Open Replication Monitor or SQL Agent history for the named replication agent.',
-        'Review the error text, subscriber/distributor connectivity, permissions, and distribution backlog.',
-        'Restart or reinitialize the affected agent only after validating the replication topology and data impact.',
-        'Confirm agent status is healthy and log reuse wait is no longer REPLICATION.'
-      ];
+      return buildReplicationResolutionSteps(alert, details);
     case 'tempdbusage':
-      return [
-        'Review the top TempDB consumers and identify whether user objects, internal objects, or version store are driving usage.',
-        'Tune or stop the consuming query/session if it is runaway or no longer needed.',
-        'Check TempDB file count, file sizes, autogrowth settings, and disk headroom.',
-        'If version store is high, investigate long-running snapshot transactions and row-versioning workload.'
-      ];
+      return buildTempDbResolutionSteps(alert, details);
     case 'diskspacelow':
-      return [
-        'Confirm the affected volume, free space, SQL files on that volume, and recent growth drivers.',
-        'Free space safely by clearing approved old backups, dumps, logs, or moving non-critical files.',
-        'Add storage or move database files if growth is expected to continue.',
-        'Review SQL autogrowth and max-size settings to prevent an uncontrolled outage.'
-      ];
+      return buildDiskSpaceResolutionSteps(alert, details);
     case 'backupgrowth':
-      return [
-        'Confirm the backup type, latest size, baseline average, and whether compression or encryption changed.',
-        'Check for large data loads, index maintenance, retention changes, or unusual transaction volume.',
-        'Validate backup storage capacity and retention policy.',
-        'If the growth is expected, update capacity planning; otherwise investigate the data or workload change.'
-      ];
+      return buildBackupGrowthResolutionSteps(alert, details);
     default:
-      return defaultSteps;
+      return buildDefaultResolutionSteps(alert, details);
   }
 }
 
-function buildAlertEmailBody(alert, details, message, steps) {
-  const subject = `[${formatDetailValue(alert.severity)}] ${formatDetailValue(alert.alertType)} on ${formatDetailValue(alert.serverName)}${alert.databaseName ? `/${alert.databaseName}` : ''}`;
+function buildDefaultResolutionSteps(alert, details) {
+  return compactSteps([
+    `Confirm the alert is still active for ${describeAlertTarget(alert, details)} by checking the latest collector run and the source evidence.`,
+    `Review the captured source path: ${formatDetailValue(details?.sourceScripts || alert.sourceScript)}.`,
+    'Validate the affected owner, application, maintenance window, and business impact before making any disruptive change.',
+    getEvidenceDownloadHint(details),
+    'Resolve the root cause, rerun the collector or forecast pipeline, and confirm the alert moves out of the active queue.'
+  ]);
+}
+
+function buildCollectionFailureResolutionSteps(alert, details) {
+  const metricName = details?.metricName || String(alert.alertType ?? '').split(':')[1] || 'collector metric';
+
+  return compactSteps([
+    `The ${metricName} collector failed for ${describeAlertTarget(alert, details)}. Open the latest collector pipeline run and search for ${formatDetailValue(details?.sourceScripts || alert.sourceScript)}.`,
+    details?.errorMessage ? `Start with the captured error text: ${truncateText(details.errorMessage, 320)}.` : 'Capture the exact collector error text from the pipeline log.',
+    'Validate repository connectivity first, then source SQL connectivity, authentication mode, firewall rules, certificate trust, and database context for the affected server/database.',
+    getCollectorMetricSpecificStep(metricName),
+    'After fixing the cause, rerun the collector pipeline. The matching CollectionFailure alert should resolve automatically when the metric succeeds.'
+  ]);
+}
+
+function buildCapacityRiskResolutionSteps(alert, details) {
+  return compactSteps([
+    `Capacity forecast evidence for ${describeAlertTarget(alert, details)}: current size ${formatGb(details?.currentSizeGb)}, 7-day growth ${formatGb(details?.growth7DaysGb)}, 30-day growth ${formatGb(details?.growth30DaysGb)}, average daily growth ${formatGb(details?.averageGrowthPerDayGb)}, available space ${formatGb(details?.availableSpaceGb)}, estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}.`,
+    details?.recommendation ? `Use the generated recommendation as the starting hypothesis: ${details.recommendation}` : null,
+    'Check whether the growth is expected from a release, data load, index maintenance, retention change, or new table growth. Compare the database detail chart and Top Tables view for the same server/database.',
+    'If growth is expected, plan the storage action: add/move storage, increase file max size, adjust autogrowth, archive/purge data, or compress/rebuild indexes after validating workload impact.',
+    'If growth is not expected, identify the top new or fast-growing objects, confirm owner and application change, and pause non-essential data loads until headroom is restored.',
+    'Rerun collection and forecast generation after remediation; active risk should fall and estimated time remaining should increase.'
+  ]);
+}
+
+function buildLogFileExhaustionResolutionSteps(alert, details) {
+  const projectedTime = details?.projectedHoursToCap === null || details?.projectedHoursToCap === undefined
+    ? 'unknown'
+    : formatRemainingTimeFromDays(Number(details.projectedHoursToCap) / 24, 'unknown');
+
+  return compactSteps([
+    `Transaction log evidence for ${describeAlertTarget(alert, details)}: current log ${formatGb(details?.currentLogSizeGb)}, used ${formatGb(details?.usedLogGb)}, free ${formatGb(details?.freeLogGb)}, effective cap ${formatGb(details?.effectiveLogCapGb)}, remaining ${formatGb(details?.remainingToCapGb)}, ${formatPercent(details?.percentOfEffectiveCap)} of cap used, projected time to cap ${projectedTime}.`,
+    `The effective cap is constrained by the lower of configured max size, SQL Server log file cap (${formatGb(details?.sqlServerLogFileCapGb)}), and observed disk headroom on ${formatDetailValue(details?.sampleVolumeMountPoint)} with ${formatGb(details?.observedVolumeAvailableGb)} available.`,
+    `Log reuse wait is ${formatDetailValue(details?.logReuseWait)} and recovery model is ${formatDetailValue(details?.recoveryModel)}. ${getLogReuseWaitAction(details?.logReuseWait)}`,
+    'If the issue is missing log backups, take an immediate log backup only after confirming the backup chain and destination capacity; then fix the recurring log backup job.',
+    'If the issue is an open transaction, blocking, Always On, or replication, clear that dependency first. Taking log backups alone will not truncate reusable log until the wait condition clears.',
+    'Avoid shrinking as the first response. Add disk or raise file max size only when growth is legitimate or emergency headroom is needed; shrink later only after the root cause is fixed and DBA approval is recorded.',
+    'After remediation, rerun file-size collection and alert generation. Confirm log reuse wait changes, used log drops or stabilizes, and projected time to cap is no longer urgent.'
+  ]);
+}
+
+function buildFullRecoveryNoLogBackupResolutionSteps(alert, details) {
+  return compactSteps([
+    `Backup evidence for ${describeAlertTarget(alert, details)}: recovery model ${formatDetailValue(details?.recoveryModel)}, current log ${formatGb(details?.currentLogSizeGb)}, log reuse wait ${formatDetailValue(details?.logReuseWait)}, last log backup ${formatDateEvidence(details?.lastLogBackupFinishDate)}, hours since last log backup ${formatHours(details?.hoursSinceLastLogBackup)}.`,
+    'Confirm with the application/recovery owner whether FULL recovery is required for point-in-time restore, Always On, replication, or compliance.',
+    'If FULL recovery is required and the backup chain is valid, take an immediate log backup to approved storage. If the backup chain is broken, take a full backup first and then resume log backups.',
+    'Fix the SQL Agent or enterprise backup job schedule, credentials, storage path, compression/encryption settings, and monitoring so log backups run at the required RPO interval.',
+    'If point-in-time recovery is not required, document approval and switch to SIMPLE recovery during an agreed change window.',
+    'Rerun backup-size/file-size collection and alert generation. Confirm a recent log backup appears and log reuse wait is no longer LOG_BACKUP.'
+  ]);
+}
+
+function buildLongRunningTransactionResolutionSteps(alert, details) {
+  return compactSteps([
+    `Open transaction evidence for ${describeAlertTarget(alert, details)}: session ${formatDetailValue(details?.sessionId)}, transaction ${formatDetailValue(details?.transactionId)}, began ${formatDateEvidence(details?.transactionBeginTime)}, live duration ${formatDurationMinutes(details?.durationMinutes)} minutes, login ${formatDetailValue(details?.loginName)}, host ${formatDetailValue(details?.hostName)}, program ${formatDetailValue(details?.programName)}, command ${formatDetailValue(details?.command)}, wait ${formatDetailValue(details?.waitType)}, blocked by ${formatDetailValue(details?.blockingSessionId)}.`,
+    getEvidenceDownloadHint(details),
+    hasRenderableDetail(details?.blockingSessionId) ? `Resolve blocker session ${details.blockingSessionId} first. The open transaction may not be able to finish until that blocker clears.` : 'Check whether the session is actively running, waiting, idle in transaction, or blocked before deciding on an action.',
+    'Contact the login/application owner and ask whether the transaction can safely commit or roll back. Include the captured SQL text and plan when escalating.',
+    'If the session is abandoned or causing log exhaustion/blocking, prepare rollback impact: estimate transaction work, notify stakeholders, and kill the session only with approval.',
+    'After it clears, check log reuse wait and blocking again, then rerun the collector. The alert should retire when the session no longer appears in long-running transaction history.'
+  ]);
+}
+
+function buildBlockingChainResolutionSteps(alert, details) {
+  const heldLocks = normalizeEvidenceList(details?.leadBlockerHeldLocks);
+  const blockedSessions = normalizeEvidenceList(details?.blockedSessions);
+  const worstBlocked = getWorstBlockedSession(blockedSessions);
+  const firstLock = heldLocks[0];
+
+  return compactSteps([
+    `Blocking evidence for ${describeAlertTarget(alert, details)}: lead blocker session ${formatDetailValue(details?.leadBlockerSessionId)}, login ${formatDetailValue(details?.leadBlockerLoginName)}, host ${formatDetailValue(details?.leadBlockerHostName)}, program ${formatDetailValue(details?.leadBlockerProgramName)}, status ${formatDetailValue(details?.leadBlockerStatus)}, command ${formatDetailValue(details?.leadBlockerCommand)}, running since ${formatDateEvidence(details?.leadBlockerRunningSince)}, duration ${formatDurationMinutes(details?.leadBlockerDurationMinutes)} minutes, blocked sessions ${formatDetailValue(details?.blockedSessionCount)}, max wait ${formatMs(details?.maxBlockedWaitMs)}.`,
+    firstLock ? `Lead blocker is holding ${heldLocks.length} captured lock(s). Start with ${formatDetailValue(firstLock.databaseName)} / ${formatLockObject(firstLock)} / ${formatDetailValue(firstLock.resourceType)} / ${formatLockResourceDetail(firstLock)} in ${formatDetailValue(firstLock.lockMode)} mode.` : 'No held-lock rows were captured; use the lead blocker session, SQL text, and blocked session waits to investigate.',
+    worstBlocked ? `Worst blocked session is ${formatDetailValue(worstBlocked.blockedSessionId)} waiting ${formatMs(worstBlocked.waitDurationMs)} on ${formatDetailValue(worstBlocked.waitType)} at ${formatDetailValue(worstBlocked.blockedObjectName || worstBlocked.waitResource)}. Review its SQL text before taking action on the blocker.` : null,
+    getEvidenceDownloadHint(details),
+    'Contact the owner of the lead blocker and ask them to commit, roll back, or stop the blocking workload. If the owner is unavailable, assess rollback cost and kill only under an approved incident/change path.',
+    'For recurrence prevention, tune the lead blocker query/indexes, reduce transaction scope, batch large writes, review isolation level, and make sure user interactions are not holding open transactions.',
+    'Rerun the blocking collector. Confirm blocked session count is zero or materially lower and no new BlockingChain alert is active.'
+  ]);
+}
+
+function buildActiveTransactionLogReuseResolutionSteps(alert, details) {
+  const longTransactions = normalizeEvidenceList(details?.longRunningTransactions);
+  const blockingEvidence = normalizeEvidenceList(details?.blockingEvidence);
+  const longestTransaction = getLongestTransaction(longTransactions);
+  const worstBlocker = getWorstBlockedSession(blockingEvidence);
+
+  return compactSteps([
+    `Log truncation is waiting on ${formatDetailValue(details?.logReuseWait)} for ${describeAlertTarget(alert, details)}. Current log size is ${formatGb(details?.currentLogSizeGb)} and recovery model is ${formatDetailValue(details?.recoveryModel)}.`,
+    longestTransaction ? `Longest captured transaction is session ${formatDetailValue(longestTransaction.sessionId)} for ${formatDurationMinutes(longestTransaction.durationMinutes)} minutes, login ${formatDetailValue(longestTransaction.loginName)}, host ${formatDetailValue(longestTransaction.hostName)}, program ${formatDetailValue(longestTransaction.programName)}, began ${formatDateEvidence(longestTransaction.transactionBeginTime)}.` : 'No long-running transaction row was captured in the recent evidence window; rerun collection or query active transactions directly on the source server.',
+    worstBlocker ? `Recent blocking evidence points to lead blocker ${formatDetailValue(worstBlocker.leadBlockerSessionId)} blocking session ${formatDetailValue(worstBlocker.blockedSessionId)} for ${formatMs(worstBlocker.waitDurationMs)} on ${formatDetailValue(worstBlocker.waitType)}.` : null,
+    getEvidenceDownloadHint(details),
+    'Clear the open transaction or blocker first. Until it clears, the log cannot truncate even if log backups run successfully.',
+    'After the transaction clears, take a log backup if the database is in FULL recovery and validate that log reuse wait changes away from ACTIVE_TRANSACTION.',
+    'Rerun file-size, long-running transaction, blocking, and alert generation. Confirm used log space is stable/decreasing and no new active transaction wait alert remains.'
+  ]);
+}
+
+function buildAlwaysOnResolutionSteps(alert, details) {
+  const issueRows = [
+    ...normalizeEvidenceList(details?.databaseIssues),
+    ...normalizeEvidenceList(details?.alwaysOnEvidence)
+  ];
+  const worstIssue = issueRows.find((item) => item.isSuspended || item.connectedState === 'DISCONNECTED' || item.databaseSynchronizationHealth === 'NOT_HEALTHY' || item.replicaSynchronizationHealth === 'NOT_HEALTHY') || issueRows[0];
+
+  return compactSteps([
+    `Always On evidence for ${describeAlertTarget(alert, details)}: AG ${formatDetailValue(details?.availabilityGroupName || worstIssue?.availabilityGroupName)}, replica ${formatDetailValue(details?.replicaServerName || worstIssue?.replicaServerName)}, role ${formatDetailValue(details?.role || worstIssue?.role)}, connected state ${formatDetailValue(details?.connectedState || worstIssue?.connectedState)}, replica health ${formatDetailValue(details?.replicaSynchronizationHealth || worstIssue?.replicaSynchronizationHealth)}, database issue count ${formatDetailValue(details?.databaseIssueCount || issueRows.length)}.`,
+    details?.hasConnectivityIssue || worstIssue?.lastConnectErrorDescription ? `Connectivity evidence: last error ${formatDetailValue(details?.lastConnectErrorNumber || worstIssue?.lastConnectErrorNumber)} - ${formatDetailValue(details?.lastConnectErrorDescription || worstIssue?.lastConnectErrorDescription)} at ${formatDateEvidence(details?.lastConnectErrorTimestamp || worstIssue?.lastConnectErrorTimestamp)}. Check endpoint state, SQL service account, DNS, firewall, cluster network, listener routing, and SQL error logs on both replicas.` : null,
+    worstIssue ? `Database-level evidence: ${formatDetailValue(worstIssue.databaseName || details?.databaseName)} state ${formatDetailValue(worstIssue.synchronizationState || worstIssue.databaseSynchronizationState)}, health ${formatDetailValue(worstIssue.synchronizationHealth || worstIssue.databaseSynchronizationHealth)}, suspended ${formatDetailValue(worstIssue.isSuspended)}, suspend reason ${formatDetailValue(worstIssue.suspendReason)}, send queue ${formatKb(worstIssue.logSendQueueSizeKb)}, redo queue ${formatKb(worstIssue.redoQueueSizeKb)}.` : 'Open the Always On dashboard and identify the unhealthy replica/database row.',
+    'If data movement is suspended, find the suspend reason before issuing RESUME. Resume only after the underlying storage/network/redo/log issue is understood.',
+    'If queues are growing, determine whether the primary cannot send, the secondary cannot harden/redo, or the network is saturated. Check latency, disk, redo workers, and recent failover/maintenance events.',
+    'Once connected and synchronized, rerun Always On health and alert generation. For AVAILABILITY_REPLICA log reuse waits, confirm the log reuse wait clears after the replica catches up.'
+  ]);
+}
+
+function buildReplicationResolutionSteps(alert, details) {
+  const replicationRows = normalizeEvidenceList(details?.replicationEvidence);
+  const replicationIssue = replicationRows.find((item) => item.errorCode || item.errorText || /fail|retry/i.test(String(item.runStatusDescription ?? ''))) || replicationRows[0] || details;
+
+  return compactSteps([
+    `Replication evidence for ${describeAlertTarget(alert, details)}: publication ${formatDetailValue(details?.publication || replicationIssue?.publication)}, agent ${formatDetailValue(details?.agentName || replicationIssue?.agentName)}, type ${formatDetailValue(details?.agentType || replicationIssue?.agentType)}, status ${formatDetailValue(details?.runStatusDescription || replicationIssue?.runStatusDescription)}, subscriber ${formatDetailValue(details?.subscriberName || replicationIssue?.subscriberName)}, subscriber DB ${formatDetailValue(details?.subscriberDatabaseName || replicationIssue?.subscriberDatabaseName)}, latency ${formatSeconds(details?.latencySeconds || replicationIssue?.latencySeconds)}.`,
+    (details?.errorText || replicationIssue?.errorText || details?.comments || replicationIssue?.comments) ? `Start with the replication error/comment: ${truncateText(details?.errorText || replicationIssue?.errorText || details?.comments || replicationIssue?.comments, 360)}.` : 'Open Replication Monitor and SQL Agent job history for the affected Log Reader, Distribution, Merge, or Snapshot agent.',
+    'Validate distributor, publisher, and subscriber connectivity; agent login permissions; linked/distribution database availability; and whether the subscriber is offline or blocked.',
+    details?.logReuseWait || alert.alertType === 'ReplicationLogReuseWait' ? `Because log reuse wait is ${formatDetailValue(details?.logReuseWait || 'REPLICATION')}, prioritize the Log Reader/Distribution path and distribution backlog so replicated transactions can clear from the publisher log.` : null,
+    'Restart the failed/retrying agent only after the root error is understood. Reinitialize subscriptions only after confirming data impact and stakeholder approval.',
+    'Rerun replication health and alert generation. Confirm agent status is healthy, latency is decreasing, and log reuse wait is no longer REPLICATION when applicable.'
+  ]);
+}
+
+function buildTempDbResolutionSteps(alert, details) {
+  const consumers = normalizeEvidenceList(details?.topConsumers);
+  const topConsumer = consumers[0];
+
+  return compactSteps([
+    `TempDB evidence for ${describeAlertTarget(alert, details)}: total ${formatMb(details?.tempdbSizeMb)}, used ${formatMb(details?.usedSpaceMb)} (${formatPercent(details?.usedPercent)}), free ${formatMb(details?.freeSpaceMb)}, user objects ${formatMb(details?.userObjectsMb)}, internal objects ${formatMb(details?.internalObjectsMb)}, version store ${formatMb(details?.versionStoreMb)}.`,
+    topConsumer ? `Top captured consumer is session ${formatDetailValue(topConsumer.sessionId)} request ${formatDetailValue(topConsumer.requestId)}, database ${formatDetailValue(topConsumer.databaseName)}, login ${formatDetailValue(topConsumer.loginName)}, host ${formatDetailValue(topConsumer.hostName)}, program ${formatDetailValue(topConsumer.programName)}, command ${formatDetailValue(topConsumer.command)}, wait ${formatDetailValue(topConsumer.waitType)}, allocated ${formatMb(topConsumer.totalAllocatedMb)}.` : 'No session-level TempDB consumers were captured; rerun collection or inspect current TempDB session usage directly.',
+    getEvidenceDownloadHint(details),
+    'If user objects dominate, look for temp table/table variable growth, large sorts/hash spills, ETL batches, or reporting queries. Tune the query, add supporting indexes, or break the workload into smaller batches.',
+    'If internal objects dominate, inspect execution plans for spills and memory grants. Tune joins/sorts, update stats, and review concurrent memory pressure.',
+    'If version store is high, investigate long-running snapshot/RCSI transactions and readers preventing cleanup.',
+    'If immediate headroom is needed, add TempDB space/files on suitable storage. Do not restart SQL Server unless it is an approved last resort.',
+    'Rerun TempDB collection and confirm used percent and top consumer allocation drop.'
+  ]);
+}
+
+function buildDiskSpaceResolutionSteps(alert, details) {
+  return compactSteps([
+    `Disk evidence for ${describeAlertTarget(alert, details)}: volume ${formatDetailValue(details?.volumeMountPoint)}, logical volume ${formatDetailValue(details?.logicalVolumeName)}, total ${formatGb(details?.totalGb)}, used ${formatGb(details?.usedGb)} (${formatPercent(details?.usedPercent)}), available ${formatGb(details?.availableGb)}.`,
+    'Identify what is on the affected volume: data files, log files, backups, SQL error logs, dump files, trace/XEvent files, installer media, or unrelated application files.',
+    'Free space only through approved cleanup paths first: old backups beyond retention, stale dumps, old logs, or moving non-SQL files. Preserve anything required for restore or audit.',
+    'If database/log growth is legitimate, add disk, move files to a larger volume, or adjust file max size/autogrowth through a change-controlled action.',
+    'Review nearby log/database capacity alerts for the same server/volume so disk remediation also addresses the file that is likely to grow next.',
+    'Rerun disk and file-size collection. Confirm available GB and used percent are back above your operational threshold.'
+  ]);
+}
+
+function buildBackupGrowthResolutionSteps(alert, details) {
+  return compactSteps([
+    `Backup growth evidence for ${describeAlertTarget(alert, details)}: backup type ${formatDetailValue(details?.backupType)}, finish time ${formatDateEvidence(details?.backupFinishDate)}, latest size ${formatGb(details?.backupSizeGb)}, 30-day average ${formatGb(details?.averageBackupSizeGb)}.`,
+    'Check whether compression, encryption, backup type, copy-only behavior, or backup tool settings changed.',
+    'Correlate with large data loads, index maintenance, bulk operations, retention changes, partition switches, or unusual transaction volume around the backup finish time.',
+    'Validate backup target capacity, retention policy, and restore requirements. Larger backups may be expected but still require storage planning.',
+    'If the growth is not expected, identify the database objects or workload that drove the size increase and engage the application owner.',
+    'Rerun backup collection after the next scheduled backup and update capacity planning if the new size is legitimate.'
+  ]);
+}
+
+function compactSteps(steps) {
+  return steps
+    .filter((step) => typeof step === 'string' && step.trim().length > 0)
+    .map((step) => step.replace(/\s+/g, ' ').trim());
+}
+
+function describeAlertTarget(alert, details) {
+  const serverName = details?.serverName || alert.serverName || 'the affected server';
+  const databaseName = details?.databaseName || alert.databaseName;
+
+  return databaseName ? `${serverName}/${databaseName}` : serverName;
+}
+
+function getEvidenceDownloadHint(details) {
+  const sqlCount = collectSqlTextEntries(details).length;
+  const planCount = collectQueryPlans(details).length;
+  const evidence = [];
+
+  if (sqlCount > 0) {
+    evidence.push(`${sqlCount} captured SQL text item${sqlCount === 1 ? '' : 's'}`);
+  }
+
+  if (planCount > 0) {
+    evidence.push(`${planCount} cached execution plan${planCount === 1 ? '' : 's'}`);
+  }
+
+  return evidence.length > 0
+    ? `Use the Query Plan and Email Body sections in More info to review/download ${evidence.join(' and ')} before contacting the application owner.`
+    : null;
+}
+
+function getCollectorMetricSpecificStep(metricName) {
+  const normalizedMetric = String(metricName ?? '').toLowerCase();
+
+  if (normalizedMetric.includes('database')) {
+    return 'For DatabaseSize failures, verify the login can enumerate online databases and read database size metadata in each target database.';
+  }
+
+  if (normalizedMetric.includes('file')) {
+    return 'For FileSize failures, verify database metadata visibility, file metadata access, and permissions to read log reuse wait and file space information.';
+  }
+
+  if (normalizedMetric.includes('disk')) {
+    return 'For DiskSpace failures, verify instance-level DMV permissions and volume metadata access; Azure SQL Database rows should be server_type AzureSQL so disk collection is skipped.';
+  }
+
+  if (normalizedMetric.includes('table')) {
+    return 'For TableSize failures, verify the login can connect to the user database and read object, partition, and allocation metadata.';
+  }
+
+  if (normalizedMetric.includes('backup')) {
+    return 'For BackupSize failures, verify access to msdb backup history and any enterprise backup metadata used by the collector.';
+  }
+
+  if (normalizedMetric.includes('temp')) {
+    return 'For TempDB failures, verify permissions to read TempDB/session DMVs and confirm the source is not Azure SQL Database, where the instance-level collector is skipped.';
+  }
+
+  if (normalizedMetric.includes('blocking') || normalizedMetric.includes('longrunning')) {
+    return 'For blocking or long-transaction failures, verify VIEW SERVER STATE or equivalent DMV visibility and confirm the collector can read SQL text/query plan metadata.';
+  }
+
+  if (normalizedMetric.includes('always')) {
+    return 'For Always On failures, verify the instance participates in an availability group and the collector login can read HADR DMVs.';
+  }
+
+  if (normalizedMetric.includes('replication')) {
+    return 'For Replication failures, verify replication is configured and the collector can read distribution/agent metadata on the relevant instance.';
+  }
+
+  return 'Verify the metric-specific source permissions described in the collector README, then rerun only after the connection and permission checks pass.';
+}
+
+function getLogReuseWaitAction(logReuseWait) {
+  switch (String(logReuseWait ?? '').toUpperCase()) {
+    case 'LOG_BACKUP':
+      return 'This usually means log backups are missing or failing; fix the log backup chain/job before expecting log truncation.';
+    case 'ACTIVE_TRANSACTION':
+      return 'This means an open transaction is preventing truncation; use the long-running transaction and blocking evidence first.';
+    case 'AVAILABILITY_REPLICA':
+      return 'This means Always On synchronization is holding log truncation; fix unhealthy or lagging replicas first.';
+    case 'REPLICATION':
+      return 'This means replication has not consumed log records; fix Log Reader/Distribution agent health and backlog first.';
+    case 'NOTHING':
+      return 'A NOTHING wait means the log may be growing from active workload or recent autogrowth; validate current usage and backup cadence.';
+    default:
+      return 'Use the captured log reuse wait to decide whether the blocker is backups, transactions, Always On, replication, or another SQL Server dependency.';
+  }
+}
+
+function getWorstBlockedSession(rows) {
+  return [...rows].sort((left, right) => Number(right?.waitDurationMs ?? 0) - Number(left?.waitDurationMs ?? 0))[0] ?? null;
+}
+
+function getLongestTransaction(rows) {
+  return [...rows].sort((left, right) => Number(right?.durationMinutes ?? 0) - Number(left?.durationMinutes ?? 0))[0] ?? null;
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function formatGb(value) {
+  return formatStorageFromGb(value);
+}
+
+function formatMb(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  return formatStorageFromGb(Number(value) / 1024);
+}
+
+function formatKb(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  return formatStorageFromGb(Number(value) / 1024 / 1024);
+}
+
+function formatDaysRemaining(value) {
+  return formatRemainingTimeFromDays(value, 'unknown');
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  return `${Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0
+  })}%`;
+}
+
+function formatHours(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numericValue = Number(value);
+  return `${numericValue.toLocaleString(undefined, {
+    maximumFractionDigits: numericValue < 10 ? 1 : 0,
+    minimumFractionDigits: 0
+  })} ${Math.round(numericValue * 10) / 10 === 1 ? 'hour' : 'hours'}`;
+}
+
+function formatMs(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numericValue = Number(value);
+  if (numericValue >= 60000) {
+    return `${(numericValue / 60000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0
+    })} minutes`;
+  }
+
+  if (numericValue >= 1000) {
+    return `${(numericValue / 1000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0
+    })} seconds`;
+  }
+
+  return `${numericValue.toLocaleString()} ms`;
+}
+
+function formatSeconds(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numericValue = Number(value);
+  if (numericValue >= 3600) {
+    return `${(numericValue / 3600).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0
+    })} hours`;
+  }
+
+  if (numericValue >= 60) {
+    return `${(numericValue / 60).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0
+    })} minutes`;
+  }
+
+  return `${numericValue.toLocaleString()} seconds`;
+}
+
+function formatDateEvidence(value) {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return String(value).replace('T', ' ');
+}
+
+function buildAlertEmailSubject(alert) {
+  return `[${formatDetailValue(alert.severity)}] ${formatDetailValue(alert.alertType)} on ${formatDetailValue(alert.serverName)}${alert.databaseName ? `/${alert.databaseName}` : ''}`;
+}
+
+function buildAlertEmailBody(alert, details, message, steps, attachments = []) {
   const evidenceLines = getEmailEvidenceLines(alert, details);
-  const actionLines = steps.slice(0, 4).map((step, index) => `${index + 1}. ${step}`);
+  const actionLines = steps.map((step, index) => `${index + 1}. ${step}`);
+  const hasSqlAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sql'));
+  const hasPlanAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sqlplan'));
+  const attachmentLines = attachments.length > 0
+    ? attachments.map((attachment) => `- ${attachment.fileName}: ${attachment.description}`)
+    : ['- No SQL text or SQL Server execution plan attachment was captured for this alert.'];
 
   return [
-    `Subject: ${subject}`,
-    '',
     'Hi team,',
     '',
     `The DBA Capacity dashboard raised a ${formatDetailValue(alert.severity)} alert that needs review.`,
@@ -1093,9 +1645,16 @@ function buildAlertEmailBody(alert, details, message, steps) {
     `- Status: ${alert.isResolved ? 'Resolved' : 'Active'}`,
     `- Time: ${formatDetailValue(alert.alertTime)}`,
     `- Message: ${message}`,
+    `- SQL text captured: ${hasSqlAttachment ? 'Yes, attached as .sql evidence' : 'No'}`,
+    `- Query plan captured: ${hasPlanAttachment ? 'Yes, attached as .sqlplan evidence' : 'No'}`,
     '',
     'Relevant evidence:',
     ...evidenceLines.map((line) => `- ${line}`),
+    '',
+    'Attachments to include:',
+    ...attachmentLines,
+    '',
+    'The .sql attachment contains the captured query text. The .sqlplan attachment can be opened in SSMS or another SQL Server plan viewer when present.',
     '',
     'Recommended next actions:',
     ...actionLines,
@@ -1213,6 +1772,15 @@ function formatQueryPlanLabel(path) {
     .replace(/\s*Plan Xml$/i, ' plan')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function formatSqlTextLabel(path) {
+  return (
+    formatQueryPlanLabel(path)
+      .replace(/\s*Sql Text$/i, ' SQL text')
+      .replace(/\s+/g, ' ')
+      .trim() || 'SQL text'
+  );
 }
 
 function parseAlertDetails(detailsJson) {
