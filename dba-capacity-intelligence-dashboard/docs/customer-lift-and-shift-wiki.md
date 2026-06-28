@@ -15,16 +15,67 @@ This document is intended for:
 - Customer environment deployment teams
 - Operations teams that will support the system after handover
 
+## 1.1 Minimum-Effort Migration Path
+
+Use this path when the goal is to deploy quickly into a customer environment with the smallest number of code changes.
+
+### Recommended Target Shape
+
+Keep the application layout the same and change only environment-specific configuration:
+
+| Area | Low-effort choice |
+| --- | --- |
+| Repository database | `DBAUtility` on a customer SQL Server. |
+| Automation host | One Windows server that runs the Azure DevOps self-hosted agent and IIS. |
+| API hosting | IIS site on port `5088` unless the customer requires another port. |
+| Web hosting | IIS static site on port `8080` unless the customer requires another port. |
+| Secrets | Azure DevOps variable group named `configs`. |
+| Collector execution | `DBA Capacity - Collect Metrics` scheduled pipeline plus dashboard Run collector button. |
+| Source credentials | `SOURCE_SQL_CREDENTIALS_JSON` secret with credential keys referenced by `dbo.ServerInventory`. |
+
+### Fastest Deployment Checklist
+
+1. Copy or import the repository into the customer Azure DevOps project.
+2. Install a self-hosted Windows Azure DevOps agent on the customer IIS/automation host.
+3. Run the agent service as a dedicated local administrator account.
+4. Update only the `pool`, `Agent.Name`, and `projectRoot` values in the YAML files if they differ.
+5. Create the Azure DevOps variable group named `configs`.
+6. Fill the variables in section 12.
+7. Create the five pipelines from the YAML files in section 15 phase 6.
+8. Set `AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics`.
+9. Optionally set `AZDO_COLLECTOR_PIPELINE_ID` after the pipeline is created.
+10. Run `DBA Capacity - Deploy Database`.
+11. Run `DBA Capacity - Onboard Server` for each SQL Server or Azure SQL logical server.
+12. Run `DBA Capacity - Collect Metrics` once manually.
+13. Run `DBA Capacity - Deploy API`.
+14. Run `DBA Capacity - Deploy Web`.
+15. Open the dashboard and click **Run collector** to verify the dashboard-triggered pipeline path.
+16. Confirm the scheduled collector interval with the customer.
+
+### What Should Not Need Code Changes
+
+For a standard customer deployment, do not edit collector scripts, API code, React code, SQL table definitions, or stored procedures. Prefer changing:
+
+- Azure DevOps variable group values.
+- Pipeline pool and agent demand.
+- `projectRoot` if the repo layout changes.
+- IIS port/site variables.
+- `SOURCE_SQL_CREDENTIALS_JSON`.
+- Server rows through the onboard pipeline.
+
 ## 2. High-Level Architecture
 
 ```mermaid
 flowchart LR
     A["Source SQL Servers and Azure SQL Databases"] --> B["Azure DevOps Scheduled Collector Pipeline"]
+    G["React Dashboard on IIS"] --> H["Run collector button"]
+    H --> F["ASP.NET Core API"]
+    F --> B
     B --> C["PowerShell Collector Scripts"]
     C --> D["Central DBAUtility Repository"]
     D --> E["Forecast and Alert Stored Procedures"]
-    E --> F["ASP.NET Core Read-Only API"]
-    F --> G["React Dashboard on IIS"]
+    E --> F
+    F --> G
 ```
 
 ## 3. Components
@@ -33,14 +84,14 @@ flowchart LR
 | --- | --- | --- |
 | Repository database | `database/` | Creates `DBAUtility`, history tables, inventory, alerts, forecast procedures, and reporting views. |
 | Collector scripts | `collector/` | PowerShell scripts that read active inventory, collect metrics, and insert repository history rows. |
-| API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper and deletes selected alert rows. |
+| API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper, deletes selected alert rows, and queues the collector pipeline through Azure DevOps. |
 | Web app | `web/dba-capacity-web/` | React Vite dashboard for capacity trends, top growing tables, and alerts. |
 | Pipelines | `pipelines/` | Azure DevOps YAML pipelines for database deployment, server onboarding, collection, API deploy, and web deploy. |
 | Documentation | `docs/` | Architecture, setup, screenshots, and this lift-and-shift guide. |
 
 ## 4. Data Flow
 
-1. `pipelines/collect-capacity.yml` runs manually or on a cron schedule.
+1. `pipelines/collect-capacity.yml` runs manually, on a cron schedule, or from the dashboard Run collector button through the API.
 2. The collector connects to the `DBAUtility` repository.
 3. `Collect-CapacityMetrics.ps1` reads active rows from `dbo.ServerInventory`.
 4. Each active server is processed with its configured `server_type`, `connection_mode`, and `credential_key`.
@@ -49,6 +100,7 @@ flowchart LR
 7. `Run-Forecast.ps1` executes forecast and alert generation procedures.
 8. The API reads from repository views and tables.
 9. The React web app calls the API and displays dashboards.
+10. When a dashboard user clicks **Run collector**, the web app calls `POST /api/collector-run`; the API uses a server-side PAT to queue the Azure DevOps pipeline and then exposes run status through `GET /api/collector-run`.
 
 ## 5. Security Boundary
 
@@ -59,7 +111,9 @@ flowchart TD
     U["Browser User"] --> W["React Web App"]
     W --> API["ASP.NET Core API"]
     API --> R["DBAUtility Repository"]
-    P["Azure DevOps Collector Pipeline"] --> R
+    API --> ADO["Azure DevOps REST API"]
+    ADO --> P["Azure DevOps Collector Pipeline"]
+    P --> R
     P --> S["Source SQL Servers"]
 ```
 
@@ -69,6 +123,8 @@ Important security points:
 - Collector credentials are read from Azure DevOps secret variables.
 - Source SQL passwords are not stored in `DBAUtility`.
 - The API should use only read access to `DBAUtility`.
+- The API stores the Azure DevOps PAT server-side in production configuration written by the deploy pipeline.
+- The dashboard user does not need Azure DevOps pipeline permission to use the Run collector button.
 - The web app receives dashboard JSON only.
 - The current MVP does not enforce user login or role-based authorization.
 
@@ -561,6 +617,11 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `IIS_WEB_PORT` | No | `8080` | Web port. |
 | `DBA_API_CONNECTION_STRING` | Yes | SQL connection string | API connection to `DBAUtility`. |
 | `DBA_API_ALLOWED_ORIGINS` | No | `http://localhost:8080` | API CORS origin list. |
+| `AZDO_ORGANIZATION` | No | `customer-org` | Azure DevOps organization used by the API to trigger the collector pipeline. |
+| `AZDO_PROJECT` | No | `CustomerProject` | Azure DevOps project containing the collector pipeline. |
+| `AZDO_COLLECTOR_PIPELINE_NAME` | No | `DBA Capacity - Collect Metrics` | Pipeline name used when the numeric pipeline id is not set. |
+| `AZDO_COLLECTOR_PIPELINE_ID` | No | `27` | Optional numeric id of the collect metrics pipeline. Preferred after the pipeline is created. |
+| `AZDO_PAT` | Yes | `********` | Automation PAT used by the API to queue and read collector pipeline runs. |
 
 ### Repository Authentication Options
 
@@ -583,6 +644,53 @@ SQL_PASSWORD = ********
 ```
 
 For local SQL Server on the same machine as the agent, prefer `.` over `localhost` when using Windows authentication from a service account.
+
+### Dashboard Run Collector Button Variables
+
+The dashboard button does not call Azure DevOps directly. It calls:
+
+```text
+POST /api/collector-run
+```
+
+The API then queues `DBA Capacity - Collect Metrics` using the Azure DevOps settings from `configs`.
+
+Minimum setup:
+
+```text
+AZDO_ORGANIZATION = <customer-ado-organization>
+AZDO_PROJECT = <customer-ado-project>
+AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics
+AZDO_PAT = <secret automation PAT>
+```
+
+Preferred setup after the pipeline exists:
+
+```text
+AZDO_COLLECTOR_PIPELINE_ID = <definitionId from the pipeline URL>
+```
+
+Where to find the pipeline id:
+
+1. Open Azure DevOps.
+2. Open **Pipelines**.
+3. Open **DBA Capacity - Collect Metrics**.
+4. Look at the browser URL.
+5. Use the number after `definitionId=`.
+
+Example:
+
+```text
+https://dev.azure.com/customer-org/CustomerProject/_build?definitionId=27
+```
+
+Set:
+
+```text
+AZDO_COLLECTOR_PIPELINE_ID = 27
+```
+
+Create `AZDO_PAT` under a service or automation identity. Grant only the permission needed to read and run pipelines. Mark the variable secret.
 
 ## 13. IIS Deployment
 
@@ -699,6 +807,8 @@ Collect these details from the customer:
 - Repository name and default branch
 - Self-hosted agent machine name
 - Agent pool name and desired agent name
+- Automation identity that will own the Azure DevOps PAT
+- `DBA Capacity - Collect Metrics` pipeline id or confirmation that name-based lookup is acceptable
 - IIS host name
 - SQL Server repository host
 - Repository authentication method
@@ -791,6 +901,8 @@ If the project files are at repo root, set:
   value: .
 ```
 
+Low-effort rule: avoid changing pipeline task logic during migration. If a customer-specific value can be expressed as a variable in `configs`, use the variable instead of editing YAML.
+
 ### Phase 5 - Create Variable Group
 
 Create Azure DevOps variable group:
@@ -807,6 +919,17 @@ Mark these variables secret:
 - `SQL_PASSWORD`
 - `SOURCE_SQL_CREDENTIALS_JSON`
 - `DBA_API_CONNECTION_STRING`
+- `AZDO_PAT`
+
+Add the dashboard-trigger variables:
+
+```text
+AZDO_ORGANIZATION = <customer-ado-organization>
+AZDO_PROJECT = <customer-ado-project>
+AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics
+AZDO_COLLECTOR_PIPELINE_ID = optional until the pipeline exists
+AZDO_PAT = secret automation PAT
+```
 
 Example source credential JSON:
 
@@ -827,6 +950,14 @@ Create one pipeline per YAML:
 | `DBA Capacity - Deploy Web` | `pipelines/deploy-web.yml` |
 
 Make sure each pipeline uses the customer repository branch that contains the current YAML.
+
+After creating `DBA Capacity - Collect Metrics`, capture its id:
+
+1. Open the pipeline in Azure DevOps.
+2. Copy the number from `definitionId=<number>` in the URL.
+3. Set `AZDO_COLLECTOR_PIPELINE_ID` in `configs`.
+
+If the migration engineer cannot immediately find the id, leave `AZDO_COLLECTOR_PIPELINE_ID` blank and keep `AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics`. The API can look up the pipeline by name. Add the id later to remove ambiguity.
 
 ### Phase 7 - Deploy Database
 
@@ -972,6 +1103,7 @@ Validate:
 http://<iis-host>:<api-port>/health
 http://<iis-host>:<api-port>/swagger
 http://<iis-host>:<api-port>/api/dashboard/summary
+http://<iis-host>:<api-port>/api/collector-run
 ```
 
 For local default values:
@@ -980,7 +1112,14 @@ For local default values:
 http://localhost:5088/health
 http://localhost:5088/swagger
 http://localhost:5088/api/dashboard/summary
+http://localhost:5088/api/collector-run
 ```
+
+Expected `collector-run` behavior before the first dashboard-triggered run:
+
+- `isConfigured = true` when `AZDO_ORGANIZATION`, `AZDO_PROJECT`, `AZDO_PAT`, and pipeline id or name are configured.
+- `state = idle` if no run has been triggered by this API instance yet.
+- `isConfigured = false` if any required Azure DevOps setting is missing.
 
 ### Phase 11 - Deploy Web
 
@@ -1008,6 +1147,16 @@ For local default values:
 http://localhost:8080/
 ```
 
+Open the dashboard and verify:
+
+1. The **Run collector** button is visible on the dashboard header.
+2. Clicking it disables the button and starts an elapsed timer.
+3. The Azure DevOps collect pipeline run appears in Azure DevOps.
+4. The button becomes clickable again after the pipeline completes.
+5. The dashboard refreshes summary and table data after completion.
+
+If the API was deployed before `AZDO_COLLECTOR_PIPELINE_ID` or `AZDO_PAT` was set, rerun `DBA Capacity - Deploy API`.
+
 ### Phase 12 - Enable Scheduled Collection
 
 Check scheduled runs in Azure DevOps:
@@ -1027,6 +1176,8 @@ branches:
     - main
 ```
 
+The dashboard Run collector button is independent of the schedule. Use it for on-demand validation, after onboarding a new server, or after resolving a source connection issue.
+
 ### Phase 13 - Handover
 
 Provide the customer:
@@ -1034,11 +1185,14 @@ Provide the customer:
 - Web dashboard URL
 - API health URL
 - Azure DevOps pipeline names
+- Collector pipeline id
 - Variable group name
 - Agent service account name
+- Azure DevOps PAT owner and renewal date
 - Repository SQL Server name
 - List of onboarded servers
 - Credential key map without passwords
+- Confirmation that the dashboard Run collector button was tested
 - Troubleshooting runbook
 - Known MVP limitations
 
@@ -1066,6 +1220,8 @@ Provide the customer:
 - `/health` returns healthy.
 - `/swagger` loads.
 - `/api/dashboard/summary` returns JSON.
+- `/api/collector-run` returns JSON.
+- `/api/collector-run` shows `isConfigured = true` after Azure DevOps variables are configured.
 - API can read `DBAUtility`.
 
 ### Web
@@ -1078,6 +1234,18 @@ Provide the customer:
 - Time zone selector changes displayed times.
 - Alerts page filters and table layout render correctly.
 - Alerts page More info popup shows source scripts and structured evidence for newly generated alerts.
+- Dashboard Run collector button queues `DBA Capacity - Collect Metrics`.
+- Dashboard Run collector button stays disabled while the Azure DevOps run is active.
+- Dashboard Run collector button becomes clickable after the Azure DevOps run completes.
+
+### Azure DevOps Trigger
+
+- `AZDO_PAT` is secret.
+- `AZDO_PAT` belongs to an automation or service identity, not an individual engineer where possible.
+- `AZDO_ORGANIZATION` and `AZDO_PROJECT` match the customer Azure DevOps URL.
+- `AZDO_COLLECTOR_PIPELINE_NAME` exactly matches `DBA Capacity - Collect Metrics`.
+- `AZDO_COLLECTOR_PIPELINE_ID` is set after the pipeline exists, or name-based lookup is intentionally used.
+- API deploy was rerun after changing Azure DevOps trigger variables.
 
 ## 17. Troubleshooting
 
@@ -1229,6 +1397,95 @@ Fix:
 4. Check `Pipeline -> Scheduled runs`.
 5. Confirm agent is online.
 
+### Dashboard Run collector button says not configured
+
+Symptoms:
+
+```text
+Collector pipeline trigger is not configured.
+```
+
+Common causes:
+
+- `AZDO_ORGANIZATION` is missing.
+- `AZDO_PROJECT` is missing.
+- `AZDO_PAT` is missing or not written to API production settings.
+- Both `AZDO_COLLECTOR_PIPELINE_ID` and `AZDO_COLLECTOR_PIPELINE_NAME` are blank.
+- API was not redeployed after variable changes.
+
+Fix:
+
+1. Update the `configs` variable group.
+2. Mark `AZDO_PAT` secret.
+3. Run `DBA Capacity - Deploy API`.
+4. Open `http://<api-host>:<api-port>/api/collector-run`.
+5. Confirm `isConfigured` is `true`.
+
+### Dashboard Run collector button cannot find pipeline
+
+Symptoms:
+
+```text
+Could not find Azure DevOps pipeline 'DBA Capacity - Collect Metrics'.
+```
+
+Common causes:
+
+- Pipeline name in Azure DevOps is different.
+- `AZDO_PROJECT` points to the wrong Azure DevOps project.
+- PAT cannot list pipelines.
+- Multiple customer projects exist and the API is pointed at the wrong one.
+
+Fix:
+
+1. Open the collect pipeline in Azure DevOps.
+2. Copy the numeric `definitionId` from the URL.
+3. Set `AZDO_COLLECTOR_PIPELINE_ID` in `configs`.
+4. Run `DBA Capacity - Deploy API`.
+
+### Dashboard Run collector button is rejected by Azure DevOps
+
+Symptoms:
+
+```text
+Azure DevOps rejected the collector pipeline queue request.
+401 Unauthorized
+403 Forbidden
+```
+
+Common causes:
+
+- PAT expired.
+- PAT was copied incorrectly.
+- PAT identity does not have pipeline run permission.
+- Organization or project is wrong.
+- The pipeline is disabled or unavailable.
+
+Fix:
+
+1. Create a fresh PAT under the automation identity.
+2. Grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics`.
+3. Update `AZDO_PAT` in `configs`.
+4. Run `DBA Capacity - Deploy API`.
+5. Test from the dashboard button again.
+
+### Dashboard Run collector button stays disabled
+
+Common causes:
+
+- Azure DevOps run is genuinely still active.
+- Agent is offline and the run is queued.
+- API cannot refresh run status because PAT was rotated.
+- API app pool restarted and lost in-memory latest run state.
+
+Fix:
+
+1. Open the Azure DevOps link shown under the button.
+2. Confirm whether the run is queued, active, completed, failed, or canceled.
+3. Bring the self-hosted agent online if the run is queued.
+4. Refresh the dashboard.
+5. If PAT changed, run `DBA Capacity - Deploy API`.
+
 ### Azure SQL database timeout
 
 Symptoms:
@@ -1298,6 +1555,7 @@ Before using this as a production customer service, review these items:
 - Move secrets to Azure Key Vault or customer-approved vault.
 - Use dedicated SQL logins or domain service accounts for each responsibility.
 - Split deployment, collector, and API identities.
+- Use a service-owned Azure DevOps PAT for the dashboard trigger and document its renewal process.
 - Add data retention and purge jobs for history tables.
 - Add API and collector monitoring.
 - Add TLS bindings in IIS.
@@ -1317,6 +1575,10 @@ Use this worksheet during lift-and-shift planning.
 | Azure DevOps project | |
 | Git repository | |
 | Default branch | |
+| Collector pipeline name | `DBA Capacity - Collect Metrics` |
+| Collector pipeline id | |
+| Azure DevOps PAT owner | |
+| Azure DevOps PAT expiry date | |
 | Agent pool | |
 | Agent name | |
 | Agent machine | |
@@ -1345,17 +1607,22 @@ Use this final condensed sequence after the environment is prepared:
 1. Import repository.
 2. Update pipeline pool, agent demand, and `projectRoot`.
 3. Create `configs` variable group.
-4. Install and verify self-hosted agent.
-5. Run `DBA Capacity - Deploy Database`.
-6. Run `DBA Capacity - Onboard Server` for each source.
-7. Run `DBA Capacity - Collect Metrics`.
-8. Validate repository history rows and alerts.
-9. Run `DBA Capacity - Deploy API`.
-10. Validate API health and Swagger.
-11. Run `DBA Capacity - Deploy Web`.
-12. Validate dashboard, alerts, filters, and time zone selector.
-13. Confirm scheduled collector runs.
-14. Hand over URLs, runbooks, and ownership matrix.
+4. Add repository, IIS, web, and source credential variables.
+5. Create an automation PAT and set `AZDO_PAT` as secret.
+6. Set `AZDO_ORGANIZATION`, `AZDO_PROJECT`, and `AZDO_COLLECTOR_PIPELINE_NAME`.
+7. Install and verify self-hosted agent.
+8. Create the five Azure DevOps pipelines.
+9. Capture the collect pipeline `definitionId` and set `AZDO_COLLECTOR_PIPELINE_ID`.
+10. Run `DBA Capacity - Deploy Database`.
+11. Run `DBA Capacity - Onboard Server` for each source.
+12. Run `DBA Capacity - Collect Metrics`.
+13. Validate repository history rows and alerts.
+14. Run `DBA Capacity - Deploy API`.
+15. Validate API health, Swagger, dashboard summary, and `/api/collector-run`.
+16. Run `DBA Capacity - Deploy Web`.
+17. Validate dashboard, alerts, filters, time zone selector, and Run collector button.
+18. Confirm scheduled collector runs.
+19. Hand over URLs, runbooks, variable ownership, PAT renewal date, and ownership matrix.
 
 ## 22. Quick Reference URLs
 
@@ -1418,4 +1685,16 @@ Check active inventory:
 SELECT server_name, environment, server_type, connection_mode, credential_key, is_active
 FROM DBAUtility.dbo.ServerInventory
 ORDER BY server_name;
+```
+
+Check dashboard collector trigger configuration:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:5088/api/collector-run" -Method Get
+```
+
+Trigger collector pipeline through API:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:5088/api/collector-run" -Method Post
 ```
