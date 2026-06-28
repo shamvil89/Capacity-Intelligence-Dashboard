@@ -5,9 +5,12 @@ import { formatInteger, formatNumber } from '../components/formatters.js';
 import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
+const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+
 export default function TopGrowingTablesPage() {
   const [tables, setTables] = useState([]);
   const [containsFilter, setContainsFilter] = useState('');
+  const [environmentFilter, setEnvironmentFilter] = useState('All');
   const [serverFilter, setServerFilter] = useState('All');
   const [databaseFilter, setDatabaseFilter] = useState('All');
   const [schemaFilter, setSchemaFilter] = useState('All');
@@ -23,7 +26,7 @@ export default function TopGrowingTablesPage() {
       setError('');
 
       try {
-        const rows = await api.getTopGrowingTables(500);
+        const rows = await api.getTopGrowingTables(500, { environment: environmentFilter });
         if (isMounted) {
           setTables(rows);
         }
@@ -42,7 +45,7 @@ export default function TopGrowingTablesPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [environmentFilter]);
 
   const serverOptions = useMemo(() => getUniqueOptions(tables, 'serverName'), [tables]);
   const databaseOptions = useMemo(() => getUniqueOptions(tables, 'databaseName'), [tables]);
@@ -54,6 +57,7 @@ export default function TopGrowingTablesPage() {
       const matchesDatabase = databaseFilter === 'All' || item.databaseName === databaseFilter;
       const matchesSchema = schemaFilter === 'All' || item.schemaName === schemaFilter;
       const matchesContains = containsText(item, [
+        'environment',
         'serverName',
         'databaseName',
         'schemaName',
@@ -98,8 +102,17 @@ export default function TopGrowingTablesPage() {
                 type="search"
                 value={containsFilter}
                 onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Server, database, schema, table"
+                placeholder="Environment, server, database, schema, table"
               />
+            </label>
+
+            <label className="filter-control">
+              <span>Environment</span>
+              <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
+                {environmentOptions.map((environment) => (
+                  <option key={environment} value={environment}>{environment}</option>
+                ))}
+              </select>
             </label>
 
             <label className="filter-control">
@@ -138,6 +151,7 @@ export default function TopGrowingTablesPage() {
             <table>
               <thead>
                 <tr>
+                  <th><SortableHeader label="Environment" sortKey="environment" sortState={sortState} onSort={handleSort} /></th>
                   <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
                   <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
                   <th><SortableHeader label="Schema" sortKey="schemaName" sortState={sortState} onSort={handleSort} /></th>
@@ -151,6 +165,7 @@ export default function TopGrowingTablesPage() {
               <tbody>
                 {visibleTables.map((item) => (
                   <tr key={`${item.serverName}-${item.databaseName}-${item.schemaName}-${item.tableName}`}>
+                    <td>{item.environment || '-'}</td>
                     <td>{item.serverName}</td>
                     <td>{item.databaseName}</td>
                     <td>{item.schemaName}</td>

@@ -65,11 +65,22 @@ Program.cs
 | `GET /api/alerts/active` | `AlertsController` | Active alerts page. |
 | `GET /api/servers` | `ServersController` | Active server inventory. |
 
+Capacity and summary endpoints support environment filtering from `dbo.ServerInventory.environment`:
+
+```text
+GET /api/dashboard/summary?environment=Production
+GET /api/capacity/databases?environment=Production
+GET /api/capacity/top-growing-tables?limit=500&environment=Production
+```
+
+Valid environment labels come from the onboard pipeline: `Development`, `Test`, `QA`, `UAT`, `Production`, and `DR`.
+
 The active alerts response includes drill-through fields used by the web popup:
 
 | Field | Meaning |
 | --- | --- |
 | `alertId` | Stable alert row identifier. |
+| `environment` | Server environment from `dbo.ServerInventory`. |
 | `sourceScript` | Script or procedure chain that produced the alert. |
 | `detailsJson` | Structured evidence stored by the collector or `dbo.usp_GenerateAlerts`. |
 

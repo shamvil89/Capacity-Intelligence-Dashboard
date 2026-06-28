@@ -8,11 +8,14 @@ import { formatDateTime } from '../components/formatters.js';
 import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
+const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+
 export default function AlertsPage() {
   const { effectiveTimeZone } = useTimezone();
   const [alerts, setAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [containsFilter, setContainsFilter] = useState('');
+  const [environmentFilter, setEnvironmentFilter] = useState('All');
   const [serverFilter, setServerFilter] = useState('All');
   const [severityFilter, setSeverityFilter] = useState('All');
   const [alertTypeFilter, setAlertTypeFilter] = useState('All');
@@ -55,10 +58,12 @@ export default function AlertsPage() {
 
   const visibleAlerts = useMemo(() => {
     const filteredRows = alerts.filter((item) => {
+      const matchesEnvironment = environmentFilter === 'All' || item.environment === environmentFilter;
       const matchesServer = serverFilter === 'All' || item.serverName === serverFilter;
       const matchesSeverity = severityFilter === 'All' || item.severity === severityFilter;
       const matchesAlertType = alertTypeFilter === 'All' || item.alertType === alertTypeFilter;
       const matchesContains = containsText(item, [
+        'environment',
         'serverName',
         'databaseName',
         'alertType',
@@ -68,14 +73,14 @@ export default function AlertsPage() {
         'detailsJson'
       ], containsFilter);
 
-      return matchesServer && matchesSeverity && matchesAlertType && matchesContains;
+      return matchesEnvironment && matchesServer && matchesSeverity && matchesAlertType && matchesContains;
     });
 
     return sortRows(filteredRows, sortState, {
       alertTime: 'date',
       severity: 'risk'
     });
-  }, [alertTypeFilter, alerts, containsFilter, serverFilter, severityFilter, sortState]);
+  }, [alertTypeFilter, alerts, containsFilter, environmentFilter, serverFilter, severityFilter, sortState]);
 
   function handleSort(key) {
     setSortState((currentState) => nextSortState(currentState, key));
@@ -104,8 +109,17 @@ export default function AlertsPage() {
                 type="search"
                 value={containsFilter}
                 onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Server, database, type, message"
+                placeholder="Environment, server, database, type, message"
               />
+            </label>
+
+            <label className="filter-control">
+              <span>Environment</span>
+              <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
+                {environmentOptions.map((environment) => (
+                  <option key={environment} value={environment}>{environment}</option>
+                ))}
+              </select>
             </label>
 
             <label className="filter-control">
@@ -145,6 +159,7 @@ export default function AlertsPage() {
                 <thead>
                   <tr>
                     <th><SortableHeader label="Time" sortKey="alertTime" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Environment" sortKey="environment" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Alert Type" sortKey="alertType" sortState={sortState} onSort={handleSort} /></th>
@@ -157,6 +172,7 @@ export default function AlertsPage() {
                   {visibleAlerts.map((item) => (
                     <tr key={item.alertId ?? `${item.alertTime}-${item.serverName}-${item.alertType}`}>
                       <td>{formatDateTime(item.alertTime, effectiveTimeZone)}</td>
+                      <td>{item.environment || '-'}</td>
                       <td>{item.serverName}</td>
                       <td>{item.databaseName || '-'}</td>
                       <td>{item.alertType}</td>
@@ -207,6 +223,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         <div className="modal-body">
           <div className="detail-summary-grid">
             <DetailItem label="Time" value={formatDateTime(alert.alertTime, effectiveTimeZone)} />
+            <DetailItem label="Environment" value={alert.environment || '-'} />
             <DetailItem label="Server" value={alert.serverName} />
             <DetailItem label="Database" value={alert.databaseName || '-'} />
             <DetailItem label="Severity" value={alert.severity} />

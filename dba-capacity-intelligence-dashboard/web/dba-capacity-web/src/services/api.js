@@ -37,11 +37,11 @@ function toQueryString(params) {
 }
 
 export const api = {
-  getSummary: () => request('/dashboard/summary'),
+  getSummary: (filters = {}) => request(`/dashboard/summary${toQueryString(filters)}`),
   getCapacityDatabases: (filters = {}) => request(`/capacity/databases${toQueryString(filters)}`),
   getDatabaseTrend: (serverName, databaseName, days = 90) =>
     request(`/capacity/databases/${encodeURIComponent(serverName)}/${encodeURIComponent(databaseName)}/trend${toQueryString({ days })}`),
-  getTopGrowingTables: (limit = 20) => request(`/capacity/top-growing-tables${toQueryString({ limit })}`),
+  getTopGrowingTables: (limit = 20, filters = {}) => request(`/capacity/top-growing-tables${toQueryString({ limit, ...filters })}`),
   getActiveAlerts: () => request('/alerts/active'),
   getServers: () => request('/servers')
 };

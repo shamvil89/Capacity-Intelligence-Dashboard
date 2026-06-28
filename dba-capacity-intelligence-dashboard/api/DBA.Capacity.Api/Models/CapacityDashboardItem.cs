@@ -3,6 +3,7 @@ namespace DBA.Capacity.Api.Models;
 public sealed class CapacityDashboardItem
 {
     public string ServerName { get; init; } = string.Empty;
+    public string? Environment { get; init; }
     public string DatabaseName { get; init; } = string.Empty;
     public decimal CurrentSizeGb { get; init; }
     public decimal? Growth7DaysGb { get; init; }

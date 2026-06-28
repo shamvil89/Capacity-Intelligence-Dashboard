@@ -8,6 +8,7 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
 {
     public async Task<IReadOnlyList<CapacityDashboardItem>> GetLatestDatabasesAsync(
         string? riskLevel,
+        string? environment,
         string? serverName,
         string? databaseName,
         CancellationToken cancellationToken)
@@ -21,7 +22,13 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
             parameters.Add("RiskLevel", riskLevel);
         }
 
-        if (!string.IsNullOrWhiteSpace(serverName))
+        if (!string.IsNullOrWhiteSpace(environment) && !environment.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            filters.Add("environment = @Environment");
+            parameters.Add("Environment", environment);
+        }
+
+        if (!string.IsNullOrWhiteSpace(serverName) && !serverName.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
             filters.Add("server_name = @ServerName");
             parameters.Add("ServerName", serverName);
@@ -37,6 +44,7 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
         var sql = $"""
         SELECT
             server_name AS ServerName,
+            environment AS Environment,
             database_name AS DatabaseName,
             current_size_gb AS CurrentSizeGb,
             growth_7d_gb AS Growth7DaysGb,
@@ -103,13 +111,26 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
 
     public async Task<IReadOnlyList<TopGrowingTableItem>> GetTopGrowingTablesAsync(
         int limit,
+        string? environment,
         CancellationToken cancellationToken)
     {
         limit = Math.Clamp(limit, 1, 500);
 
-        const string sql = """
+        var filters = new List<string>();
+        var parameters = new DynamicParameters();
+        parameters.Add("Limit", limit);
+
+        if (!string.IsNullOrWhiteSpace(environment) && !environment.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            filters.Add("environment = @Environment");
+            parameters.Add("Environment", environment);
+        }
+
+        var whereClause = filters.Count > 0 ? $"WHERE {string.Join(" AND ", filters)}" : string.Empty;
+        var sql = $"""
         SELECT TOP (@Limit)
             server_name AS ServerName,
+            environment AS Environment,
             database_name AS DatabaseName,
             schema_name AS SchemaName,
             table_name AS TableName,
@@ -118,12 +139,13 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
             current_row_count AS CurrentRowCount,
             row_growth_30d AS RowGrowth30Days
         FROM dbo.vw_TopGrowingTables
+        {whereClause}
         ORDER BY ISNULL(growth_30d_mb, 0) DESC, ISNULL(current_size_mb, 0) DESC;
         """;
 
         using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<TopGrowingTableItem>(
-            new CommandDefinition(sql, new { Limit = limit }, cancellationToken: cancellationToken));
+            new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
 
         return rows.AsList();
     }

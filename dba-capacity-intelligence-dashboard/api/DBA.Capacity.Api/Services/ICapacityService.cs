@@ -6,6 +6,7 @@ public interface ICapacityService
 {
     Task<IReadOnlyList<CapacityDashboardItem>> GetLatestDatabasesAsync(
         string? riskLevel,
+        string? environment,
         string? serverName,
         string? databaseName,
         CancellationToken cancellationToken);
@@ -18,5 +19,6 @@ public interface ICapacityService
 
     Task<IReadOnlyList<TopGrowingTableItem>> GetTopGrowingTablesAsync(
         int limit,
+        string? environment,
         CancellationToken cancellationToken);
 }

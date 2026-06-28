@@ -16,6 +16,7 @@ WITH LatestTable AS
 )
 SELECT
     l.server_name,
+    si.environment,
     l.database_name,
     l.schema_name,
     l.table_name,
@@ -25,6 +26,8 @@ SELECT
     l.row_count AS current_row_count,
     l.row_count - p.row_count AS row_growth_30d
 FROM LatestTable AS l
+LEFT JOIN dbo.ServerInventory AS si
+    ON si.server_name = l.server_name
 OUTER APPLY
 (
     SELECT TOP (1)

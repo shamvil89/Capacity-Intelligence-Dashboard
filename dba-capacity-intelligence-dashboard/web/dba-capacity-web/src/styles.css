@@ -369,11 +369,11 @@ select {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 1120px;
 }
 
 .alerts-table {
-  min-width: 1500px;
+  min-width: 1670px;
   table-layout: fixed;
 }
 
@@ -384,31 +384,36 @@ table {
 
 .alerts-table th:nth-child(2),
 .alerts-table td:nth-child(2) {
-  width: 230px;
+  width: 140px;
 }
 
 .alerts-table th:nth-child(3),
 .alerts-table td:nth-child(3) {
-  width: 170px;
+  width: 230px;
 }
 
 .alerts-table th:nth-child(4),
 .alerts-table td:nth-child(4) {
-  width: 260px;
+  width: 170px;
 }
 
 .alerts-table th:nth-child(5),
 .alerts-table td:nth-child(5) {
-  width: 140px;
+  width: 260px;
 }
 
 .alerts-table th:nth-child(6),
 .alerts-table td:nth-child(6) {
-  width: 430px;
+  width: 140px;
 }
 
 .alerts-table th:nth-child(7),
 .alerts-table td:nth-child(7) {
+  width: 430px;
+}
+
+.alerts-table th:nth-child(8),
+.alerts-table td:nth-child(8) {
   width: 150px;
 }
 

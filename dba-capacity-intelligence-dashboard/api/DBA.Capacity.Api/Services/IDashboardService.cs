@@ -4,5 +4,9 @@ namespace DBA.Capacity.Api.Services;
 
 public interface IDashboardService
 {
-    Task<DashboardSummary> GetSummaryAsync(CancellationToken cancellationToken);
+    Task<DashboardSummary> GetSummaryAsync(
+        string? riskLevel,
+        string? environment,
+        string? serverName,
+        CancellationToken cancellationToken);
 }

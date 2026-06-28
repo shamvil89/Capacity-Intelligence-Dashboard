@@ -23,6 +23,7 @@ public sealed class CapacityController(ICapacityService capacityService) : Contr
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<CapacityDashboardItem>>> GetDatabases(
         [FromQuery] string? riskLevel,
+        [FromQuery] string? environment,
         [FromQuery] string? serverName,
         [FromQuery] string? databaseName,
         CancellationToken cancellationToken)
@@ -32,7 +33,7 @@ public sealed class CapacityController(ICapacityService capacityService) : Contr
             return BadRequest(new { message = "riskLevel must be one of All, Healthy, Low, Medium, High, Critical." });
         }
 
-        var rows = await capacityService.GetLatestDatabasesAsync(riskLevel, serverName, databaseName, cancellationToken);
+        var rows = await capacityService.GetLatestDatabasesAsync(riskLevel, environment, serverName, databaseName, cancellationToken);
         return Ok(rows);
     }
 
@@ -59,6 +60,7 @@ public sealed class CapacityController(ICapacityService capacityService) : Contr
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<TopGrowingTableItem>>> GetTopGrowingTables(
         [FromQuery] int limit = 20,
+        [FromQuery] string? environment = null,
         CancellationToken cancellationToken = default)
     {
         if (limit <= 0)
@@ -66,7 +68,7 @@ public sealed class CapacityController(ICapacityService capacityService) : Contr
             return BadRequest(new { message = "limit must be greater than zero." });
         }
 
-        var rows = await capacityService.GetTopGrowingTablesAsync(limit, cancellationToken);
+        var rows = await capacityService.GetTopGrowingTablesAsync(limit, environment, cancellationToken);
         return Ok(rows);
     }
 }

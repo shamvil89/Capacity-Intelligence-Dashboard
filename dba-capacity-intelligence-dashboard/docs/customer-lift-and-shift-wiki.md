@@ -339,6 +339,24 @@ The API uses:
 | `GET /api/alerts/active` | Active unresolved alerts. |
 | `GET /api/servers` | Active server inventory. |
 
+Dashboard and capacity endpoints support environment filtering with the same labels used by `pipelines/onboard-server.yml`:
+
+```text
+Development
+Test
+QA
+UAT
+Production
+DR
+```
+
+Example:
+
+```text
+GET /api/capacity/databases?environment=Production
+GET /api/dashboard/summary?environment=Production
+```
+
 ### API Configuration
 
 Local app settings are in:
@@ -1055,6 +1073,7 @@ Provide the customer:
 - Static files exist in web physical path.
 - Dashboard loads.
 - API calls succeed from browser.
+- Environment filter can isolate `Production`, `Development`, `Test`, `QA`, `UAT`, and `DR` inventory.
 - Time zone selector changes displayed times.
 - Alerts page filters and table layout render correctly.
 - Alerts page More info popup shows source scripts and structured evidence for newly generated alerts.

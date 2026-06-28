@@ -9,10 +9,12 @@ import { containsText, getUniqueOptions, nextSortState, sortRows } from '../comp
 import { api } from '../services/api.js';
 
 const riskLevels = ['All', 'Healthy', 'Low', 'Medium', 'High', 'Critical'];
+const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [riskLevel, setRiskLevel] = useState('All');
+  const [environmentFilter, setEnvironmentFilter] = useState('All');
   const [serverFilter, setServerFilter] = useState('All');
   const [containsFilter, setContainsFilter] = useState('');
   const [sortState, setSortState] = useState({ key: 'riskLevel', direction: 'asc' });
@@ -30,8 +32,8 @@ export default function DashboardPage() {
 
       try {
         const [summaryResult, databaseResult] = await Promise.all([
-          api.getSummary(),
-          api.getCapacityDatabases({ riskLevel })
+          api.getSummary({ riskLevel, environment: environmentFilter, serverName: serverFilter }),
+          api.getCapacityDatabases({ riskLevel, environment: environmentFilter, serverName: serverFilter })
         ]);
 
         if (isMounted) {
@@ -53,7 +55,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [riskLevel]);
+  }, [environmentFilter, riskLevel, serverFilter]);
 
   const cards = useMemo(() => [
     { label: 'Total Servers', value: formatInteger(summary?.totalServers), accent: 'teal' },
@@ -68,15 +70,15 @@ export default function DashboardPage() {
 
   const visibleDatabases = useMemo(() => {
     const filteredRows = databases.filter((item) => {
-      const matchesServer = serverFilter === 'All' || item.serverName === serverFilter;
       const matchesContains = containsText(item, [
+        'environment',
         'serverName',
         'databaseName',
         'riskLevel',
         'recommendation'
       ], containsFilter);
 
-      return matchesServer && matchesContains;
+      return matchesContains;
     });
 
     return sortRows(filteredRows, sortState, {
@@ -87,7 +89,7 @@ export default function DashboardPage() {
       estimatedDaysRemaining: 'number',
       riskLevel: 'risk'
     });
-  }, [containsFilter, databases, serverFilter, sortState]);
+  }, [containsFilter, databases, sortState]);
 
   function handleSort(key) {
     setSortState((currentState) => nextSortState(currentState, key));
@@ -106,6 +108,14 @@ export default function DashboardPage() {
             <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
               {riskLevels.map((level) => (
                 <option key={level} value={level}>{level}</option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-control">
+            <span>Environment</span>
+            <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
+              {environmentOptions.map((environment) => (
+                <option key={environment} value={environment}>{environment}</option>
               ))}
             </select>
           </label>
@@ -132,7 +142,7 @@ export default function DashboardPage() {
                 type="search"
                 value={containsFilter}
                 onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Server, database, risk, recommendation"
+                placeholder="Environment, server, database, risk, recommendation"
               />
             </label>
 
@@ -152,6 +162,7 @@ export default function DashboardPage() {
               <table>
                 <thead>
                   <tr>
+                    <th><SortableHeader label="Environment" sortKey="environment" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Current Size GB" sortKey="currentSizeGb" sortState={sortState} onSort={handleSort} /></th>
@@ -170,6 +181,7 @@ export default function DashboardPage() {
                       className="clickable-row"
                       onClick={() => navigate(`/databases/${encodeURIComponent(item.serverName)}/${encodeURIComponent(item.databaseName)}`)}
                     >
+                      <td>{item.environment || '-'}</td>
                       <td>{item.serverName}</td>
                       <td>{item.databaseName}</td>
                       <td>{formatNumber(item.currentSizeGb)}</td>

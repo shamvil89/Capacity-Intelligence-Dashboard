@@ -5,6 +5,7 @@ public sealed class AlertItem
     public long AlertId { get; init; }
     public DateTime AlertTime { get; init; }
     public string ServerName { get; init; } = string.Empty;
+    public string? Environment { get; init; }
     public string? DatabaseName { get; init; }
     public string AlertType { get; init; } = string.Empty;
     public string Severity { get; init; } = string.Empty;

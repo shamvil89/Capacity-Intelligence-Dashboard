@@ -10,9 +10,13 @@ public sealed class DashboardController(IDashboardService dashboardService) : Co
 {
     [HttpGet("summary")]
     [ProducesResponseType(typeof(DashboardSummary), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DashboardSummary>> GetSummary(CancellationToken cancellationToken)
+    public async Task<ActionResult<DashboardSummary>> GetSummary(
+        [FromQuery] string? riskLevel,
+        [FromQuery] string? environment,
+        [FromQuery] string? serverName,
+        CancellationToken cancellationToken)
     {
-        var summary = await dashboardService.GetSummaryAsync(cancellationToken);
+        var summary = await dashboardService.GetSummaryAsync(riskLevel, environment, serverName, cancellationToken);
         return Ok(summary);
     }
 }

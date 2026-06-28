@@ -3,6 +3,7 @@ namespace DBA.Capacity.Api.Models;
 public sealed class TopGrowingTableItem
 {
     public string ServerName { get; init; } = string.Empty;
+    public string? Environment { get; init; }
     public string DatabaseName { get; init; } = string.Empty;
     public string SchemaName { get; init; } = string.Empty;
     public string TableName { get; init; } = string.Empty;

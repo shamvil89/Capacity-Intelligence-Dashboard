@@ -28,10 +28,12 @@ web/dba-capacity-web
 
 | Page | Route | Purpose |
 | --- | --- | --- |
-| Dashboard | `#/` | Summary cards and database capacity table. |
+| Dashboard | `#/` | Summary cards and database capacity table with risk, environment, server, sorting, and contains filters. |
 | Database Detail | `#/databases/:serverName/:databaseName` | Size trend chart and forecast details for one database. |
-| Top Tables | `#/top-growing-tables` | Table growth ranking. |
-| Alerts | `#/alerts` | Active alert queue with filters, sorting, contains search, and More info evidence popup. |
+| Top Tables | `#/top-growing-tables` | Table growth ranking with environment, server, database, schema, sorting, and contains filters. |
+| Alerts | `#/alerts` | Active alert queue with environment, server, severity, type, sorting, contains search, and More info evidence popup. |
+
+The environment filter uses values populated by `pipelines/onboard-server.yml`: `Development`, `Test`, `QA`, `UAT`, `Production`, and `DR`.
 
 ## Important Files
 
