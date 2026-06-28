@@ -479,6 +479,10 @@ function EmailBodySection({ body, subject, attachments = [] }) {
     });
   }
 
+  function handleDownloadOutlookEmail() {
+    downloadOutlookEmailFile(subject, body, attachments);
+  }
+
   return (
     <CollapsibleSection title="Email Body" summary={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}>
       <div className="email-actions">
@@ -494,6 +498,12 @@ function EmailBodySection({ body, subject, attachments = [] }) {
           <button type="button" className="secondary-action" onClick={handleDownloadAllAttachments}>
             <Download aria-hidden="true" size={14} />
             Download all evidence
+          </button>
+        ) : null}
+        {attachments.length > 0 ? (
+          <button type="button" className="secondary-action" onClick={handleDownloadOutlookEmail}>
+            <Mail aria-hidden="true" size={14} />
+            Download Outlook email
           </button>
         ) : null}
       </div>
@@ -519,7 +529,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
               </button>
             ))}
           </div>
-          <p>Download these files and attach them before sending the Outlook draft.</p>
+          <p>Use Download Outlook email to open a draft with these files already embedded, or download files individually and attach them manually.</p>
         </div>
       ) : null}
 
@@ -530,6 +540,79 @@ function EmailBodySection({ body, subject, attachments = [] }) {
 
 function buildMailDraftUrl(subject, body) {
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function downloadOutlookEmailFile(subject, body, attachments) {
+  const emlContent = buildOutlookEmailContent(subject, body, attachments);
+  const fileName = `${sanitizeFileName(subject)}.eml`;
+  downloadTextAttachment({
+    fileName,
+    mimeType: 'message/rfc822',
+    content: emlContent
+  });
+}
+
+function buildOutlookEmailContent(subject, body, attachments) {
+  const boundary = `----DBACapacityBoundary${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const headerLines = [
+    'X-Unsent: 1',
+    `Date: ${new Date().toUTCString()}`,
+    'To:',
+    `Subject: ${encodeMimeHeader(subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`
+  ];
+
+  const bodyPart = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="utf-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    base64EncodeUtf8(body)
+  ];
+
+  const attachmentParts = attachments.flatMap((attachment) => [
+    `--${boundary}`,
+    `Content-Type: ${attachment.mimeType || 'application/octet-stream'}; name="${escapeMimeParameter(attachment.fileName)}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${escapeMimeParameter(attachment.fileName)}"`,
+    '',
+    base64EncodeUtf8(attachment.content)
+  ]);
+
+  return [
+    ...headerLines,
+    '',
+    ...bodyPart,
+    ...attachmentParts,
+    `--${boundary}--`,
+    ''
+  ].join('\r\n');
+}
+
+function encodeMimeHeader(value) {
+  return `=?UTF-8?B?${base64EncodeUtf8(value)}?=`;
+}
+
+function escapeMimeParameter(value) {
+  return String(value ?? 'attachment')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
+}
+
+function base64EncodeUtf8(value) {
+  const bytes = new TextEncoder().encode(String(value ?? ''));
+  let binary = '';
+
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return wrapBase64Lines(window.btoa(binary));
+}
+
+function wrapBase64Lines(value) {
+  return String(value).replace(/.{1,76}/g, '$&\r\n').trim();
 }
 
 function QueryPlanSection({ alertType, sourceScript, details }) {
