@@ -460,20 +460,17 @@ function EmailBodySection({ body, subject, attachments = [] }) {
 
   function handleOpenOutlookDraft() {
     const outlookBody = body;
-    const outlookUrl = buildOutlookComposeUrl(subject, outlookBody);
+    const outlookUrl = buildOutlookDesktopUrl(subject, outlookBody);
 
     if (outlookUrl.length > 7500) {
       navigator.clipboard.writeText(`Subject: ${subject}\n\n${outlookBody}`).catch(() => {});
-      window.open(buildOutlookComposeUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it here before sending.'), '_blank', 'noopener,noreferrer');
+      window.location.href = buildOutlookDesktopUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it into this draft before sending.');
       setOutlookStatus('Copied for Outlook');
       window.setTimeout(() => setOutlookStatus(''), 2600);
       return;
     }
 
-    const openedWindow = window.open(outlookUrl, '_blank', 'noopener,noreferrer');
-    if (!openedWindow) {
-      window.location.href = buildMailtoUrl(subject, outlookBody);
-    }
+    window.location.href = outlookUrl;
   }
 
   function handleDownloadAllAttachments() {
@@ -491,7 +488,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
         </button>
         <button type="button" className="secondary-action" onClick={handleOpenOutlookDraft}>
           <Mail aria-hidden="true" size={14} />
-          {outlookStatus || 'Open Outlook draft'}
+          {outlookStatus || 'Open Outlook app'}
         </button>
         {attachments.length > 0 ? (
           <button type="button" className="secondary-action" onClick={handleDownloadAllAttachments}>
@@ -531,15 +528,8 @@ function EmailBodySection({ body, subject, attachments = [] }) {
   );
 }
 
-function buildOutlookComposeUrl(subject, body) {
-  const url = new URL('https://outlook.office.com/mail/deeplink/compose');
-  url.searchParams.set('subject', subject);
-  url.searchParams.set('body', body);
-  return url.toString();
-}
-
-function buildMailtoUrl(subject, body) {
-  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function buildOutlookDesktopUrl(subject, body) {
+  return `ms-outlook://compose?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function QueryPlanSection({ alertType, sourceScript, details }) {
