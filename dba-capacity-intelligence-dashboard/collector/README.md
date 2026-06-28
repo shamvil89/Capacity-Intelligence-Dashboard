@@ -175,7 +175,7 @@ The collector also stores alert evidence for the More info popup:
 
 ## Query Plan Capture
 
-Long-running transaction and blocking collectors attempt to capture cached SQL Server XML execution plans by calling `sys.dm_exec_query_plan(plan_handle)` for the active request.
+Long-running transaction and blocking collectors attempt to capture cached SQL Server XML execution plans by calling `sys.dm_exec_query_plan(plan_handle)` for the active request. If the session is idle but still has a recent SQL handle, the collectors also try to find the most recent cached `plan_handle` from `sys.dm_exec_query_stats`.
 
 These plans populate the alert More info popup for:
 
@@ -183,7 +183,7 @@ These plans populate the alert More info popup for:
 - `BlockingChain`
 - `ActiveTransactionLogReuseWait`
 
-Plan capture depends on SQL Server exposing a valid `plan_handle` at collection time. The plan can be blank when the request is idle, the plan was evicted, the statement is encrypted, permissions are insufficient, or SQL Server cannot return the plan for that request shape.
+Plan capture depends on SQL Server exposing a valid request or cached `plan_handle` at collection time. The plan can be blank when the plan was evicted, the statement is encrypted, permissions are insufficient, or SQL Server cannot return the plan for that request shape.
 
 For SQL Server source instances, grant the collector identity DMV visibility such as `VIEW SERVER STATE` according to the customer's SQL Server version and security standard. Without that permission, the blocking and long-running collectors may fail or return incomplete diagnostic evidence.
 

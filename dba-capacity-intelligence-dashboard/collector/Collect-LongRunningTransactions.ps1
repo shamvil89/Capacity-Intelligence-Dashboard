@@ -52,15 +52,16 @@ SELECT
     r.blocking_session_id,
     LEFT(
         CASE
-            WHEN r.sql_handle IS NULL THEN NULL
+            WHEN request_text.text IS NULL THEN NULL
+            WHEN r.statement_start_offset IS NULL THEN request_text.text
             ELSE SUBSTRING
             (
-                txt.text,
+                request_text.text,
                 (r.statement_start_offset / 2) + 1,
                 (
                     (
                         CASE r.statement_end_offset
-                            WHEN -1 THEN DATALENGTH(txt.text)
+                            WHEN -1 THEN DATALENGTH(request_text.text)
                             ELSE r.statement_end_offset
                         END - r.statement_start_offset
                     ) / 2
@@ -79,8 +80,18 @@ LEFT JOIN sys.dm_tran_database_transactions AS dt
     ON dt.transaction_id = at.transaction_id
 LEFT JOIN sys.dm_exec_requests AS r
     ON r.session_id = s.session_id
-OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS txt
-OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp
+LEFT JOIN sys.dm_exec_connections AS c
+    ON c.session_id = s.session_id
+OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) AS request_text
+OUTER APPLY
+(
+    SELECT TOP (1)
+        qs.plan_handle
+    FROM sys.dm_exec_query_stats AS qs
+    WHERE qs.sql_handle = COALESCE(r.sql_handle, c.most_recent_sql_handle)
+    ORDER BY qs.last_execution_time DESC
+) AS cached_plan
+OUTER APPLY sys.dm_exec_query_plan(COALESCE(r.plan_handle, cached_plan.plan_handle)) AS qp
 WHERE s.is_user_process = 1
   AND at.transaction_begin_time <= DATEADD(MINUTE, -1 * CONVERT(INT, @MinimumDurationMinutes), GETDATE())
 ORDER BY duration_minutes DESC;

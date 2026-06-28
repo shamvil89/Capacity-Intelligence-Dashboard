@@ -628,6 +628,14 @@ td {
   padding: 10px;
 }
 
+.query-plan-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475467;
+  padding: 12px;
+}
+
 .query-plan-viewer svg,
 .query-plan-viewer table {
   max-width: none;

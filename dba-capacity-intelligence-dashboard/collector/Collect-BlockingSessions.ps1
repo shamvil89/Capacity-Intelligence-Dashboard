@@ -196,8 +196,24 @@ LEFT JOIN WaitingLocks AS wl
    AND wl.rn = 1
 OUTER APPLY sys.dm_exec_sql_text(br.sql_handle) AS blocked_text
 OUTER APPLY sys.dm_exec_sql_text(COALESCE(brq.sql_handle, blocker_connection.most_recent_sql_handle)) AS blocker_text
-OUTER APPLY sys.dm_exec_query_plan(brq.plan_handle) AS blocker_plan
-OUTER APPLY sys.dm_exec_query_plan(br.plan_handle) AS blocked_plan
+OUTER APPLY
+(
+    SELECT TOP (1)
+        qs.plan_handle
+    FROM sys.dm_exec_query_stats AS qs
+    WHERE qs.sql_handle = COALESCE(brq.sql_handle, blocker_connection.most_recent_sql_handle)
+    ORDER BY qs.last_execution_time DESC
+) AS blocker_cached_plan
+OUTER APPLY
+(
+    SELECT TOP (1)
+        qs.plan_handle
+    FROM sys.dm_exec_query_stats AS qs
+    WHERE qs.sql_handle = br.sql_handle
+    ORDER BY qs.last_execution_time DESC
+) AS blocked_cached_plan
+OUTER APPLY sys.dm_exec_query_plan(COALESCE(brq.plan_handle, blocker_cached_plan.plan_handle)) AS blocker_plan
+OUTER APPLY sys.dm_exec_query_plan(COALESCE(br.plan_handle, blocked_cached_plan.plan_handle)) AS blocked_plan
 OUTER APPLY
 (
     SELECT

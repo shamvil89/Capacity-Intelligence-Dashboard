@@ -239,7 +239,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <p>{alert.message}</p>
           </section>
 
-          <QueryPlanSection details={details} />
+          <QueryPlanSection alertType={alert.alertType} details={details} />
 
           <section className="modal-section">
             <h4>Evidence</h4>
@@ -255,9 +255,10 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   );
 }
 
-function QueryPlanSection({ details }) {
+function QueryPlanSection({ alertType, details }) {
   const containerRef = useRef(null);
   const planEntries = useMemo(() => collectQueryPlans(details), [details]);
+  const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
 
@@ -297,8 +298,24 @@ function QueryPlanSection({ details }) {
     };
   }, [selectedPlan]);
 
-  if (planEntries.length === 0) {
+  if (planEntries.length === 0 && !isPlanAwareAlert) {
     return null;
+  }
+
+  if (planEntries.length === 0) {
+    return (
+      <section className="modal-section query-plan-section">
+        <div className="query-plan-header">
+          <div>
+            <h4>Query Plan</h4>
+            <p>No cached SQL Server execution plan was captured for this alert.</p>
+          </div>
+        </div>
+        <div className="query-plan-empty">
+          The session may have been idle with an open transaction, the cached plan may have aged out, or the collector identity may need DMV visibility such as VIEW SERVER STATE.
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -419,6 +436,10 @@ function loadQueryPlanRenderer() {
   }
 
   return queryPlanRendererPromise;
+}
+
+function isPlanAwareAlertType(alertType, category) {
+  return ['BlockingChain', 'LongRunningTransaction', 'ActiveTransactionLogReuseWait'].includes(alertType || category);
 }
 
 function collectQueryPlans(value, path = [], plans = []) {
