@@ -209,7 +209,11 @@ export default function AlertsPage() {
 
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
-  const evidenceDetails = useMemo(() => stripDedicatedEvidence(stripQueryPlanXml(details)), [details]);
+  const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(details), [details]);
+  const evidenceDetails = useMemo(() => {
+    const cleanedDetails = stripQueryPlanXml(details);
+    return hasDedicatedEvidence ? stripDedicatedEvidence(cleanedDetails) : cleanedDetails;
+  }, [details, hasDedicatedEvidence]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -241,7 +245,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 
           <BlockingEvidenceSection details={details} />
 
-          <QueryPlanSection alertType={alert.alertType} details={details} />
+          <QueryPlanSection alertType={alert.alertType} sourceScript={alert.sourceScript} details={details} />
 
           <section className="modal-section">
             <h4>Evidence</h4>
@@ -258,9 +262,9 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 }
 
 function BlockingEvidenceSection({ details }) {
-  const heldLocks = Array.isArray(details?.leadBlockerHeldLocks) ? details.leadBlockerHeldLocks : [];
-  const blockedSessions = Array.isArray(details?.blockedSessions) ? details.blockedSessions : [];
-  const blockingEvidence = Array.isArray(details?.blockingEvidence) ? details.blockingEvidence : [];
+  const heldLocks = normalizeEvidenceList(details?.leadBlockerHeldLocks);
+  const blockedSessions = normalizeEvidenceList(details?.blockedSessions);
+  const blockingEvidence = normalizeEvidenceList(details?.blockingEvidence);
 
   if (heldLocks.length === 0 && blockedSessions.length === 0 && blockingEvidence.length === 0) {
     return null;
@@ -364,10 +368,10 @@ function BlockingEvidenceSection({ details }) {
   );
 }
 
-function QueryPlanSection({ alertType, details }) {
+function QueryPlanSection({ alertType, sourceScript, details }) {
   const containerRef = useRef(null);
   const planEntries = useMemo(() => collectQueryPlans(details), [details]);
-  const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category);
+  const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category, sourceScript, details?.sourceScripts);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
@@ -589,8 +593,51 @@ function loadQueryPlanRenderer() {
   return queryPlanRendererPromise;
 }
 
-function isPlanAwareAlertType(alertType, category) {
-  return ['BlockingChain', 'LongRunningTransaction', 'ActiveTransactionLogReuseWait'].includes(alertType || category);
+function isPlanAwareAlertType(...values) {
+  return values.some((value) => {
+    const normalizedValue = String(value ?? '').trim().toLowerCase();
+    return (
+      normalizedValue === 'blockingchain' ||
+      normalizedValue === 'longrunningtransaction' ||
+      normalizedValue === 'activetransactionlogreusewait' ||
+      normalizedValue.includes('collect-blockingsessions.ps1') ||
+      normalizedValue.includes('collect-longrunningtransactions.ps1')
+    );
+  });
+}
+
+function hasBlockingEvidence(details) {
+  return (
+    normalizeEvidenceList(details?.leadBlockerHeldLocks).length > 0 ||
+    normalizeEvidenceList(details?.blockedSessions).length > 0 ||
+    normalizeEvidenceList(details?.blockingEvidence).length > 0
+  );
+}
+
+function normalizeEvidenceList(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (value && typeof value === 'object') {
+    return [value];
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    try {
+      const parsedValue = JSON.parse(value);
+      if (Array.isArray(parsedValue)) {
+        return parsedValue;
+      }
+      if (parsedValue && typeof parsedValue === 'object') {
+        return [parsedValue];
+      }
+    } catch {
+      return [{ value }];
+    }
+  }
+
+  return [];
 }
 
 function collectQueryPlans(value, path = [], plans = []) {
