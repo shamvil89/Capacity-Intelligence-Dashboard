@@ -582,6 +582,74 @@ td {
   margin: 0;
 }
 
+.query-plan-section {
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.query-plan-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.query-plan-header p {
+  color: #667085;
+  margin-top: 4px;
+}
+
+.query-plan-select {
+  min-width: 260px;
+  display: grid;
+  gap: 5px;
+  color: #475467;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.query-plan-select select {
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #17202a;
+}
+
+.query-plan-viewer {
+  min-height: 260px;
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid #dfe5ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.query-plan-viewer svg,
+.query-plan-viewer table {
+  max-width: none;
+}
+
+.query-plan-viewer table {
+  width: auto;
+  min-width: 0;
+  border-collapse: separate;
+}
+
+.query-plan-viewer th,
+.query-plan-viewer td {
+  padding: 2px 4px;
+  border-bottom: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  text-transform: none;
+  vertical-align: middle;
+}
+
 .detail-key-values {
   border: 1px solid #e6ebf1;
   border-radius: 8px;
@@ -763,8 +831,17 @@ td {
   }
 
   .detail-summary-grid,
-  .detail-row {
+  .detail-row,
+  .query-plan-header {
     grid-template-columns: 1fr;
+  }
+
+  .query-plan-header {
+    display: grid;
+  }
+
+  .query-plan-select {
+    min-width: 0;
   }
 
   .detail-item-wide {

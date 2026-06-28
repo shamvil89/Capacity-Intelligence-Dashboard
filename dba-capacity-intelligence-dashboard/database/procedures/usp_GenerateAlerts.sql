@@ -442,6 +442,7 @@ BEGIN
                     t.wait_type AS waitType,
                     t.blocking_session_id AS blockingSessionId,
                     t.sql_text AS sqlText,
+                    t.query_plan_xml AS queryPlanXml,
                     'Long transactions can prevent log truncation and accelerate log growth, especially in FULL recovery.' AS explanation,
                     'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
                     'dbo.LongRunningTransactionHistory' AS evidenceTable
@@ -534,6 +535,7 @@ BEGIN
                     latest_blocker.lead_blocker_transaction_begin_time AS leadBlockerTransactionBeginTime,
                     latest_blocker.lead_blocker_wait_type AS leadBlockerWaitType,
                     latest_blocker.lead_blocker_sql_text AS leadBlockerSqlText,
+                    latest_blocker.lead_blocker_query_plan_xml AS leadBlockerQueryPlanXml,
                     s.blocked_session_count AS blockedSessionCount,
                     s.max_blocked_wait_ms AS maxBlockedWaitMs,
                     JSON_QUERY(latest_blocker.blocker_locks_json) AS leadBlockerHeldLocks,
@@ -556,7 +558,8 @@ BEGIN
                                     b.blocked_wait_resource AS waitResource,
                                     b.blocked_object_name AS blockedObjectName,
                                     b.blocked_lock_mode AS blockedLockMode,
-                                    b.blocked_sql_text AS blockedSqlText
+                                    b.blocked_sql_text AS blockedSqlText,
+                                    b.blocked_query_plan_xml AS blockedQueryPlanXml
                                 FROM CurrentBlocked AS b
                                 WHERE b.server_name = s.server_name
                                   AND b.lead_blocker_session_id = s.lead_blocker_session_id
@@ -652,7 +655,9 @@ BEGIN
                                     b.blocked_object_name AS blockedObjectName,
                                     b.lead_blocker_login_name AS leadBlockerLoginName,
                                     b.lead_blocker_sql_text AS leadBlockerSqlText,
-                                    b.blocked_sql_text AS blockedSqlText
+                                    b.lead_blocker_query_plan_xml AS leadBlockerQueryPlanXml,
+                                    b.blocked_sql_text AS blockedSqlText,
+                                    b.blocked_query_plan_xml AS blockedQueryPlanXml
                                 FROM dbo.BlockingSessionHistory AS b
                                 WHERE b.server_name = l.server_name
                                   AND ISNULL(b.database_name, N'') = ISNULL(l.database_name, N'')
@@ -676,7 +681,8 @@ BEGIN
                                     t.login_name AS loginName,
                                     t.host_name AS hostName,
                                     t.program_name AS programName,
-                                    t.sql_text AS sqlText
+                                    t.sql_text AS sqlText,
+                                    t.query_plan_xml AS queryPlanXml
                                 FROM dbo.LongRunningTransactionHistory AS t
                                 WHERE t.server_name = l.server_name
                                   AND ISNULL(t.database_name, N'') = ISNULL(l.database_name, N'')

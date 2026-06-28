@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import * as QueryPlanRenderer from 'html-query-plan';
+import 'html-query-plan/css/qp.css';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
@@ -205,7 +207,8 @@ export default function AlertsPage() {
 }
 
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
-  const details = parseAlertDetails(alert.detailsJson);
+  const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
+  const evidenceDetails = useMemo(() => stripQueryPlanXml(details), [details]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -235,13 +238,92 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <p>{alert.message}</p>
           </section>
 
+          <QueryPlanSection details={details} />
+
           <section className="modal-section">
             <h4>Evidence</h4>
-            {details ? <StructuredDetails value={details} /> : <p>No structured details were stored for this alert.</p>}
+            {hasRenderableDetail(evidenceDetails) ? (
+              <StructuredDetails value={evidenceDetails} />
+            ) : (
+              <p>No additional structured details were stored for this alert.</p>
+            )}
           </section>
         </div>
       </section>
     </div>
+  );
+}
+
+function QueryPlanSection({ details }) {
+  const containerRef = useRef(null);
+  const planEntries = useMemo(() => collectQueryPlans(details), [details]);
+  const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
+  const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
+
+  useEffect(() => {
+    setSelectedPlanIndex(0);
+  }, [planEntries.length]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !selectedPlan) {
+      return undefined;
+    }
+
+    container.innerHTML = '';
+
+    const showPlan =
+      QueryPlanRenderer.showPlan ??
+      QueryPlanRenderer.default?.showPlan ??
+      (typeof window !== 'undefined' ? window.QP?.showPlan : undefined);
+
+    if (!showPlan) {
+      container.textContent = 'Query plan renderer is unavailable.';
+      return undefined;
+    }
+
+    try {
+      showPlan(container, selectedPlan.planXml, { jsTooltips: true });
+    } catch (err) {
+      container.textContent = `Could not render query plan: ${err.message}`;
+    }
+
+    return () => {
+      container.innerHTML = '';
+    };
+  }, [selectedPlan]);
+
+  if (planEntries.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="modal-section query-plan-section">
+      <div className="query-plan-header">
+        <div>
+          <h4>Query Plan</h4>
+          <p>Cached SQL Server execution plan captured during collection.</p>
+        </div>
+
+        {planEntries.length > 1 ? (
+          <label className="query-plan-select">
+            <span>Plan</span>
+            <select
+              value={selectedPlanIndex}
+              onChange={(event) => setSelectedPlanIndex(Number(event.target.value))}
+            >
+              {planEntries.map((plan, index) => (
+                <option key={`${plan.label}-${index}`} value={index}>
+                  {plan.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+
+      <div className="query-plan-viewer" ref={containerRef} />
+    </section>
   );
 }
 
@@ -289,6 +371,86 @@ function renderDetailValue(value) {
   }
 
   return <span>{formatDetailValue(value)}</span>;
+}
+
+function collectQueryPlans(value, path = [], plans = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectQueryPlans(item, [...path, `item ${index + 1}`], plans));
+    return plans;
+  }
+
+  if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([key, itemValue]) => {
+      if (isQueryPlanXmlField(key, itemValue)) {
+        plans.push({
+          label: formatQueryPlanLabel([...path, key]),
+          planXml: itemValue
+        });
+        return;
+      }
+
+      collectQueryPlans(itemValue, [...path, key], plans);
+    });
+  }
+
+  return plans;
+}
+
+function stripQueryPlanXml(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripQueryPlanXml(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const cleanedEntries = Object.entries(value)
+      .filter(([key, itemValue]) => !isQueryPlanXmlField(key, itemValue))
+      .map(([key, itemValue]) => [key, stripQueryPlanXml(itemValue)])
+      .filter(([, itemValue]) => itemValue !== undefined);
+
+    return Object.fromEntries(cleanedEntries);
+  }
+
+  return value;
+}
+
+function isQueryPlanXmlField(key, value) {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    (/(^|_)query_plan_xml$/i.test(key) || /queryPlanXml$/i.test(key) || value.trimStart().startsWith('<ShowPlanXML'))
+  );
+}
+
+function hasRenderableDetail(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+
+  return value !== null && value !== undefined && value !== '';
+}
+
+function formatQueryPlanLabel(path) {
+  const label = path
+    .map((part) => {
+      if (String(part).startsWith('item ')) {
+        return `#${String(part).replace('item ', '')}`;
+      }
+
+      return formatDetailLabel(part);
+    })
+    .join(' / ');
+
+  return label
+    .replace(/\s*Query Plan Xml$/i, ' Query plan')
+    .replace(/\s*Plan Xml$/i, ' plan')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function parseAlertDetails(detailsJson) {

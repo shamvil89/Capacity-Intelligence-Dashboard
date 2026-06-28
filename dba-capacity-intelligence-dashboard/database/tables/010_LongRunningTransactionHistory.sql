@@ -22,11 +22,19 @@ BEGIN
         command NVARCHAR(120) NULL,
         wait_type NVARCHAR(120) NULL,
         blocking_session_id INT NULL,
-        sql_text NVARCHAR(MAX) NULL
+        sql_text NVARCHAR(MAX) NULL,
+        query_plan_xml NVARCHAR(MAX) NULL
     );
 
     CREATE INDEX IX_LongRunningTransactionHistory_Server_Time
         ON dbo.LongRunningTransactionHistory (server_name, collection_time DESC)
         INCLUDE (database_name, session_id, duration_minutes);
+END;
+GO
+
+IF COL_LENGTH(N'dbo.LongRunningTransactionHistory', N'query_plan_xml') IS NULL
+BEGIN
+    ALTER TABLE dbo.LongRunningTransactionHistory
+        ADD query_plan_xml NVARCHAR(MAX) NULL;
 END;
 GO

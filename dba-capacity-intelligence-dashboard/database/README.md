@@ -55,9 +55,9 @@ flowchart TD
 | `dbo.TableSizeHistory` | Table-level size and row count history. |
 | `dbo.BackupSizeHistory` | Backup size history from `msdb`. |
 | `dbo.TempDBUsageHistory` | TempDB usage history. |
-| `dbo.LongRunningTransactionHistory` | Long-running transaction evidence used by log-risk alerts. |
+| `dbo.LongRunningTransactionHistory` | Long-running transaction evidence used by log-risk alerts, including SQL text and cached XML query plan when available. |
 | `dbo.TempDBSessionUsageHistory` | Session-level TempDB consumers used by TempDB alerts. |
-| `dbo.BlockingSessionHistory` | Blocking-chain evidence, including lead blockers, blocked sessions, wait resources, likely objects, and SQL text. |
+| `dbo.BlockingSessionHistory` | Blocking-chain evidence, including lead blockers, blocked sessions, wait resources, likely objects, SQL text, and cached XML query plans when available. |
 | `dbo.AlwaysOnHealthHistory` | Always On replica and database health evidence from HADR DMVs. |
 | `dbo.ReplicationHealthHistory` | Replication database flags and agent status/error evidence. |
 | `dbo.CapacityForecastResult` | Latest calculated growth and capacity risk results. |
@@ -88,7 +88,7 @@ flowchart TD
 | Column | Purpose |
 | --- | --- |
 | `source_script` | Script or procedure chain that produced the alert. |
-| `details_json` | Structured alert evidence, such as log growth rate, projected hours to cap, last log backup time, TempDB top consumers, or collector failure text. |
+| `details_json` | Structured alert evidence, such as log growth rate, projected hours to cap, last log backup time, TempDB top consumers, cached query plan XML, or collector failure text. |
 
 The log-risk alert calculation uses:
 
@@ -101,6 +101,19 @@ The log-risk alert calculation uses:
 - Blocking evidence when `log_reuse_wait_desc = ACTIVE_TRANSACTION`.
 - Always On evidence when `log_reuse_wait_desc = AVAILABILITY_REPLICA`.
 - Replication evidence when `log_reuse_wait_desc = REPLICATION`.
+
+## Query Plan Evidence
+
+The repository stores cached SQL Server XML execution plans for long-running transaction and blocking evidence:
+
+| Table | Columns |
+| --- | --- |
+| `dbo.LongRunningTransactionHistory` | `query_plan_xml` |
+| `dbo.BlockingSessionHistory` | `lead_blocker_query_plan_xml`, `blocked_query_plan_xml` |
+
+`dbo.usp_GenerateAlerts` copies those XML values into `details_json` for long-running transaction, blocking, and `ACTIVE_TRANSACTION` log reuse alerts. The web UI renders the XML as a graphical execution plan in the alert More info popup and hides the raw XML from the normal evidence list.
+
+Plans are best-effort diagnostic evidence. They are captured only when SQL Server has an active request plan handle and the collector identity has enough DMV permission.
 
 ## Repository Views
 

@@ -18,6 +18,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_InsertLongRunningTransactionHistory
     @wait_type NVARCHAR(120) = NULL,
     @blocking_session_id INT = NULL,
     @sql_text NVARCHAR(MAX) = NULL,
+    @query_plan_xml NVARCHAR(MAX) = NULL,
     @collection_time DATETIME2(7) = NULL
 AS
 BEGIN
@@ -42,7 +43,8 @@ BEGIN
             command,
             wait_type,
             blocking_session_id,
-            sql_text
+            sql_text,
+            query_plan_xml
         )
         VALUES
         (
@@ -62,7 +64,8 @@ BEGIN
             @command,
             @wait_type,
             @blocking_session_id,
-            @sql_text
+            @sql_text,
+            @query_plan_xml
         );
     END TRY
     BEGIN CATCH

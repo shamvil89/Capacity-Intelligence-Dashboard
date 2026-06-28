@@ -21,6 +21,7 @@ web/dba-capacity-web
 | Routing | React Router HashRouter |
 | Charts | Recharts |
 | Icons | Lucide React |
+| Query plans | `html-query-plan` |
 | Hosting | IIS static site |
 | Pipeline | `pipelines/deploy-web.yml` |
 
@@ -48,7 +49,7 @@ The environment filter uses values populated by `pipelines/onboard-server.yml`: 
 | `src/pages/DashboardPage.jsx` | Main dashboard page. |
 | `src/pages/DatabaseDetailPage.jsx` | Detail chart page. |
 | `src/pages/TopGrowingTablesPage.jsx` | Top tables page. |
-| `src/pages/AlertsPage.jsx` | Alert queue page. |
+| `src/pages/AlertsPage.jsx` | Alert queue page and More info popup, including graphical query plan rendering for plan-aware alerts. |
 | `src/styles.css` | Global layout, table, dashboard, alert, and responsive styles. |
 
 ## Alert More Info Popup
@@ -64,6 +65,16 @@ The More info button opens a popup with:
 - Structured evidence from `detailsJson`.
 
 For log and TempDB alerts, this can include projected hours to log cap, effective cap calculation inputs, recovery model, log reuse wait, last log backup time, long-running transaction details, or top TempDB-consuming sessions.
+
+For long-running transaction and blocking alerts, the popup also searches `detailsJson` for:
+
+- `queryPlanXml`
+- `leadBlockerQueryPlanXml`
+- `blockedQueryPlanXml`
+
+When any of these fields are present, the popup renders a graphical SQL Server execution plan using `html-query-plan`. Multiple plans can be selected from the plan dropdown. The raw XML is intentionally hidden from the normal Evidence section so the popup stays readable.
+
+Execution plans are best-effort. If SQL Server did not expose a cached plan during collection, the alert still shows SQL text and session evidence but no plan viewer.
 
 Older active alerts may show a legacy evidence note until the next collector run creates fresh structured evidence.
 

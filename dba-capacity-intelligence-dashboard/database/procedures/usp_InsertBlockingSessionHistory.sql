@@ -15,6 +15,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_InsertBlockingSessionHistory
     @lead_blocker_transaction_begin_time DATETIME2(7) = NULL,
     @lead_blocker_wait_type NVARCHAR(120) = NULL,
     @lead_blocker_sql_text NVARCHAR(MAX) = NULL,
+    @lead_blocker_query_plan_xml NVARCHAR(MAX) = NULL,
     @blocked_session_id INT,
     @blocked_login_name NVARCHAR(256) = NULL,
     @blocked_host_name NVARCHAR(256) = NULL,
@@ -28,6 +29,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_InsertBlockingSessionHistory
     @blocked_object_name NVARCHAR(512) = NULL,
     @blocked_lock_mode NVARCHAR(60) = NULL,
     @blocked_sql_text NVARCHAR(MAX) = NULL,
+    @blocked_query_plan_xml NVARCHAR(MAX) = NULL,
     @blocker_locks_json NVARCHAR(MAX) = NULL
 AS
 BEGIN
@@ -48,6 +50,7 @@ BEGIN
         lead_blocker_transaction_begin_time,
         lead_blocker_wait_type,
         lead_blocker_sql_text,
+        lead_blocker_query_plan_xml,
         blocked_session_id,
         blocked_login_name,
         blocked_host_name,
@@ -61,6 +64,7 @@ BEGIN
         blocked_object_name,
         blocked_lock_mode,
         blocked_sql_text,
+        blocked_query_plan_xml,
         blocker_locks_json
     )
     VALUES
@@ -78,6 +82,7 @@ BEGIN
         @lead_blocker_transaction_begin_time,
         @lead_blocker_wait_type,
         @lead_blocker_sql_text,
+        @lead_blocker_query_plan_xml,
         @blocked_session_id,
         @blocked_login_name,
         @blocked_host_name,
@@ -91,6 +96,7 @@ BEGIN
         @blocked_object_name,
         @blocked_lock_mode,
         @blocked_sql_text,
+        @blocked_query_plan_xml,
         @blocker_locks_json
     );
 END;

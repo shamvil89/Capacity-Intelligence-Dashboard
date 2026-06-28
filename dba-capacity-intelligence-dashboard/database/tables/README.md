@@ -19,6 +19,11 @@ The files are numbered so deployment order is predictable.
 | `007_TempDBUsageHistory.sql` | `dbo.TempDBUsageHistory` | Stores TempDB size and used space snapshots. |
 | `008_CapacityForecastResult.sql` | `dbo.CapacityForecastResult` | Stores latest capacity forecast output and risk classification. |
 | `009_AlertHistory.sql` | `dbo.AlertHistory` | Stores alerts raised by forecast logic and collector failure handling. |
+| `010_LongRunningTransactionHistory.sql` | `dbo.LongRunningTransactionHistory` | Stores open transaction evidence, SQL text, and cached XML query plan when available. |
+| `011_TempDBSessionUsageHistory.sql` | `dbo.TempDBSessionUsageHistory` | Stores top session-level TempDB consumers for alert drill-through. |
+| `012_BlockingSessionHistory.sql` | `dbo.BlockingSessionHistory` | Stores lead blocker, blocked request, wait, object, SQL text, lock, and cached query plan evidence. |
+| `013_AlwaysOnHealthHistory.sql` | `dbo.AlwaysOnHealthHistory` | Stores Always On replica/database synchronization and health evidence. |
+| `014_ReplicationHealthHistory.sql` | `dbo.ReplicationHealthHistory` | Stores replication database flags and replication agent status/error evidence. |
 
 ## ServerInventory Details
 
@@ -81,6 +86,8 @@ Most metric history tables include:
 - Numeric capacity values
 
 The collector inserts rows every run. Forecast procedures query recent history to calculate growth and risk.
+
+Long-running transaction and blocking history also keep XML execution plan columns. These are best-effort cached plans from SQL Server DMVs and can be null when SQL Server does not expose a plan handle or the collector identity lacks permission.
 
 ## AlertHistory Details
 

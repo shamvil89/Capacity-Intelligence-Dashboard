@@ -68,7 +68,8 @@ SELECT
             )
         END,
         4000
-    ) AS sql_text
+    ) AS sql_text,
+    CONVERT(NVARCHAR(MAX), qp.query_plan) AS query_plan_xml
 FROM sys.dm_tran_active_transactions AS at
 INNER JOIN sys.dm_tran_session_transactions AS st
     ON st.transaction_id = at.transaction_id
@@ -79,8 +80,9 @@ LEFT JOIN sys.dm_tran_database_transactions AS dt
 LEFT JOIN sys.dm_exec_requests AS r
     ON r.session_id = s.session_id
 OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS txt
+OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp
 WHERE s.is_user_process = 1
-  AND at.transaction_begin_time <= DATEADD(MINUTE, -@MinimumDurationMinutes, GETDATE())
+  AND at.transaction_begin_time <= DATEADD(MINUTE, -1 * CONVERT(INT, @MinimumDurationMinutes), GETDATE())
 ORDER BY duration_minutes DESC;
 "@
 
@@ -107,6 +109,7 @@ foreach ($row in $rows) {
         wait_type                = ConvertTo-NullableValue $row.wait_type
         blocking_session_id      = ConvertTo-NullableValue $row.blocking_session_id
         sql_text                 = ConvertTo-NullableValue $row.sql_text
+        query_plan_xml           = ConvertTo-NullableValue $row.query_plan_xml
     }
 }
 

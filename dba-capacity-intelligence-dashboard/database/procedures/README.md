@@ -19,9 +19,9 @@ There are two procedure categories:
 | `dbo.usp_InsertTableSizeHistory` | `Collect-TableSize.ps1` | Inserts table size and row count rows. |
 | `dbo.usp_InsertBackupSizeHistory` | `Collect-BackupSize.ps1` | Inserts backup size rows. |
 | `dbo.usp_InsertTempDBUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts TempDB usage rows. |
-| `dbo.usp_InsertLongRunningTransactionHistory` | `Collect-LongRunningTransactions.ps1` | Inserts open transaction evidence, duration, session metadata, and current SQL text. |
+| `dbo.usp_InsertLongRunningTransactionHistory` | `Collect-LongRunningTransactions.ps1` | Inserts open transaction evidence, duration, session metadata, current SQL text, and cached XML query plan when available. |
 | `dbo.usp_InsertTempDBSessionUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts top session-level TempDB consumers for alert drill-through. |
-| `dbo.usp_InsertBlockingSessionHistory` | `Collect-BlockingSessions.ps1` | Inserts blocking-chain evidence for lead blockers and blocked sessions. |
+| `dbo.usp_InsertBlockingSessionHistory` | `Collect-BlockingSessions.ps1` | Inserts blocking-chain evidence for lead blockers and blocked sessions, including SQL text, lock evidence, and cached XML query plans when available. |
 | `dbo.usp_InsertAlwaysOnHealthHistory` | `Collect-AlwaysOnHealth.ps1` | Inserts Always On replica and database synchronization evidence. |
 | `dbo.usp_InsertReplicationHealthHistory` | `Collect-ReplicationHealth.ps1` | Inserts replication database flags and agent health/error evidence. |
 
@@ -65,9 +65,9 @@ Current alert categories include:
 | `CapacityRisk` | Latest forecast row from `dbo.CapacityForecastResult`. |
 | `LogFileExhaustionRisk` | Current log size, effective cap, disk headroom, recent growth rate, and projected hours to cap. |
 | `FullRecoveryNoLogBackup` | FULL recovery model, last observed log backup, and log reuse wait. |
-| `LongRunningTransaction` | Open transaction duration, session, login, wait, blocking session, and SQL text. |
-| `BlockingChain` | Lead blocker, blocker SQL, blocked sessions, wait resources, likely blocked objects, and blocker-held locks. |
-| `ActiveTransactionLogReuseWait` | `ACTIVE_TRANSACTION` log reuse wait with long transaction and blocking evidence. |
+| `LongRunningTransaction` | Open transaction duration, session, login, wait, blocking session, SQL text, and cached query plan when available. |
+| `BlockingChain` | Lead blocker, blocker SQL/plan, blocked sessions, blocked SQL/plans, wait resources, likely blocked objects, and blocker-held locks. |
+| `ActiveTransactionLogReuseWait` | `ACTIVE_TRANSACTION` log reuse wait with long transaction, blocking evidence, and cached query plans when available. |
 | `AlwaysOnHealthIssue` | Always On replica/database health, disconnected replicas, suspended databases, queues, and connect errors. |
 | `AlwaysOnLogReuseWait` | `AVAILABILITY_REPLICA` log reuse wait with Always On evidence. |
 | `ReplicationAgentIssue` | Failed or retrying replication agents and error details from distribution metadata. |
@@ -78,6 +78,8 @@ Current alert categories include:
 | `CollectionFailure:*` | Collector error captured by `Common.ps1`. |
 
 Each generated alert writes `source_script` and `details_json` into `dbo.AlertHistory`. The web UI reads those fields and shows them in the alert More info popup.
+
+For plan-aware alerts, `details_json` can include `queryPlanXml`, `leadBlockerQueryPlanXml`, and `blockedQueryPlanXml`. The web UI renders these fields as execution plans and suppresses the raw XML from the generic evidence table.
 
 The collector also directly writes `CollectionFailure:*` alerts when individual metric scripts fail.
 

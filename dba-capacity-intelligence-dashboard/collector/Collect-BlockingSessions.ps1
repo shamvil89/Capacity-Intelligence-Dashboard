@@ -23,6 +23,7 @@ WITH BlockedRequests AS
         r.wait_time,
         r.wait_resource,
         r.sql_handle,
+        r.plan_handle,
         r.statement_start_offset,
         r.statement_end_offset
     FROM sys.dm_exec_requests AS r
@@ -137,6 +138,7 @@ SELECT
         END,
         4000
     ) AS lead_blocker_sql_text,
+    CONVERT(NVARCHAR(MAX), blocker_plan.query_plan) AS lead_blocker_query_plan_xml,
     br.blocked_session_id,
     blocked_session.login_name AS blocked_login_name,
     blocked_session.host_name AS blocked_host_name,
@@ -173,6 +175,7 @@ SELECT
         END,
         4000
     ) AS blocked_sql_text,
+    CONVERT(NVARCHAR(MAX), blocked_plan.query_plan) AS blocked_query_plan_xml,
     blocker_locks.blocker_locks_json
 FROM BlockedRequests AS br
 INNER JOIN LeadBlocker AS lb
@@ -193,6 +196,8 @@ LEFT JOIN WaitingLocks AS wl
    AND wl.rn = 1
 OUTER APPLY sys.dm_exec_sql_text(br.sql_handle) AS blocked_text
 OUTER APPLY sys.dm_exec_sql_text(COALESCE(brq.sql_handle, blocker_connection.most_recent_sql_handle)) AS blocker_text
+OUTER APPLY sys.dm_exec_query_plan(brq.plan_handle) AS blocker_plan
+OUTER APPLY sys.dm_exec_query_plan(br.plan_handle) AS blocked_plan
 OUTER APPLY
 (
     SELECT
@@ -244,6 +249,7 @@ foreach ($row in $rows) {
         lead_blocker_transaction_begin_time   = ConvertTo-NullableValue $row.lead_blocker_transaction_begin_time
         lead_blocker_wait_type                = ConvertTo-NullableValue $row.lead_blocker_wait_type
         lead_blocker_sql_text                 = ConvertTo-NullableValue $row.lead_blocker_sql_text
+        lead_blocker_query_plan_xml           = ConvertTo-NullableValue $row.lead_blocker_query_plan_xml
         blocked_session_id                    = $row.blocked_session_id
         blocked_login_name                    = ConvertTo-NullableValue $row.blocked_login_name
         blocked_host_name                     = ConvertTo-NullableValue $row.blocked_host_name
@@ -257,6 +263,7 @@ foreach ($row in $rows) {
         blocked_object_name                   = ConvertTo-NullableValue $row.blocked_object_name
         blocked_lock_mode                     = ConvertTo-NullableValue $row.blocked_lock_mode
         blocked_sql_text                      = ConvertTo-NullableValue $row.blocked_sql_text
+        blocked_query_plan_xml                = ConvertTo-NullableValue $row.blocked_query_plan_xml
         blocker_locks_json                    = ConvertTo-NullableValue $row.blocker_locks_json
     }
 }

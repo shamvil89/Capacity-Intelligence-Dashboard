@@ -20,6 +20,7 @@ BEGIN
         lead_blocker_transaction_begin_time DATETIME2(7) NULL,
         lead_blocker_wait_type NVARCHAR(120) NULL,
         lead_blocker_sql_text NVARCHAR(MAX) NULL,
+        lead_blocker_query_plan_xml NVARCHAR(MAX) NULL,
         blocked_session_id INT NOT NULL,
         blocked_login_name NVARCHAR(256) NULL,
         blocked_host_name NVARCHAR(256) NULL,
@@ -33,11 +34,26 @@ BEGIN
         blocked_object_name NVARCHAR(512) NULL,
         blocked_lock_mode NVARCHAR(60) NULL,
         blocked_sql_text NVARCHAR(MAX) NULL,
+        blocked_query_plan_xml NVARCHAR(MAX) NULL,
         blocker_locks_json NVARCHAR(MAX) NULL
     );
 
     CREATE INDEX IX_BlockingSessionHistory_Server_Blocker_Time
         ON dbo.BlockingSessionHistory (server_name, lead_blocker_session_id, collection_time DESC)
         INCLUDE (database_name, blocked_session_id, blocked_wait_duration_ms, blocked_object_name);
+END;
+GO
+
+IF COL_LENGTH(N'dbo.BlockingSessionHistory', N'lead_blocker_query_plan_xml') IS NULL
+BEGIN
+    ALTER TABLE dbo.BlockingSessionHistory
+        ADD lead_blocker_query_plan_xml NVARCHAR(MAX) NULL;
+END;
+GO
+
+IF COL_LENGTH(N'dbo.BlockingSessionHistory', N'blocked_query_plan_xml') IS NULL
+BEGIN
+    ALTER TABLE dbo.BlockingSessionHistory
+        ADD blocked_query_plan_xml NVARCHAR(MAX) NULL;
 END;
 GO
