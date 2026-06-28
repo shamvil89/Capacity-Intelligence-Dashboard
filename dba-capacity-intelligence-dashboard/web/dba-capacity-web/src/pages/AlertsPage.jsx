@@ -209,11 +209,14 @@ export default function AlertsPage() {
 
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
-  const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(details), [details]);
+  const nowMs = useNowMs(hasLiveDurationDetails(details));
+  const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
+  const displayMessage = useMemo(() => formatAlertMessage(alert, displayDetails), [alert, displayDetails]);
+  const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
-    const cleanedDetails = stripQueryPlanXml(details);
+    const cleanedDetails = stripQueryPlanXml(displayDetails);
     return hasDedicatedEvidence ? stripDedicatedEvidence(cleanedDetails) : cleanedDetails;
-  }, [details, hasDedicatedEvidence]);
+  }, [displayDetails, hasDedicatedEvidence]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -235,17 +238,17 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <DetailItem label="Server" value={alert.serverName} />
             <DetailItem label="Database" value={alert.databaseName || '-'} />
             <DetailItem label="Severity" value={alert.severity} />
-            <DetailItem label="Source" value={alert.sourceScript || details?.sourceScripts || '-'} wide />
+            <DetailItem label="Source" value={alert.sourceScript || displayDetails?.sourceScripts || '-'} wide />
           </div>
 
           <section className="modal-section">
             <h4>Message</h4>
-            <p>{alert.message}</p>
+            <p>{displayMessage}</p>
           </section>
 
-          <BlockingEvidenceSection details={details} />
+          <BlockingEvidenceSection details={displayDetails} />
 
-          <QueryPlanSection alertType={alert.alertType} sourceScript={alert.sourceScript} details={details} />
+          <QueryPlanSection alertType={alert.alertType} sourceScript={alert.sourceScript} details={displayDetails} />
 
           <section className="modal-section">
             <h4>Evidence</h4>
@@ -259,6 +262,22 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       </section>
     </div>
   );
+}
+
+function useNowMs(isEnabled) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!isEnabled) {
+      return undefined;
+    }
+
+    setNowMs(Date.now());
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, [isEnabled]);
+
+  return nowMs;
 }
 
 function BlockingEvidenceSection({ details }) {
@@ -848,6 +867,112 @@ function hasRenderableDetail(value) {
   }
 
   return value !== null && value !== undefined && value !== '';
+}
+
+function hasLiveDurationDetails(value) {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLiveDurationDetails(item));
+  }
+
+  if (value && typeof value === 'object') {
+    if (value.transactionBeginTime && value.durationMinutes !== undefined) {
+      return true;
+    }
+
+    return Object.values(value).some((item) => hasLiveDurationDetails(item));
+  }
+
+  return false;
+}
+
+function enrichLiveDurationDetails(value, nowMs) {
+  if (Array.isArray(value)) {
+    return value.map((item) => enrichLiveDurationDetails(item, nowMs));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const liveDurationMinutes = calculateLiveDurationMinutes(value.transactionBeginTime, value.durationMinutes, nowMs);
+  const entries = Object.entries(value);
+
+  if (liveDurationMinutes === null) {
+    return Object.fromEntries(entries.map(([key, itemValue]) => [key, enrichLiveDurationDetails(itemValue, nowMs)]));
+  }
+
+  const enrichedEntries = [];
+  entries.forEach(([key, itemValue]) => {
+    if (key === 'durationMinutes') {
+      enrichedEntries.push([key, liveDurationMinutes]);
+      enrichedEntries.push(['collectedDurationMinutes', itemValue]);
+      enrichedEntries.push(['durationStatus', 'Live estimate from transaction begin time while this alert remains unresolved.']);
+      return;
+    }
+
+    if (key !== 'collectedDurationMinutes' && key !== 'durationStatus') {
+      enrichedEntries.push([key, enrichLiveDurationDetails(itemValue, nowMs)]);
+    }
+  });
+
+  return Object.fromEntries(enrichedEntries);
+}
+
+function calculateLiveDurationMinutes(transactionBeginTime, collectedDurationMinutes, nowMs) {
+  const beginDate = parseSourceLocalDateTime(transactionBeginTime);
+  if (!beginDate) {
+    return null;
+  }
+
+  const elapsedMinutes = (nowMs - beginDate.getTime()) / 60000;
+  if (!Number.isFinite(elapsedMinutes)) {
+    return null;
+  }
+
+  const collectedMinutes = Number(collectedDurationMinutes);
+  const safeElapsedMinutes = Number.isFinite(collectedMinutes)
+    ? Math.max(elapsedMinutes, collectedMinutes)
+    : elapsedMinutes;
+
+  return Number(Math.max(0, safeElapsedMinutes).toFixed(2));
+}
+
+function parseSourceLocalDateTime(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  const localSqlDateTime = value
+    .trim()
+    .replace(' ', 'T')
+    .replace(/(\.\d{3})\d+/, '$1');
+  const parsedDate = new Date(localSqlDateTime);
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function formatAlertMessage(alert, details) {
+  if (alert.alertType !== 'LongRunningTransaction' || !details?.sessionId || details.durationMinutes === undefined) {
+    return alert.message;
+  }
+
+  const databaseText = details.databaseName ? ` in ${details.databaseName}` : '';
+  return `Session ${details.sessionId} has an open transaction for ${formatDurationMinutes(details.durationMinutes)} minutes${databaseText}. Login: ${details.loginName || 'unknown'}.`;
+}
+
+function formatDurationMinutes(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  return Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  });
 }
 
 function formatQueryPlanLabel(path) {

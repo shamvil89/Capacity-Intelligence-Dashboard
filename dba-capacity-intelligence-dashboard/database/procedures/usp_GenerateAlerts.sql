@@ -399,6 +399,78 @@ BEGIN
                 ) AS rn
             FROM dbo.LongRunningTransactionHistory AS t
             WHERE t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+        ),
+        LatestLongTransactions AS
+        (
+            SELECT *
+            FROM RecentLongTransactions
+            WHERE rn = 1
+              AND duration_minutes >= 60
+        )
+        UPDATE a
+            SET alert_time = SYSUTCDATETIME(),
+                severity = CASE WHEN t.duration_minutes >= 240 THEN 'Critical' ELSE 'High' END,
+                message = CONCAT
+                (
+                    'Session ', t.session_id, ' has an open transaction for ',
+                    CONVERT(DECIMAL(18,2), t.duration_minutes), ' minutes',
+                    COALESCE(CONCAT(' in ', t.database_name), ''),
+                    '. Login: ', COALESCE(t.login_name, 'unknown'), '.'
+                ),
+                source_script = N'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql',
+                details_json =
+                (
+                    SELECT
+                        'LongRunningTransaction' AS category,
+                        t.server_name AS serverName,
+                        t.database_name AS databaseName,
+                        t.session_id AS sessionId,
+                        t.transaction_id AS transactionId,
+                        t.transaction_begin_time AS transactionBeginTime,
+                        t.duration_minutes AS durationMinutes,
+                        t.collection_time AS durationCollectedAt,
+                        t.login_name AS loginName,
+                        t.host_name AS hostName,
+                        t.program_name AS programName,
+                        t.transaction_name AS transactionName,
+                        t.transaction_type_desc AS transactionType,
+                        t.transaction_state_desc AS transactionState,
+                        t.command,
+                        t.wait_type AS waitType,
+                        t.blocking_session_id AS blockingSessionId,
+                        t.sql_text AS sqlText,
+                        t.query_plan_xml AS queryPlanXml,
+                        'Long transactions can prevent log truncation and accelerate log growth, especially in FULL recovery.' AS explanation,
+                        'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                        'dbo.LongRunningTransactionHistory' AS evidenceTable
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )
+        FROM dbo.AlertHistory AS a
+        INNER JOIN LatestLongTransactions AS t
+            ON t.server_name = a.server_name
+           AND ISNULL(t.database_name, N'') = ISNULL(a.database_name, N'')
+           AND a.message LIKE CONCAT('Session ', t.session_id, '%')
+        WHERE a.is_resolved = 0
+          AND a.alert_type = 'LongRunningTransaction';
+
+        ;WITH RecentLongTransactions AS
+        (
+            SELECT
+                t.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY t.server_name, t.session_id, t.transaction_id
+                    ORDER BY t.collection_time DESC, t.id DESC
+                ) AS rn
+            FROM dbo.LongRunningTransactionHistory AS t
+            WHERE t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+        ),
+        LatestLongTransactions AS
+        (
+            SELECT *
+            FROM RecentLongTransactions
+            WHERE rn = 1
+              AND duration_minutes >= 60
         )
         INSERT INTO dbo.AlertHistory
         (
@@ -432,6 +504,7 @@ BEGIN
                     t.transaction_id AS transactionId,
                     t.transaction_begin_time AS transactionBeginTime,
                     t.duration_minutes AS durationMinutes,
+                    t.collection_time AS durationCollectedAt,
                     t.login_name AS loginName,
                     t.host_name AS hostName,
                     t.program_name AS programName,
@@ -448,15 +521,12 @@ BEGIN
                     'dbo.LongRunningTransactionHistory' AS evidenceTable
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             )
-        FROM RecentLongTransactions AS t
-        WHERE t.rn = 1
-          AND t.duration_minutes >= 60
-          AND NOT EXISTS
+        FROM LatestLongTransactions AS t
+        WHERE NOT EXISTS
           (
               SELECT 1
               FROM dbo.AlertHistory AS a
-              WHERE a.alert_time >= @today
-                AND a.alert_time < @tomorrow
+              WHERE a.is_resolved = 0
                 AND a.server_name = t.server_name
                 AND ISNULL(a.database_name, N'') = ISNULL(t.database_name, N'')
                 AND a.alert_type = 'LongRunningTransaction'
