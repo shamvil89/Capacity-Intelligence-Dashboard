@@ -44,7 +44,7 @@ flowchart LR
 2. The collector connects to the `DBAUtility` repository.
 3. `Collect-CapacityMetrics.ps1` reads active rows from `dbo.ServerInventory`.
 4. Each active server is processed with its configured `server_type`, `connection_mode`, and `credential_key`.
-5. Metric scripts collect database size, file size, disk space, table size, backup size, TempDB usage, TempDB top consumers, and long-running transactions where supported.
+5. Metric scripts collect database size, file size, disk space, table size, backup size, TempDB usage, TempDB top consumers, long-running transactions, blocking chains, Always On health, and replication health where supported.
 6. Collector scripts call repository insert stored procedures.
 7. `Run-Forecast.ps1` executes forecast and alert generation procedures.
 8. The API reads from repository views and tables.
@@ -91,6 +91,9 @@ It stores:
 - TempDB usage history
 - Long-running transaction history
 - Session-level TempDB consumer history
+- Blocking-chain history
+- Always On health history
+- Replication health history
 - Forecast results
 - Alert history with source scripts and structured evidence JSON
 
@@ -172,6 +175,9 @@ It performs these steps:
 | `Collect-BackupSize.ps1` | Backup history from `msdb`. | Skipped for Azure SQL Database. |
 | `Collect-TempDBUsage.ps1` | Aggregate TempDB usage and top session-level consumers. | Skipped for Azure SQL Database. |
 | `Collect-LongRunningTransactions.ps1` | Open transaction duration, owning session, blocking/wait data, and SQL text. | Skipped for Azure SQL Database. |
+| `Collect-BlockingSessions.ps1` | Lead blocker, blocked sessions, wait resources, likely blocked objects, and SQL text. | Skipped for Azure SQL Database. |
+| `Collect-AlwaysOnHealth.ps1` | Always On dashboard-style replica and database health, queues, suspend reasons, and connection errors. | Skipped for Azure SQL Database. |
+| `Collect-ReplicationHealth.ps1` | Replication database flags and latest local distribution agent status/errors. | Skipped for Azure SQL Database. |
 | `Run-Forecast.ps1` | Forecast and alert generation. | Repository only. |
 
 ### Azure SQL Database Notes
@@ -182,6 +188,7 @@ Azure SQL Database does not expose the same instance-level DMVs as SQL Server. F
 - Backup size collection is skipped.
 - TempDB usage collection is skipped.
 - Long-running transaction collection is skipped.
+- Blocking, Always On, and replication instance-level collection is skipped.
 - Database size and file size are collected per database.
 - Table size is collected per database where the login has permission.
 
@@ -201,6 +208,12 @@ Important alert signals:
 | `LogFileExhaustionRisk` | Whether the transaction log can hit the lower of configured max size, SQL Server 2 TB log-file cap, or available disk headroom; estimates hours to cap from recent growth. | `Collect-FileSize.ps1`, `dbo.FileSizeHistory`, `dbo.usp_GenerateAlerts`. |
 | `FullRecoveryNoLogBackup` | FULL recovery databases with no observed log backup, stale log backup, or `LOG_BACKUP` reuse wait. | `Collect-FileSize.ps1`, `Collect-BackupSize.ps1`. |
 | `LongRunningTransaction` | Open user transactions over the threshold because they can block log truncation. | `Collect-LongRunningTransactions.ps1`. |
+| `BlockingChain` | Lead blockers, blocked sessions, wait resources, blocked objects, and SQL text. | `Collect-BlockingSessions.ps1`. |
+| `ActiveTransactionLogReuseWait` | `log_reuse_wait_desc = ACTIVE_TRANSACTION` with long transaction and blocking evidence. | `Collect-FileSize.ps1`, `Collect-LongRunningTransactions.ps1`, `Collect-BlockingSessions.ps1`. |
+| `AlwaysOnHealthIssue` | Disconnected, unhealthy, suspended, or lagging Always On replica/database rows. | `Collect-AlwaysOnHealth.ps1`. |
+| `AlwaysOnLogReuseWait` | `log_reuse_wait_desc = AVAILABILITY_REPLICA` with Always On evidence. | `Collect-FileSize.ps1`, `Collect-AlwaysOnHealth.ps1`. |
+| `ReplicationAgentIssue` | Failed or retrying replication agents and local distribution errors. | `Collect-ReplicationHealth.ps1`. |
+| `ReplicationLogReuseWait` | `log_reuse_wait_desc = REPLICATION` with replication evidence. | `Collect-FileSize.ps1`, `Collect-ReplicationHealth.ps1`. |
 | `TempDBUsage` | High TempDB usage and the top sessions consuming TempDB at collection time. | `Collect-TempDBUsage.ps1`. |
 | `CollectionFailure:*` | Collector failures with the failing metric script and error text. | `collector/Common.ps1`. |
 
@@ -645,6 +658,9 @@ Source permissions depend on metric coverage:
 | Table size | Metadata visibility in each user database. |
 | Backup size | Read access to backup metadata in `msdb`. |
 | TempDB usage | TempDB metadata visibility. |
+| Long transactions and blocking | `VIEW SERVER STATE`; metadata visibility for object names. |
+| Always On health | `VIEW SERVER STATE` and access to HADR DMVs. |
+| Replication health | Replication metadata visibility; access to the local `distribution` database when distribution metadata is hosted on the monitored instance. |
 
 Start with a read-only SQL login and test. Add additional permissions only where a collector failure proves they are required.
 

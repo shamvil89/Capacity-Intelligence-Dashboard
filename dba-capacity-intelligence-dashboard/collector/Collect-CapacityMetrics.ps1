@@ -36,7 +36,10 @@ try {
         @{ Name = 'TableSize';    Path = Join-Path $PSScriptRoot 'Collect-TableSize.ps1';    SkipFor = @() },
         @{ Name = 'BackupSize';   Path = Join-Path $PSScriptRoot 'Collect-BackupSize.ps1';   SkipFor = @('AzureSQL') },
         @{ Name = 'TempDBUsage';  Path = Join-Path $PSScriptRoot 'Collect-TempDBUsage.ps1';  SkipFor = @('AzureSQL') },
-        @{ Name = 'LongRunningTransactions'; Path = Join-Path $PSScriptRoot 'Collect-LongRunningTransactions.ps1'; SkipFor = @('AzureSQL') }
+        @{ Name = 'LongRunningTransactions'; Path = Join-Path $PSScriptRoot 'Collect-LongRunningTransactions.ps1'; SkipFor = @('AzureSQL') },
+        @{ Name = 'BlockingSessions'; Path = Join-Path $PSScriptRoot 'Collect-BlockingSessions.ps1'; SkipFor = @('AzureSQL') },
+        @{ Name = 'AlwaysOnHealth'; Path = Join-Path $PSScriptRoot 'Collect-AlwaysOnHealth.ps1'; SkipFor = @('AzureSQL') },
+        @{ Name = 'ReplicationHealth'; Path = Join-Path $PSScriptRoot 'Collect-ReplicationHealth.ps1'; SkipFor = @('AzureSQL') }
     )
 
     $failureCount = 0

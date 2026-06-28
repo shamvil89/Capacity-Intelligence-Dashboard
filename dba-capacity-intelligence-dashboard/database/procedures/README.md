@@ -21,6 +21,9 @@ There are two procedure categories:
 | `dbo.usp_InsertTempDBUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts TempDB usage rows. |
 | `dbo.usp_InsertLongRunningTransactionHistory` | `Collect-LongRunningTransactions.ps1` | Inserts open transaction evidence, duration, session metadata, and current SQL text. |
 | `dbo.usp_InsertTempDBSessionUsageHistory` | `Collect-TempDBUsage.ps1` | Inserts top session-level TempDB consumers for alert drill-through. |
+| `dbo.usp_InsertBlockingSessionHistory` | `Collect-BlockingSessions.ps1` | Inserts blocking-chain evidence for lead blockers and blocked sessions. |
+| `dbo.usp_InsertAlwaysOnHealthHistory` | `Collect-AlwaysOnHealth.ps1` | Inserts Always On replica and database synchronization evidence. |
+| `dbo.usp_InsertReplicationHealthHistory` | `Collect-ReplicationHealth.ps1` | Inserts replication database flags and agent health/error evidence. |
 
 Insert procedures centralize writes so collector scripts do not need direct table-specific insert logic scattered throughout the code.
 
@@ -63,6 +66,12 @@ Current alert categories include:
 | `LogFileExhaustionRisk` | Current log size, effective cap, disk headroom, recent growth rate, and projected hours to cap. |
 | `FullRecoveryNoLogBackup` | FULL recovery model, last observed log backup, and log reuse wait. |
 | `LongRunningTransaction` | Open transaction duration, session, login, wait, blocking session, and SQL text. |
+| `BlockingChain` | Lead blocker, blocker SQL, blocked sessions, wait resources, likely blocked objects, and blocker-held locks. |
+| `ActiveTransactionLogReuseWait` | `ACTIVE_TRANSACTION` log reuse wait with long transaction and blocking evidence. |
+| `AlwaysOnHealthIssue` | Always On replica/database health, disconnected replicas, suspended databases, queues, and connect errors. |
+| `AlwaysOnLogReuseWait` | `AVAILABILITY_REPLICA` log reuse wait with Always On evidence. |
+| `ReplicationAgentIssue` | Failed or retrying replication agents and error details from distribution metadata. |
+| `ReplicationLogReuseWait` | `REPLICATION` log reuse wait with replication agent and database flag evidence. |
 | `TempDBUsage` | Aggregate TempDB usage and top session-level consumers. |
 | `DiskSpaceLow` | Latest disk capacity row by volume. |
 | `BackupGrowth` | Latest backup size compared with recent average. |

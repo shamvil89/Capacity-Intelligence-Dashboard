@@ -1,0 +1,97 @@
+USE [DBAUtility];
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_InsertBlockingSessionHistory
+    @server_name SYSNAME,
+    @database_name SYSNAME = NULL,
+    @lead_blocker_session_id INT,
+    @lead_blocker_login_name NVARCHAR(256) = NULL,
+    @lead_blocker_host_name NVARCHAR(256) = NULL,
+    @lead_blocker_program_name NVARCHAR(512) = NULL,
+    @lead_blocker_status NVARCHAR(60) = NULL,
+    @lead_blocker_command NVARCHAR(120) = NULL,
+    @lead_blocker_running_since DATETIME2(7) = NULL,
+    @lead_blocker_duration_minutes DECIMAL(18,2) = NULL,
+    @lead_blocker_transaction_begin_time DATETIME2(7) = NULL,
+    @lead_blocker_wait_type NVARCHAR(120) = NULL,
+    @lead_blocker_sql_text NVARCHAR(MAX) = NULL,
+    @blocked_session_id INT,
+    @blocked_login_name NVARCHAR(256) = NULL,
+    @blocked_host_name NVARCHAR(256) = NULL,
+    @blocked_program_name NVARCHAR(512) = NULL,
+    @blocked_status NVARCHAR(60) = NULL,
+    @blocked_command NVARCHAR(120) = NULL,
+    @blocked_start_time DATETIME2(7) = NULL,
+    @blocked_wait_type NVARCHAR(120) = NULL,
+    @blocked_wait_duration_ms BIGINT = NULL,
+    @blocked_wait_resource NVARCHAR(512) = NULL,
+    @blocked_object_name NVARCHAR(512) = NULL,
+    @blocked_lock_mode NVARCHAR(60) = NULL,
+    @blocked_sql_text NVARCHAR(MAX) = NULL,
+    @blocker_locks_json NVARCHAR(MAX) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    INSERT INTO dbo.BlockingSessionHistory
+    (
+        server_name,
+        database_name,
+        lead_blocker_session_id,
+        lead_blocker_login_name,
+        lead_blocker_host_name,
+        lead_blocker_program_name,
+        lead_blocker_status,
+        lead_blocker_command,
+        lead_blocker_running_since,
+        lead_blocker_duration_minutes,
+        lead_blocker_transaction_begin_time,
+        lead_blocker_wait_type,
+        lead_blocker_sql_text,
+        blocked_session_id,
+        blocked_login_name,
+        blocked_host_name,
+        blocked_program_name,
+        blocked_status,
+        blocked_command,
+        blocked_start_time,
+        blocked_wait_type,
+        blocked_wait_duration_ms,
+        blocked_wait_resource,
+        blocked_object_name,
+        blocked_lock_mode,
+        blocked_sql_text,
+        blocker_locks_json
+    )
+    VALUES
+    (
+        @server_name,
+        @database_name,
+        @lead_blocker_session_id,
+        @lead_blocker_login_name,
+        @lead_blocker_host_name,
+        @lead_blocker_program_name,
+        @lead_blocker_status,
+        @lead_blocker_command,
+        @lead_blocker_running_since,
+        @lead_blocker_duration_minutes,
+        @lead_blocker_transaction_begin_time,
+        @lead_blocker_wait_type,
+        @lead_blocker_sql_text,
+        @blocked_session_id,
+        @blocked_login_name,
+        @blocked_host_name,
+        @blocked_program_name,
+        @blocked_status,
+        @blocked_command,
+        @blocked_start_time,
+        @blocked_wait_type,
+        @blocked_wait_duration_ms,
+        @blocked_wait_resource,
+        @blocked_object_name,
+        @blocked_lock_mode,
+        @blocked_sql_text,
+        @blocker_locks_json
+    );
+END;
+GO

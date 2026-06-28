@@ -40,6 +40,9 @@ flowchart TD
 | `Collect-BackupSize.ps1` | Collects backup size history from `msdb`. Skipped for Azure SQL Database. |
 | `Collect-TempDBUsage.ps1` | Collects aggregate TempDB usage and top session-level TempDB consumers. Skipped for Azure SQL Database. |
 | `Collect-LongRunningTransactions.ps1` | Collects open transactions that have exceeded the configured duration threshold. Skipped for Azure SQL Database. |
+| `Collect-BlockingSessions.ps1` | Collects blocking chains, lead blockers, blocked sessions, wait resources, likely blocked objects, lead blocker SQL text, blocked SQL text, and lead blocker held locks. Skipped for Azure SQL Database. |
+| `Collect-AlwaysOnHealth.ps1` | Collects Always On dashboard-style replica and database health from HADR DMVs. Skips cleanly when Always On is not enabled. Skipped for Azure SQL Database. |
+| `Collect-ReplicationHealth.ps1` | Collects replication database flags and replication agent status/errors from the local `distribution` database when present. Skipped for Azure SQL Database. |
 | `Run-Forecast.ps1` | Executes forecast and alert generation stored procedures. |
 | `config.example.json` | Example local environment settings. Do not store real passwords in this file. |
 
@@ -130,6 +133,9 @@ Azure SQL Database does not support every SQL Server instance-level DMV. The coo
 | Backup size | Skipped. |
 | TempDB usage | Skipped. |
 | Long-running transactions | Skipped. |
+| Blocking sessions | Skipped. |
+| Always On health | Skipped. |
+| Replication health | Skipped. |
 
 Expected log examples:
 
@@ -162,6 +168,9 @@ The collector also stores alert evidence for the More info popup:
 | Log file size, max size, and volume free space | `Collect-FileSize.ps1` | Log-cap projection and remaining headroom calculation. |
 | Last log backup time | `Collect-BackupSize.ps1` | FULL recovery without recent log backup detection. |
 | Open transaction duration and SQL text | `Collect-LongRunningTransactions.ps1` | Long-running transaction alerts and log-truncation evidence. |
+| Lead blocker, blocked sessions, wait resources, and lock objects | `Collect-BlockingSessions.ps1` | Blocking chain alerts and `ACTIVE_TRANSACTION` log reuse evidence. |
+| AG replica/database sync state, queues, suspend reason, connect errors | `Collect-AlwaysOnHealth.ps1` | Always On health alerts and `AVAILABILITY_REPLICA` log reuse evidence. |
+| Replication database flags and agent status/errors | `Collect-ReplicationHealth.ps1` | Replication agent alerts and `REPLICATION` log reuse evidence. |
 | TempDB top consumers | `Collect-TempDBUsage.ps1` | TempDB alert popup drill-through. |
 
 ## Local Run

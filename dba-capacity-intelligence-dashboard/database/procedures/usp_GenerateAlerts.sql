@@ -462,6 +462,660 @@ BEGIN
                 AND a.message LIKE CONCAT('Session ', t.session_id, '%')
           );
 
+        ;WITH LatestBlockedRows AS
+        (
+            SELECT
+                b.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY b.server_name, b.lead_blocker_session_id, b.blocked_session_id
+                    ORDER BY b.collection_time DESC, b.id DESC
+                ) AS rn
+            FROM dbo.BlockingSessionHistory AS b
+            WHERE b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+        ),
+        CurrentBlocked AS
+        (
+            SELECT *
+            FROM LatestBlockedRows
+            WHERE rn = 1
+        ),
+        BlockerSummary AS
+        (
+            SELECT
+                b.server_name,
+                b.lead_blocker_session_id,
+                COUNT(DISTINCT b.blocked_session_id) AS blocked_session_count,
+                MAX(ISNULL(b.blocked_wait_duration_ms, 0)) AS max_blocked_wait_ms,
+                MAX(ISNULL(b.lead_blocker_duration_minutes, 0)) AS lead_blocker_duration_minutes
+            FROM CurrentBlocked AS b
+            GROUP BY b.server_name, b.lead_blocker_session_id
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            s.server_name,
+            latest_blocker.database_name,
+            'BlockingChain',
+            CASE
+                WHEN s.blocked_session_count >= 5
+                  OR s.max_blocked_wait_ms >= 600000
+                  OR s.lead_blocker_duration_minutes >= 30
+                THEN 'Critical'
+                ELSE 'High'
+            END,
+            CONCAT
+            (
+                'Lead blocker session ', s.lead_blocker_session_id,
+                ' is blocking ', s.blocked_session_count, ' session(s). Max blocked wait: ',
+                CONVERT(DECIMAL(18,2), s.max_blocked_wait_ms / 1000.0), ' seconds.'
+            ),
+            N'Collect-BlockingSessions.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'BlockingChain' AS category,
+                    s.server_name AS serverName,
+                    s.lead_blocker_session_id AS leadBlockerSessionId,
+                    latest_blocker.lead_blocker_login_name AS leadBlockerLoginName,
+                    latest_blocker.lead_blocker_host_name AS leadBlockerHostName,
+                    latest_blocker.lead_blocker_program_name AS leadBlockerProgramName,
+                    latest_blocker.lead_blocker_status AS leadBlockerStatus,
+                    latest_blocker.lead_blocker_command AS leadBlockerCommand,
+                    latest_blocker.lead_blocker_running_since AS leadBlockerRunningSince,
+                    latest_blocker.lead_blocker_duration_minutes AS leadBlockerDurationMinutes,
+                    latest_blocker.lead_blocker_transaction_begin_time AS leadBlockerTransactionBeginTime,
+                    latest_blocker.lead_blocker_wait_type AS leadBlockerWaitType,
+                    latest_blocker.lead_blocker_sql_text AS leadBlockerSqlText,
+                    s.blocked_session_count AS blockedSessionCount,
+                    s.max_blocked_wait_ms AS maxBlockedWaitMs,
+                    JSON_QUERY(latest_blocker.blocker_locks_json) AS leadBlockerHeldLocks,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (20)
+                                    b.blocked_session_id AS blockedSessionId,
+                                    b.database_name AS databaseName,
+                                    b.blocked_login_name AS loginName,
+                                    b.blocked_host_name AS hostName,
+                                    b.blocked_program_name AS programName,
+                                    b.blocked_status AS status,
+                                    b.blocked_command AS command,
+                                    b.blocked_start_time AS requestStartTime,
+                                    b.blocked_wait_type AS waitType,
+                                    b.blocked_wait_duration_ms AS waitDurationMs,
+                                    b.blocked_wait_resource AS waitResource,
+                                    b.blocked_object_name AS blockedObjectName,
+                                    b.blocked_lock_mode AS blockedLockMode,
+                                    b.blocked_sql_text AS blockedSqlText
+                                FROM CurrentBlocked AS b
+                                WHERE b.server_name = s.server_name
+                                  AND b.lead_blocker_session_id = s.lead_blocker_session_id
+                                ORDER BY ISNULL(b.blocked_wait_duration_ms, 0) DESC
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS blockedSessions,
+                    'Blocked object is derived from waiting lock metadata when SQL Server exposes the object or HoBT id. Lead blocker held locks show the tables/objects where the blocker currently owns locks.' AS explanation,
+                    'Collect-BlockingSessions.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.BlockingSessionHistory' AS evidenceTable
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM BlockerSummary AS s
+        OUTER APPLY
+        (
+            SELECT TOP (1) b.*
+            FROM CurrentBlocked AS b
+            WHERE b.server_name = s.server_name
+              AND b.lead_blocker_session_id = s.lead_blocker_session_id
+            ORDER BY b.collection_time DESC, ISNULL(b.blocked_wait_duration_ms, 0) DESC
+        ) AS latest_blocker
+        WHERE NOT EXISTS
+        (
+            SELECT 1
+            FROM dbo.AlertHistory AS a
+            WHERE a.alert_time >= @today
+              AND a.alert_time < @tomorrow
+              AND a.server_name = s.server_name
+              AND a.alert_type = 'BlockingChain'
+              AND a.message LIKE CONCAT('Lead blocker session ', s.lead_blocker_session_id, '%')
+        );
+
+        ;WITH LatestLogState AS
+        (
+            SELECT
+                l.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY l.server_name, l.database_name
+                    ORDER BY l.collection_time DESC, l.id DESC
+                ) AS rn
+            FROM dbo.FileSizeHistory AS l
+            WHERE l.file_type = 'LOG'
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            l.server_name,
+            l.database_name,
+            'ActiveTransactionLogReuseWait',
+            CASE
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.BlockingSessionHistory AS b
+                    WHERE b.server_name = l.server_name
+                      AND ISNULL(b.database_name, N'') = ISNULL(l.database_name, N'')
+                      AND b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+                )
+                THEN 'Critical'
+                ELSE 'High'
+            END,
+            CONCAT(l.database_name, ' log reuse is waiting on ACTIVE_TRANSACTION. Check long transactions and blocking evidence.'),
+            N'Collect-FileSize.ps1; Collect-LongRunningTransactions.ps1; Collect-BlockingSessions.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'ActiveTransactionLogReuseWait' AS category,
+                    l.server_name AS serverName,
+                    l.database_name AS databaseName,
+                    l.recovery_model_desc AS recoveryModel,
+                    l.log_reuse_wait_desc AS logReuseWait,
+                    l.file_size_mb / 1024.0 AS currentLogSizeGb,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (10)
+                                    b.lead_blocker_session_id AS leadBlockerSessionId,
+                                    b.blocked_session_id AS blockedSessionId,
+                                    b.blocked_wait_type AS waitType,
+                                    b.blocked_wait_duration_ms AS waitDurationMs,
+                                    b.blocked_object_name AS blockedObjectName,
+                                    b.lead_blocker_login_name AS leadBlockerLoginName,
+                                    b.lead_blocker_sql_text AS leadBlockerSqlText,
+                                    b.blocked_sql_text AS blockedSqlText
+                                FROM dbo.BlockingSessionHistory AS b
+                                WHERE b.server_name = l.server_name
+                                  AND ISNULL(b.database_name, N'') = ISNULL(l.database_name, N'')
+                                  AND b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+                                ORDER BY ISNULL(b.blocked_wait_duration_ms, 0) DESC
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS blockingEvidence,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (10)
+                                    t.session_id AS sessionId,
+                                    t.transaction_id AS transactionId,
+                                    t.transaction_begin_time AS transactionBeginTime,
+                                    t.duration_minutes AS durationMinutes,
+                                    t.login_name AS loginName,
+                                    t.host_name AS hostName,
+                                    t.program_name AS programName,
+                                    t.sql_text AS sqlText
+                                FROM dbo.LongRunningTransactionHistory AS t
+                                WHERE t.server_name = l.server_name
+                                  AND ISNULL(t.database_name, N'') = ISNULL(l.database_name, N'')
+                                  AND t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                                ORDER BY ISNULL(t.duration_minutes, 0) DESC
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS longRunningTransactions,
+                    'ACTIVE_TRANSACTION means log truncation is waiting for an open transaction. Blocking rows identify the lead blocker and blocked sessions when blocking is present.' AS explanation,
+                    'Collect-FileSize.ps1; Collect-LongRunningTransactions.ps1; Collect-BlockingSessions.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.FileSizeHistory; dbo.LongRunningTransactionHistory; dbo.BlockingSessionHistory' AS evidenceTables
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM LatestLogState AS l
+        WHERE l.rn = 1
+          AND l.log_reuse_wait_desc = 'ACTIVE_TRANSACTION'
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.AlertHistory AS a
+              WHERE a.alert_time >= @today
+                AND a.alert_time < @tomorrow
+                AND a.server_name = l.server_name
+                AND ISNULL(a.database_name, N'') = ISNULL(l.database_name, N'')
+                AND a.alert_type = 'ActiveTransactionLogReuseWait'
+          );
+
+        ;WITH LatestAlwaysOnRows AS
+        (
+            SELECT
+                aoh.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY aoh.server_name, aoh.availability_group_name, aoh.replica_server_name, ISNULL(aoh.database_name, N'')
+                    ORDER BY aoh.collection_time DESC, aoh.id DESC
+                ) AS rn
+            FROM dbo.AlwaysOnHealthHistory AS aoh
+            WHERE aoh.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+        ),
+        CurrentAlwaysOn AS
+        (
+            SELECT *
+            FROM LatestAlwaysOnRows
+            WHERE rn = 1
+        ),
+        AlwaysOnIssues AS
+        (
+            SELECT *
+            FROM CurrentAlwaysOn
+            WHERE ISNULL(connected_state_desc, N'CONNECTED') <> N'CONNECTED'
+               OR ISNULL(replica_synchronization_health_desc, N'HEALTHY') <> N'HEALTHY'
+               OR ISNULL(database_synchronization_health_desc, N'HEALTHY') <> N'HEALTHY'
+               OR ISNULL(database_synchronization_state_desc, N'SYNCHRONIZED') NOT IN (N'SYNCHRONIZED', N'SYNCHRONIZING')
+               OR ISNULL(is_suspended, 0) = 1
+               OR last_connect_error_number IS NOT NULL
+        ),
+        AlwaysOnSummary AS
+        (
+            SELECT
+                server_name,
+                availability_group_name,
+                replica_server_name,
+                COUNT(*) AS issue_count,
+                SUM(CASE WHEN database_name IS NOT NULL THEN 1 ELSE 0 END) AS database_issue_count,
+                MAX(CASE WHEN connected_state_desc = N'DISCONNECTED' OR last_connect_error_number IS NOT NULL THEN 1 ELSE 0 END) AS has_connectivity_issue,
+                MAX(CASE WHEN ISNULL(is_suspended, 0) = 1 THEN 1 ELSE 0 END) AS has_suspended_database
+            FROM AlwaysOnIssues
+            GROUP BY server_name, availability_group_name, replica_server_name
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            s.server_name,
+            latest_issue.database_name,
+            'AlwaysOnHealthIssue',
+            CASE
+                WHEN s.has_connectivity_issue = 1 OR s.has_suspended_database = 1 THEN 'Critical'
+                ELSE 'High'
+            END,
+            CONCAT
+            (
+                'Always On issue in AG ', COALESCE(s.availability_group_name, 'unknown'),
+                ' on replica ', COALESCE(s.replica_server_name, 'unknown'),
+                '. Database issues: ', s.database_issue_count,
+                '; connectivity issue: ', CASE WHEN s.has_connectivity_issue = 1 THEN 'yes' ELSE 'no' END, '.'
+            ),
+            N'Collect-AlwaysOnHealth.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'AlwaysOnHealthIssue' AS category,
+                    s.server_name AS serverName,
+                    s.availability_group_name AS availabilityGroupName,
+                    s.replica_server_name AS replicaServerName,
+                    latest_issue.role_desc AS role,
+                    latest_issue.operational_state_desc AS operationalState,
+                    latest_issue.connected_state_desc AS connectedState,
+                    latest_issue.replica_synchronization_health_desc AS replicaSynchronizationHealth,
+                    s.issue_count AS issueCount,
+                    s.database_issue_count AS databaseIssueCount,
+                    s.has_connectivity_issue AS hasConnectivityIssue,
+                    latest_issue.last_connect_error_number AS lastConnectErrorNumber,
+                    latest_issue.last_connect_error_description AS lastConnectErrorDescription,
+                    latest_issue.last_connect_error_timestamp AS lastConnectErrorTimestamp,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (20)
+                                    i.database_name AS databaseName,
+                                    i.database_synchronization_state_desc AS synchronizationState,
+                                    i.database_synchronization_health_desc AS synchronizationHealth,
+                                    i.database_state_desc AS databaseState,
+                                    i.is_suspended AS isSuspended,
+                                    i.suspend_reason_desc AS suspendReason,
+                                    i.log_send_queue_size_kb AS logSendQueueSizeKb,
+                                    i.redo_queue_size_kb AS redoQueueSizeKb,
+                                    i.last_sent_time AS lastSentTime,
+                                    i.last_received_time AS lastReceivedTime,
+                                    i.last_hardened_time AS lastHardenedTime,
+                                    i.last_redone_time AS lastRedoneTime,
+                                    i.last_commit_time AS lastCommitTime
+                                FROM AlwaysOnIssues AS i
+                                WHERE i.server_name = s.server_name
+                                  AND ISNULL(i.availability_group_name, N'') = ISNULL(s.availability_group_name, N'')
+                                  AND ISNULL(i.replica_server_name, N'') = ISNULL(s.replica_server_name, N'')
+                                ORDER BY i.database_name
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS databaseIssues,
+                    'These fields come from Always On dashboard-equivalent DMVs. DISCONNECTED state or last connect errors usually indicate connectivity, endpoint, DNS, firewall, or service-account issues. Suspended or unhealthy database rows identify database-specific synchronization problems.' AS explanation,
+                    'Collect-AlwaysOnHealth.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.AlwaysOnHealthHistory' AS evidenceTable
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM AlwaysOnSummary AS s
+        OUTER APPLY
+        (
+            SELECT TOP (1) i.*
+            FROM AlwaysOnIssues AS i
+            WHERE i.server_name = s.server_name
+              AND ISNULL(i.availability_group_name, N'') = ISNULL(s.availability_group_name, N'')
+              AND ISNULL(i.replica_server_name, N'') = ISNULL(s.replica_server_name, N'')
+            ORDER BY
+                CASE WHEN i.connected_state_desc = N'DISCONNECTED' OR i.last_connect_error_number IS NOT NULL THEN 0 ELSE 1 END,
+                CASE WHEN ISNULL(i.is_suspended, 0) = 1 THEN 0 ELSE 1 END,
+                i.collection_time DESC
+        ) AS latest_issue
+        WHERE NOT EXISTS
+        (
+            SELECT 1
+            FROM dbo.AlertHistory AS ah
+            WHERE ah.alert_time >= @today
+              AND ah.alert_time < @tomorrow
+              AND ah.server_name = s.server_name
+              AND ah.alert_type = 'AlwaysOnHealthIssue'
+              AND ah.message LIKE CONCAT('Always On issue in AG ', COALESCE(s.availability_group_name, 'unknown'), ' on replica ', COALESCE(s.replica_server_name, 'unknown'), '%')
+        );
+
+        ;WITH LatestLogState AS
+        (
+            SELECT
+                l.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY l.server_name, l.database_name
+                    ORDER BY l.collection_time DESC, l.id DESC
+                ) AS rn
+            FROM dbo.FileSizeHistory AS l
+            WHERE l.file_type = 'LOG'
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            l.server_name,
+            l.database_name,
+            'AlwaysOnLogReuseWait',
+            'High',
+            CONCAT(l.database_name, ' log reuse is waiting on AVAILABILITY_REPLICA. Check Always On synchronization evidence.'),
+            N'Collect-FileSize.ps1; Collect-AlwaysOnHealth.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'AlwaysOnLogReuseWait' AS category,
+                    l.server_name AS serverName,
+                    l.database_name AS databaseName,
+                    l.recovery_model_desc AS recoveryModel,
+                    l.log_reuse_wait_desc AS logReuseWait,
+                    l.file_size_mb / 1024.0 AS currentLogSizeGb,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (20)
+                                    aoh.availability_group_name AS availabilityGroupName,
+                                    aoh.replica_server_name AS replicaServerName,
+                                    aoh.role_desc AS role,
+                                    aoh.connected_state_desc AS connectedState,
+                                    aoh.replica_synchronization_health_desc AS replicaSynchronizationHealth,
+                                    aoh.database_synchronization_state_desc AS databaseSynchronizationState,
+                                    aoh.database_synchronization_health_desc AS databaseSynchronizationHealth,
+                                    aoh.is_suspended AS isSuspended,
+                                    aoh.suspend_reason_desc AS suspendReason,
+                                    aoh.log_send_queue_size_kb AS logSendQueueSizeKb,
+                                    aoh.redo_queue_size_kb AS redoQueueSizeKb,
+                                    aoh.last_connect_error_number AS lastConnectErrorNumber,
+                                    aoh.last_connect_error_description AS lastConnectErrorDescription
+                                FROM dbo.AlwaysOnHealthHistory AS aoh
+                                WHERE aoh.server_name = l.server_name
+                                  AND ISNULL(aoh.database_name, N'') = ISNULL(l.database_name, N'')
+                                  AND aoh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                                ORDER BY aoh.collection_time DESC
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS alwaysOnEvidence,
+                    'AVAILABILITY_REPLICA means log truncation is waiting for an availability replica. Check disconnected replicas, send/redo queues, suspended databases, and connect errors.' AS explanation,
+                    'Collect-FileSize.ps1; Collect-AlwaysOnHealth.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.FileSizeHistory; dbo.AlwaysOnHealthHistory' AS evidenceTables
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM LatestLogState AS l
+        WHERE l.rn = 1
+          AND l.log_reuse_wait_desc = 'AVAILABILITY_REPLICA'
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.AlertHistory AS ah
+              WHERE ah.alert_time >= @today
+                AND ah.alert_time < @tomorrow
+                AND ah.server_name = l.server_name
+                AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
+                AND ah.alert_type = 'AlwaysOnLogReuseWait'
+          );
+
+        ;WITH LatestReplicationRows AS
+        (
+            SELECT
+                rh.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY rh.server_name, ISNULL(rh.database_name, N''), ISNULL(rh.publication, N''), ISNULL(rh.agent_type, N''), ISNULL(rh.agent_name, N'')
+                    ORDER BY rh.collection_time DESC, rh.id DESC
+                ) AS rn
+            FROM dbo.ReplicationHealthHistory AS rh
+            WHERE rh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+        ),
+        CurrentReplication AS
+        (
+            SELECT *
+            FROM LatestReplicationRows
+            WHERE rn = 1
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            rh.server_name,
+            rh.database_name,
+            'ReplicationAgentIssue',
+            CASE WHEN rh.run_status = 6 OR rh.run_status_desc = N'Failed' THEN 'Critical' ELSE 'High' END,
+            CONCAT
+            (
+                COALESCE(rh.agent_type, 'Replication'), ' agent ',
+                COALESCE(rh.agent_name, 'unknown'),
+                ' is ', COALESCE(rh.run_status_desc, 'not reporting healthy status'),
+                COALESCE(CONCAT('. Error: ', NULLIF(LEFT(COALESCE(rh.error_text, rh.comments), 250), N'')), '.')
+            ),
+            N'Collect-ReplicationHealth.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'ReplicationAgentIssue' AS category,
+                    rh.server_name AS serverName,
+                    rh.database_name AS databaseName,
+                    rh.publication,
+                    rh.agent_type AS agentType,
+                    rh.agent_name AS agentName,
+                    rh.subscriber_name AS subscriberName,
+                    rh.subscriber_database_name AS subscriberDatabaseName,
+                    rh.run_status AS runStatus,
+                    rh.run_status_desc AS runStatusDescription,
+                    rh.last_event_time AS lastEventTime,
+                    rh.latency_seconds AS latencySeconds,
+                    rh.delivered_commands AS deliveredCommands,
+                    rh.delivery_rate AS deliveryRate,
+                    rh.error_id AS errorId,
+                    rh.error_code AS errorCode,
+                    rh.error_text AS errorText,
+                    rh.comments,
+                    'Replication agent state is read from the local distribution database when this instance hosts distribution metadata. Failed or retrying agents can prevent replicated transactions from clearing and may hold log truncation.' AS explanation,
+                    'Collect-ReplicationHealth.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.ReplicationHealthHistory' AS evidenceTable
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM CurrentReplication AS rh
+        WHERE rh.agent_type <> N'DatabaseFlag'
+          AND
+          (
+              rh.run_status IN (5, 6)
+              OR rh.run_status_desc IN (N'Retry', N'Failed')
+              OR rh.error_id IS NOT NULL
+              OR rh.error_code IS NOT NULL
+          )
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.AlertHistory AS ah
+              WHERE ah.alert_time >= @today
+                AND ah.alert_time < @tomorrow
+                AND ah.server_name = rh.server_name
+                AND ISNULL(ah.database_name, N'') = ISNULL(rh.database_name, N'')
+                AND ah.alert_type = 'ReplicationAgentIssue'
+                AND ah.message LIKE CONCAT(COALESCE(rh.agent_type, 'Replication'), ' agent ', COALESCE(rh.agent_name, 'unknown'), '%')
+          );
+
+        ;WITH LatestLogState AS
+        (
+            SELECT
+                l.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY l.server_name, l.database_name
+                    ORDER BY l.collection_time DESC, l.id DESC
+                ) AS rn
+            FROM dbo.FileSizeHistory AS l
+            WHERE l.file_type = 'LOG'
+        )
+        INSERT INTO dbo.AlertHistory
+        (
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            l.server_name,
+            l.database_name,
+            'ReplicationLogReuseWait',
+            CASE
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.ReplicationHealthHistory AS rh
+                    WHERE rh.server_name = l.server_name
+                      AND ISNULL(rh.database_name, N'') = ISNULL(l.database_name, N'')
+                      AND rh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                      AND (rh.run_status IN (5, 6) OR rh.error_id IS NOT NULL OR rh.error_code IS NOT NULL)
+                )
+                THEN 'Critical'
+                ELSE 'High'
+            END,
+            CONCAT(l.database_name, ' log reuse is waiting on REPLICATION. Check replication agent and distribution evidence.'),
+            N'Collect-FileSize.ps1; Collect-ReplicationHealth.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'ReplicationLogReuseWait' AS category,
+                    l.server_name AS serverName,
+                    l.database_name AS databaseName,
+                    l.recovery_model_desc AS recoveryModel,
+                    l.log_reuse_wait_desc AS logReuseWait,
+                    l.file_size_mb / 1024.0 AS currentLogSizeGb,
+                    JSON_QUERY
+                    (
+                        COALESCE
+                        (
+                            (
+                                SELECT TOP (20)
+                                    rh.publication,
+                                    rh.agent_type AS agentType,
+                                    rh.agent_name AS agentName,
+                                    rh.subscriber_name AS subscriberName,
+                                    rh.subscriber_database_name AS subscriberDatabaseName,
+                                    rh.run_status_desc AS runStatusDescription,
+                                    rh.last_event_time AS lastEventTime,
+                                    rh.latency_seconds AS latencySeconds,
+                                    rh.delivered_commands AS deliveredCommands,
+                                    rh.error_code AS errorCode,
+                                    rh.error_text AS errorText,
+                                    rh.comments
+                                FROM dbo.ReplicationHealthHistory AS rh
+                                WHERE rh.server_name = l.server_name
+                                  AND ISNULL(rh.database_name, N'') = ISNULL(l.database_name, N'')
+                                  AND rh.collection_time >= DATEADD(HOUR, -4, SYSUTCDATETIME())
+                                ORDER BY rh.collection_time DESC
+                                FOR JSON PATH
+                            ),
+                            N'[]'
+                        )
+                    ) AS replicationEvidence,
+                    'REPLICATION means log truncation is waiting for transactional replication to consume log records. Check failed/retrying Log Reader or Distribution agents, subscriber reachability, and distribution backlog.' AS explanation,
+                    'Collect-FileSize.ps1; Collect-ReplicationHealth.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.FileSizeHistory; dbo.ReplicationHealthHistory' AS evidenceTables
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM LatestLogState AS l
+        WHERE l.rn = 1
+          AND l.log_reuse_wait_desc = 'REPLICATION'
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.AlertHistory AS ah
+              WHERE ah.alert_time >= @today
+                AND ah.alert_time < @tomorrow
+                AND ah.server_name = l.server_name
+                AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
+                AND ah.alert_type = 'ReplicationLogReuseWait'
+          );
+
         ;WITH LatestTempDb AS
         (
             SELECT
