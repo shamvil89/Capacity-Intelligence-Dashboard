@@ -2,9 +2,9 @@
 
 ## Purpose
 
-`DBA.Capacity.Api` is the ASP.NET Core API for the DBA Capacity Intelligence Dashboard. It is the server-side boundary between the React dashboard and the `DBAUtility` SQL Server repository.
+`DBA.Capacity.Api` is the ASP.NET Core API for the DBA Capacity Intelligence Dashboard. It is the server-side boundary between the React dashboard, the `DBAUtility` SQL Server repository, and controlled operational actions such as queueing the collector pipeline.
 
-The API does not collect metrics and does not connect to monitored source servers. It reads the already-collected repository data, returns JSON to the web app, and supports deleting selected alert rows from `dbo.AlertHistory`.
+The API does not collect metrics and does not connect to monitored source servers. It reads the already-collected repository data, returns JSON to the web app, supports deleting selected alert rows from `dbo.AlertHistory`, and can trigger the Azure DevOps collector pipeline using server-side credentials.
 
 ## How The API Works
 
@@ -65,6 +65,8 @@ Program.cs
 | `GET /api/alerts/active` | `AlertsController` | Active alerts page. |
 | `DELETE /api/alerts/{alertId}` | `AlertsController` | Deletes one alert row from `dbo.AlertHistory`. |
 | `GET /api/servers` | `ServersController` | Active server inventory. |
+| `GET /api/collector-run` | `CollectorRunController` | Latest Azure DevOps collector pipeline run status tracked by this API instance. |
+| `POST /api/collector-run` | `CollectorRunController` | Queues `DBA Capacity - Collect Metrics` through Azure DevOps. |
 
 Capacity and summary endpoints support environment filtering from `dbo.ServerInventory.environment`:
 
@@ -115,6 +117,37 @@ In IIS deployment, the pipeline can write these values into `appsettings.Product
 | --- | --- |
 | `DBA_API_CONNECTION_STRING` | Production SQL connection string for `DBAUtility`. |
 | `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated list of dashboard URLs allowed by CORS. |
+| `AZDO_ORGANIZATION` | Azure DevOps organization name, for example `kaz-tec`. |
+| `AZDO_PROJECT` | Azure DevOps project name, for example `PersonalEnvironment`. |
+| `AZDO_COLLECTOR_PIPELINE_ID` | Optional numeric pipeline id for `DBA Capacity - Collect Metrics`. |
+| `AZDO_COLLECTOR_PIPELINE_NAME` | Pipeline name fallback when the numeric id is not configured. |
+| `AZDO_PAT` | Secret PAT used by the API to queue and read pipeline runs. |
+
+## Collector Pipeline Trigger
+
+The dashboard Run collector button calls:
+
+```text
+POST /api/collector-run
+```
+
+The API then calls Azure DevOps from the IIS server. Dashboard users do not need Azure DevOps pipeline permissions and the PAT is never sent to the browser.
+
+Required configuration:
+
+```json
+"AzureDevOps": {
+  "Organization": "kaz-tec",
+  "Project": "PersonalEnvironment",
+  "CollectorPipelineId": "123",
+  "CollectorPipelineName": "DBA Capacity - Collect Metrics",
+  "Pat": "secret"
+}
+```
+
+`CollectorPipelineId` is preferred. If it is blank, the API lists pipelines in the project and finds one named `CollectorPipelineName`.
+
+The API keeps the latest triggered run id in memory. While the run is active, the dashboard polls `GET /api/collector-run`; the button becomes clickable again when Azure DevOps reports the run state as `completed`.
 
 ## IIS Deployment
 
@@ -172,6 +205,7 @@ http://localhost:5088/health
 | Add a new dashboard field | Add SQL in service, update model DTO, update frontend model usage. |
 | Change CORS | Update `Cors:AllowedOrigins` or `DBA_API_ALLOWED_ORIGINS`. |
 | Change SQL source | Update `ConnectionStrings:DBAUtility` or `DBA_API_CONNECTION_STRING`. |
+| Change collector trigger pipeline | Update `AZDO_COLLECTOR_PIPELINE_ID` or `AZDO_COLLECTOR_PIPELINE_NAME`, then redeploy API. |
 | Add authentication | Configure auth in `Program.cs`, then decorate controllers or policies. |
 
 ## Troubleshooting
@@ -182,3 +216,5 @@ http://localhost:5088/health
 | Browser CORS error | Web origin is not allowed. | Add web URL to `DBA_API_ALLOWED_ORIGINS` and redeploy API. |
 | `/swagger` does not load on IIS | Hosting bundle or IIS deployment issue. | Install ASP.NET Core Hosting Bundle and redeploy. |
 | API returns `Database temporarily unavailable` | SQL exception caught by middleware. | Check SQL Server availability, app pool identity, and connection string. |
+| Run collector button says not configured | Missing Azure DevOps settings. | Add `AZDO_ORGANIZATION`, `AZDO_PROJECT`, `AZDO_PAT`, and either pipeline id or name to `configs`; redeploy API. |
+| Run collector button says Azure DevOps rejected request | PAT, organization, project, or pipeline id is wrong. | Use an automation PAT with pipeline read/run permission and verify the pipeline URL. |

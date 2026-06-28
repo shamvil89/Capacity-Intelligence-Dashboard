@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ExternalLink, LoaderCircle, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
@@ -11,6 +12,7 @@ import { api } from '../services/api.js';
 
 const riskLevels = ['All', 'Healthy', 'Low', 'Medium', 'High', 'Critical'];
 const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+const activeCollectorStates = new Set(['inProgress', 'notStarted', 'cancelling', 'canceling']);
 const databaseFilterColumns = [
   { key: 'environment', label: 'Environment' },
   { key: 'serverName', label: 'Server' },
@@ -30,6 +32,11 @@ export default function DashboardPage() {
   const [databases, setDatabases] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [collectorRun, setCollectorRun] = useState(null);
+  const [collectorError, setCollectorError] = useState('');
+  const [isQueueingCollector, setIsQueueingCollector] = useState(false);
+  const [timerNow, setTimerNow] = useState(Date.now());
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -63,7 +70,50 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [environmentFilter, riskLevel]);
+  }, [environmentFilter, refreshNonce, riskLevel]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCollectorStatus() {
+      try {
+        const wasRunning = collectorRun?.isRunning || activeCollectorStates.has(collectorRun?.state);
+        const status = await api.getCollectorRunStatus();
+        const isRunning = status?.isRunning || activeCollectorStates.has(status?.state);
+
+        if (isMounted) {
+          setCollectorRun(status);
+          setCollectorError('');
+
+          if (wasRunning && !isRunning) {
+            setRefreshNonce((value) => value + 1);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          setCollectorError(err.message);
+        }
+      }
+    }
+
+    loadCollectorStatus();
+    const pollInterval = collectorRun?.isRunning ? 5000 : 30000;
+    const intervalId = window.setInterval(loadCollectorStatus, pollInterval);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [collectorRun?.isRunning]);
+
+  useEffect(() => {
+    if (!collectorRun?.isRunning) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => setTimerNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [collectorRun?.isRunning]);
 
   const cards = useMemo(() => [
     { label: 'Total Servers', value: formatInteger(summary?.totalServers), accent: 'teal' },
@@ -96,6 +146,26 @@ export default function DashboardPage() {
     setSortState((currentState) => nextSortState(currentState, key));
   }
 
+  async function handleQueueCollectorRun() {
+    setIsQueueingCollector(true);
+    setCollectorError('');
+
+    try {
+      const status = await api.queueCollectorRun();
+      setCollectorRun(status);
+      setTimerNow(Date.now());
+    } catch (err) {
+      setCollectorError(err.message);
+    } finally {
+      setIsQueueingCollector(false);
+    }
+  }
+
+  const collectorIsRunning = collectorRun?.isRunning || activeCollectorStates.has(collectorRun?.state);
+  const collectorCanRun = collectorRun?.isConfigured !== false && !collectorIsRunning && !isQueueingCollector;
+  const collectorDuration = formatCollectorRunDuration(collectorRun, timerNow);
+  const collectorStatus = formatCollectorRunStatus(collectorRun, collectorError);
+
   return (
     <section className="page-stack">
       <div className="toolbar-row">
@@ -103,23 +173,46 @@ export default function DashboardPage() {
           <h2>Dashboard</h2>
           <p className="subtle">Latest repository forecasts across active SQL Server inventory.</p>
         </div>
-        <div className="toolbar-filters">
-          <label className="filter-control">
-            <span>Risk</span>
-            <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
-              {riskLevels.map((level) => (
-                <option key={level} value={level}>{level}</option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-control">
-            <span>Environment</span>
-            <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
-              {environmentOptions.map((environment) => (
-                <option key={environment} value={environment}>{environment}</option>
-              ))}
-            </select>
-          </label>
+        <div className="dashboard-toolbar-actions">
+          <div className="collector-control">
+            <button
+              type="button"
+              className="secondary-action collector-action"
+              onClick={handleQueueCollectorRun}
+              disabled={!collectorCanRun}
+              title={collectorRun?.message || 'Run DBA Capacity - Collect Metrics'}
+            >
+              {collectorIsRunning || isQueueingCollector ? <LoaderCircle size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+              <span>{formatCollectorButtonLabel(collectorRun, isQueueingCollector, collectorDuration)}</span>
+            </button>
+            <div className={collectorError ? 'collector-status collector-status-error' : 'collector-status'}>
+              <span>{collectorStatus}</span>
+              {collectorRun?.webUrl ? (
+                <a href={collectorRun.webUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink size={13} aria-hidden="true" />
+                  <span>Azure DevOps</span>
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <div className="toolbar-filters">
+            <label className="filter-control">
+              <span>Risk</span>
+              <select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
+                {riskLevels.map((level) => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-control">
+              <span>Environment</span>
+              <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
+                {environmentOptions.map((environment) => (
+                  <option key={environment} value={environment}>{environment}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -191,4 +284,71 @@ export default function DashboardPage() {
       </DataState>
     </section>
   );
+}
+
+function formatCollectorButtonLabel(status, isQueueing, duration) {
+  if (isQueueing) {
+    return 'Starting collector';
+  }
+
+  if (status?.isRunning || activeCollectorStates.has(status?.state)) {
+    return duration ? `Collecting ${duration}` : 'Collecting';
+  }
+
+  return 'Run collector';
+}
+
+function formatCollectorRunStatus(status, error) {
+  if (error) {
+    return error;
+  }
+
+  if (!status) {
+    return 'Checking collector status';
+  }
+
+  if (!status.isConfigured) {
+    return status.message || 'Collector trigger not configured';
+  }
+
+  if (status.isRunning || activeCollectorStates.has(status.state)) {
+    return status.runId ? `Pipeline run ${status.runId} is active` : 'Pipeline is active';
+  }
+
+  if (status.result) {
+    return `Last run ${status.result}`;
+  }
+
+  return status.message || 'Collector ready';
+}
+
+function formatCollectorRunDuration(status, nowMs) {
+  if (!status?.createdAt) {
+    return '';
+  }
+
+  const startMs = Date.parse(status.createdAt);
+  if (Number.isNaN(startMs)) {
+    return '';
+  }
+
+  const endMs = status.finishedAt ? Date.parse(status.finishedAt) : nowMs;
+  if (Number.isNaN(endMs)) {
+    return '';
+  }
+
+  const totalSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${padDuration(minutes)}:${padDuration(seconds)}`;
+  }
+
+  return `${padDuration(minutes)}:${padDuration(seconds)}`;
+}
+
+function padDuration(value) {
+  return value.toString().padStart(2, '0');
 }

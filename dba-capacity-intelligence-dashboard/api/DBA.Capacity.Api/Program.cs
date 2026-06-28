@@ -27,10 +27,12 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddSingleton<IDbConnectionFactory, SqlConnectionFactory>();
+builder.Services.AddSingleton<CollectorRunState>();
 builder.Services.AddScoped<ICapacityService, CapacityService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddScoped<IServerService, ServerService>();
+builder.Services.AddHttpClient<ICollectorRunService, AzureDevOpsCollectorRunService>();
 
 // TODO: Add Azure AD / Entra ID authentication.
 // TODO: Add role-based access for DBA, reader, and operations roles.

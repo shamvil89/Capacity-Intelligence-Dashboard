@@ -66,6 +66,11 @@ Important variables:
 | `VITE_API_BASE_URL` | No | API URL compiled into React app. |
 | `DBA_API_CONNECTION_STRING` | Yes | API connection string. |
 | `DBA_API_ALLOWED_ORIGINS` | No | Semicolon-separated CORS origins. |
+| `AZDO_ORGANIZATION` | No | Azure DevOps organization used by the dashboard Run collector button. |
+| `AZDO_PROJECT` | No | Azure DevOps project containing the collector pipeline. |
+| `AZDO_COLLECTOR_PIPELINE_ID` | No | Numeric id of `DBA Capacity - Collect Metrics`; preferred when known. |
+| `AZDO_COLLECTOR_PIPELINE_NAME` | No | Pipeline name fallback, usually `DBA Capacity - Collect Metrics`. |
+| `AZDO_PAT` | Yes | Automation PAT used by the API to queue and read collector pipeline runs. |
 | `IIS_API_*` | No | API IIS settings. |
 | `IIS_WEB_*` | No | Web IIS settings. |
 
@@ -130,6 +135,13 @@ cron: "*/10 * * * *"
 
 Azure DevOps cron is UTC. For production, consider `*/15` or a customer-approved interval.
 
+Dashboard trigger:
+
+- The dashboard Run collector button calls the API, not Azure DevOps directly.
+- The API uses `AZDO_PAT` from `appsettings.Production.json` written by `deploy-api.yml`.
+- The button polls `GET /api/collector-run` and becomes clickable again after Azure DevOps reports the run state as `completed`.
+- Dashboard users do not need Azure DevOps pipeline permissions because the API is the controlled trigger boundary.
+
 ## Deploy API
 
 File:
@@ -148,6 +160,18 @@ What it does:
 6. Deploys to IIS.
 7. Writes production appsettings if configured.
 8. Grants API app pool read access to `DBAUtility` where possible.
+
+Collector trigger settings written by this pipeline:
+
+```text
+AZDO_ORGANIZATION
+AZDO_PROJECT
+AZDO_COLLECTOR_PIPELINE_ID
+AZDO_COLLECTOR_PIPELINE_NAME
+AZDO_PAT
+```
+
+Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, and grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics`.
 
 The agent service must run as a local administrator.
 
@@ -191,4 +215,3 @@ The web app is static. The API URL is compiled at build time using `VITE_API_BAS
 | Login failed for `WORKGROUP\...$` | Windows auth through service identity. | Use `.` for local SQL or switch repository to SQL auth. |
 | Scheduled runs do not fire | Branch filter mismatch or UI schedules override YAML. | Include active branch and remove UI schedules. |
 | Web calls wrong API URL | `VITE_API_BASE_URL` was wrong at build time. | Fix variable and rebuild web. |
-

@@ -53,5 +53,7 @@ export const api = {
   getActiveAlerts: () => request('/alerts/active'),
   getAlertHistory: (limit = 250) => request(`/alerts/history${toQueryString({ limit })}`),
   deleteAlert: (alertId) => request(`/alerts/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
-  getServers: () => request('/servers')
+  getServers: () => request('/servers'),
+  getCollectorRunStatus: () => request('/collector-run'),
+  queueCollectorRun: () => request('/collector-run', { method: 'POST' })
 };

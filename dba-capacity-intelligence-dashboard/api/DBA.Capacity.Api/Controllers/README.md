@@ -31,6 +31,7 @@ flowchart LR
 | `CapacityController.cs` | `api/capacity` | Returns database capacity rows, trend rows, and top growing tables. |
 | `AlertsController.cs` | `api/alerts` | Returns active repository alerts and deletes selected alert rows. |
 | `ServersController.cs` | `api/servers` | Returns active server inventory. |
+| `CollectorRunController.cs` | `api/collector-run` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardController
 
@@ -113,6 +114,19 @@ GET /api/servers
 ```
 
 Returns active inventory rows from `dbo.ServerInventory`. Useful for future filters and operational views.
+
+## CollectorRunController
+
+Endpoints:
+
+```text
+GET /api/collector-run
+POST /api/collector-run
+```
+
+`POST` queues the configured `DBA Capacity - Collect Metrics` pipeline through `ICollectorRunService`. `GET` returns the latest tracked Azure DevOps run status so the dashboard can keep the Run collector button disabled while the pipeline is active.
+
+This controller intentionally keeps Azure DevOps credentials server-side. The frontend only sees run status, result, elapsed timing fields, and the optional Azure DevOps web link.
 
 ## Adding A New Controller Endpoint
 

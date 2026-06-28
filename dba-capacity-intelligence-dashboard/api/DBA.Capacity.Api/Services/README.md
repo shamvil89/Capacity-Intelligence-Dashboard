@@ -26,6 +26,7 @@ flowchart LR
 | `ICapacityService` | `CapacityService` | Database dashboard rows, trend rows, and top growing tables. |
 | `IAlertService` | `AlertService` | Active alert queue. |
 | `IServerService` | `ServerService` | Active server inventory. |
+| `ICollectorRunService` | `AzureDevOpsCollectorRunService` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardService
 
@@ -124,6 +125,28 @@ Sorts by:
 environment, server_name
 ```
 
+## AzureDevOpsCollectorRunService
+
+Methods:
+
+```csharp
+Task<CollectorRunStatus> GetLatestStatusAsync(...);
+Task<CollectorRunStatus> QueueRunAsync(...);
+```
+
+Purpose:
+
+- Reads Azure DevOps configuration from `AzureDevOps:*` settings or `AZDO_*` environment variables.
+- Queues `DBA Capacity - Collect Metrics` through Azure DevOps REST APIs.
+- Uses `CollectorRunState` to remember the latest run id for this API process.
+- Returns readable status messages when configuration, PAT, organization, project, or pipeline lookup fails.
+
+Security behavior:
+
+- The React app never receives the PAT.
+- The IIS API process performs the Azure DevOps call.
+- Dashboard users only need access to the dashboard; the service PAT owns the pipeline permission boundary.
+
 ## SQL Safety
 
 Services use Dapper parameters for user-supplied values.
@@ -169,4 +192,3 @@ Recommended pattern:
 | Endpoint returns 503 | SQL exception from service query. | Check SQL permissions and view/procedure deployment. |
 | Sorting differs from UI | SQL service and frontend both sort. | Decide whether server or frontend owns final ordering. |
 | New field is null | SQL alias does not match DTO property. | Add explicit `AS PropertyName` alias. |
-

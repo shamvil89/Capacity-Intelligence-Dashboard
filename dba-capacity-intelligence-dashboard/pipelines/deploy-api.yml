@@ -267,6 +267,11 @@ steps:
         $port = [int](Get-Setting $env:IIS_API_PORT '5088')
         $allowedOrigins = Get-Setting $env:DBA_API_ALLOWED_ORIGINS ''
         $connectionString = Get-Setting $env:DBA_API_CONNECTION_STRING ''
+        $azdoOrganization = Get-Setting $env:AZDO_ORGANIZATION ''
+        $azdoProject = Get-Setting $env:AZDO_PROJECT ''
+        $azdoCollectorPipelineId = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_ID ''
+        $azdoCollectorPipelineName = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_NAME ''
+        $azdoPat = Get-Setting $env:AZDO_PAT ''
 
         $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
         if (-not $aspNetCoreModule) {
@@ -309,9 +314,20 @@ steps:
           Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
           Grant-ApiDatabaseAccess -AppPoolName $appPoolName
 
-          if (-not [string]::IsNullOrWhiteSpace($connectionString)) {
-            $productionSettings = @{
-              ConnectionStrings = @{
+          $hasAzureDevOpsSettings =
+            -not [string]::IsNullOrWhiteSpace($azdoOrganization) -or
+            -not [string]::IsNullOrWhiteSpace($azdoProject) -or
+            -not [string]::IsNullOrWhiteSpace($azdoCollectorPipelineId) -or
+            -not [string]::IsNullOrWhiteSpace($azdoCollectorPipelineName) -or
+            -not [string]::IsNullOrWhiteSpace($azdoPat)
+
+          if (-not [string]::IsNullOrWhiteSpace($connectionString) -or
+              -not [string]::IsNullOrWhiteSpace($allowedOrigins) -or
+              $hasAzureDevOpsSettings) {
+            $productionSettings = @{}
+
+            if (-not [string]::IsNullOrWhiteSpace($connectionString)) {
+              $productionSettings.ConnectionStrings = @{
                 DBAUtility = $connectionString
               }
             }
@@ -319,6 +335,16 @@ steps:
             if (-not [string]::IsNullOrWhiteSpace($allowedOrigins)) {
               $productionSettings.Cors = @{
                 AllowedOrigins = @($allowedOrigins -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+              }
+            }
+
+            if ($hasAzureDevOpsSettings) {
+              $productionSettings.AzureDevOps = @{
+                Organization = $azdoOrganization
+                Project = $azdoProject
+                CollectorPipelineId = $azdoCollectorPipelineId
+                CollectorPipelineName = $azdoCollectorPipelineName
+                Pat = $azdoPat
               }
             }
 
@@ -347,3 +373,8 @@ steps:
       DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
       SQL_USER: $(SQL_USER)
       SQL_PASSWORD: $(SQL_PASSWORD)
+      AZDO_ORGANIZATION: $(AZDO_ORGANIZATION)
+      AZDO_PROJECT: $(AZDO_PROJECT)
+      AZDO_COLLECTOR_PIPELINE_ID: $(AZDO_COLLECTOR_PIPELINE_ID)
+      AZDO_COLLECTOR_PIPELINE_NAME: $(AZDO_COLLECTOR_PIPELINE_NAME)
+      AZDO_PAT: $(AZDO_PAT)

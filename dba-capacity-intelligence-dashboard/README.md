@@ -137,6 +137,10 @@ http://localhost:5173
 - `GET /api/alerts/active`
 - `DELETE /api/alerts/{alertId}`
 - `GET /api/servers`
+- `GET /api/collector-run`
+- `POST /api/collector-run`
+
+`POST /api/collector-run` lets the dashboard trigger the `DBA Capacity - Collect Metrics` Azure DevOps pipeline through the API. The browser never receives the Azure DevOps PAT. The API queues the pipeline using server-side configuration, then `GET /api/collector-run` polls the latest run so the dashboard button can stay disabled until Azure DevOps reports that the run is complete.
 
 ## Azure DevOps Pipelines
 
@@ -177,6 +181,11 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_WEB_PORT`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
+- `AZDO_ORGANIZATION`
+- `AZDO_PROJECT`
+- `AZDO_COLLECTOR_PIPELINE_ID`
+- `AZDO_COLLECTOR_PIPELINE_NAME`
+- `AZDO_PAT`
 
 For the local default SQL Server instance on the self-hosted agent, set:
 
@@ -188,6 +197,18 @@ DBA_SQL_AUTH_MODE = WindowsAuth
 Use `.` instead of `localhost` for local Windows authentication from the agent service. `localhost` can be treated as a network connection and may appear to SQL Server as an unresolvable workgroup machine account.
 
 Use `DBA_SQL_AUTH_MODE = SqlAuth` if deploying with a SQL login, and provide `SQL_USER` and `SQL_PASSWORD`.
+
+For the dashboard Run collector button, add these variables to `configs`:
+
+```text
+AZDO_ORGANIZATION = kaz-tec
+AZDO_PROJECT = PersonalEnvironment
+AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics
+AZDO_COLLECTOR_PIPELINE_ID = optional numeric pipeline id
+AZDO_PAT = secret PAT owned by an automation account
+```
+
+Mark `AZDO_PAT` as secret. The PAT only needs permission to read and run pipelines. Prefer using `AZDO_COLLECTOR_PIPELINE_ID` when available because it avoids ambiguity if multiple pipelines share similar names.
 
 ## IIS Deployment Defaults
 
