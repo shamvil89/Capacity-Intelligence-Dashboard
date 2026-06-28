@@ -1,13 +1,18 @@
 import { parseRepositoryDateTime } from './formatters.js';
 
 export function containsText(row, fields, searchText) {
-  const normalizedSearch = normalize(searchText);
+  const searchTerms = normalize(searchText)
+    .split(',')
+    .map((term) => term.trim())
+    .filter(Boolean);
 
-  if (!normalizedSearch) {
+  if (searchTerms.length === 0) {
     return true;
   }
 
-  return fields.some((field) => normalize(resolveValue(row, field)).includes(normalizedSearch));
+  const searchableValues = fields.map((field) => normalize(resolveValue(row, field)));
+
+  return searchTerms.every((term) => searchableValues.some((value) => value.includes(term)));
 }
 
 export function getSelectedFilterFields(columns, selectedColumnKeys) {
