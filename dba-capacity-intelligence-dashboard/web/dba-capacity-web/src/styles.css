@@ -658,6 +658,44 @@ td {
   vertical-align: middle;
 }
 
+body > .qp-tt {
+  z-index: 90 !important;
+  max-width: min(560px, calc(100vw - 48px));
+  max-height: min(420px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid #17202a;
+  border-radius: 6px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.28);
+  white-space: normal !important;
+}
+
+body > .qp-tt table {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  border-collapse: separate;
+  white-space: normal !important;
+}
+
+body > .qp-tt th,
+body > .qp-tt td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #17202a;
+  background: transparent;
+  color: #17202a;
+  font-size: 11px;
+  text-transform: none;
+  vertical-align: top;
+}
+
+body > .qp-tt th {
+  min-width: 120px;
+}
+
+body > .qp-tt td {
+  overflow-wrap: anywhere;
+}
+
 .detail-key-values {
   border: 1px solid #e6ebf1;
   border-radius: 8px;
