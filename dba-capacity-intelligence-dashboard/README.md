@@ -232,6 +232,15 @@ VITE_API_BASE_URL = http://localhost:5088/api
 DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
 ```
 
+For customer deployments, set `DBA_API_ALLOWED_ORIGINS` to the dashboard server name or DNS alias that users open in the browser, for example:
+
+```text
+DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
+DBA_API_ALLOWED_ORIGINS = http://dba-capacity-web
+```
+
+Only include a port when the web IIS binding uses a non-standard port, such as `http://dba-capacity-web:8080`.
+
 The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
 
 Azure SQL Database inventory rows should use `server_type = AzureSQL`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.

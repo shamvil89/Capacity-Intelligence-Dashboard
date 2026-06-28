@@ -65,7 +65,7 @@ Important variables:
 | `SOURCE_SQL_CREDENTIALS_JSON` | Yes | Source credential key map. |
 | `VITE_API_BASE_URL` | No | API URL compiled into React app. |
 | `DBA_API_CONNECTION_STRING` | Yes | API connection string. |
-| `DBA_API_ALLOWED_ORIGINS` | No | Semicolon-separated CORS origins. |
+| `DBA_API_ALLOWED_ORIGINS` | No | Semicolon-separated dashboard browser origins, for example `https://dba-capacity.contoso.local` or `http://dba-capacity-web`. |
 | `AZDO_ORGANIZATION` | No | Azure DevOps organization used by the dashboard Run collector button. |
 | `AZDO_PROJECT` | No | Azure DevOps project containing the collector pipeline. |
 | `AZDO_COLLECTOR_PIPELINE_ID` | No | Numeric id of `DBA Capacity - Collect Metrics`; preferred when known. |

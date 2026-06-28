@@ -116,12 +116,22 @@ In IIS deployment, the pipeline can write these values into `appsettings.Product
 | Variable | Purpose |
 | --- | --- |
 | `DBA_API_CONNECTION_STRING` | Production SQL connection string for `DBAUtility`. |
-| `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated list of dashboard URLs allowed by CORS. |
+| `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated dashboard browser origins allowed by CORS. Use the dashboard server name or DNS alias. |
 | `AZDO_ORGANIZATION` | Azure DevOps organization name, for example `kaz-tec`. |
 | `AZDO_PROJECT` | Azure DevOps project name, for example `PersonalEnvironment`. |
 | `AZDO_COLLECTOR_PIPELINE_ID` | Optional numeric pipeline id for `DBA Capacity - Collect Metrics`. |
 | `AZDO_COLLECTOR_PIPELINE_NAME` | Pipeline name fallback when the numeric id is not configured. |
 | `AZDO_PAT` | Secret PAT used by the API to queue and read pipeline runs. |
+
+Example customer CORS values:
+
+```text
+DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
+DBA_API_ALLOWED_ORIGINS = http://dba-capacity-web
+DBA_API_ALLOWED_ORIGINS = http://dba-capacity-web:8080
+```
+
+Only include `:port` when the dashboard uses a non-standard port. Do not use the API URL here; CORS must match the dashboard URL that appears in the user's browser.
 
 ## Collector Pipeline Trigger
 

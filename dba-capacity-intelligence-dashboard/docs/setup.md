@@ -204,8 +204,10 @@ VITE_API_BASE_URL = http://localhost:5088/api
 Set this API CORS value if the web URL changes:
 
 ```text
-DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
+DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
 ```
+
+Use the dashboard server name or DNS alias that users enter in the browser. CORS origins are `scheme://host[:port]`; omit the port for standard HTTPS `443` or HTTP `80`, and include it only for non-standard IIS bindings such as `http://dba-capacity-web:8080`.
 
 The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools.
 

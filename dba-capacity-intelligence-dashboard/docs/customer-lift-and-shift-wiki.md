@@ -28,7 +28,7 @@ Keep the application layout the same and change only environment-specific config
 | Repository database | `DBAUtility` on a customer SQL Server. |
 | Automation host | Lowest effort: one Windows server runs the Azure DevOps self-hosted agent and IIS. Real-world split deployments can use separate automation and IIS VMs. |
 | API hosting | IIS site on port `5088` unless the customer requires another port. |
-| Web hosting | IIS static site on port `8080` unless the customer requires another port. |
+| Web hosting | IIS static site on a server name or DNS alias, preferably standard `80` or `443`. Use `8080` only for local/dev or when the customer explicitly wants a non-standard port. |
 | Secrets | Azure DevOps variable group named `configs`. |
 | Collector execution | `DBA Capacity - Collect Metrics` scheduled pipeline plus dashboard Run collector button. |
 | Source credentials | `SOURCE_SQL_CREDENTIALS_JSON` secret with credential keys referenced by `dbo.ServerInventory`. |
@@ -445,7 +445,7 @@ Important API variables:
 | Variable | Purpose |
 | --- | --- |
 | `DBA_API_CONNECTION_STRING` | API connection string to `DBAUtility`. |
-| `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated CORS origins allowed to call the API. |
+| `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated browser origins allowed to call the API. Use the dashboard server name or DNS alias, not the API URL. |
 | `IIS_API_SITE_NAME` | IIS site name for the API. |
 | `IIS_API_APP_POOL` | IIS app pool for the API. |
 | `IIS_API_PHYSICAL_PATH` | Physical publish path. |
@@ -455,8 +455,27 @@ Example:
 
 ```text
 DBA_API_CONNECTION_STRING = Server=.;Database=DBAUtility;Trusted_Connection=True;TrustServerCertificate=True;
-DBA_API_ALLOWED_ORIGINS = http://localhost:8080;http://127.0.0.1:8080
+DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
 IIS_API_PORT = 5088
+```
+
+CORS origin format must match what the browser sends:
+
+```text
+scheme://host[:port]
+```
+
+Use the customer dashboard hostname or DNS alias:
+
+```text
+https://dba-capacity.contoso.local
+http://dba-capacity-web
+```
+
+Do not include the port when the dashboard uses standard HTTPS `443` or HTTP `80`. Include the port only when IIS is bound to a non-standard port:
+
+```text
+http://dba-capacity-web:8080
 ```
 
 ## 10. Web App
@@ -627,9 +646,9 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `IIS_WEB_SITE_NAME` | No | `DBA Capacity Dashboard` | Web IIS site name. |
 | `IIS_WEB_APP_POOL` | No | `DBACapacityWeb` | Web app pool. |
 | `IIS_WEB_PHYSICAL_PATH` | No | `C:\inetpub\dba-capacity-web` | Web deploy path. |
-| `IIS_WEB_PORT` | No | `8080` | Web port. |
+| `IIS_WEB_PORT` | No | `80`, `443`, or `8080` | Web port. Prefer standard `80` or `443` for customer DNS aliases. |
 | `DBA_API_CONNECTION_STRING` | Yes | SQL connection string | API connection to `DBAUtility`. |
-| `DBA_API_ALLOWED_ORIGINS` | No | `http://localhost:8080` | API CORS origin list. |
+| `DBA_API_ALLOWED_ORIGINS` | No | `https://dba-capacity.contoso.local` | Dashboard browser origin allowed by API CORS. Use the dashboard server name or DNS alias. |
 | `AZDO_ORGANIZATION` | No | `customer-org` | Azure DevOps organization used by the API to trigger the collector pipeline. |
 | `AZDO_PROJECT` | No | `CustomerProject` | Azure DevOps project containing the collector pipeline. |
 | `AZDO_COLLECTOR_PIPELINE_NAME` | No | `DBA Capacity - Collect Metrics` | Pipeline name used when the numeric pipeline id is not set. |
