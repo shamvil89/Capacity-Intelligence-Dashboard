@@ -211,6 +211,8 @@ Use the dashboard server name or DNS alias that users enter in the browser. CORS
 
 The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools.
 
+For full Windows-level access requirements and PowerShell commands for agent accounts, IIS features, firewall rules, folder ACLs, and verification, see `docs/customer-lift-and-shift-wiki.md` section **Windows-Level Access And Commands**.
+
 For the API database connection, choose one of these options:
 
 1. Let `deploy-api.yml` grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.

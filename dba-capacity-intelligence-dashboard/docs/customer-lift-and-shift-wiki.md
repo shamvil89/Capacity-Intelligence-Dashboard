@@ -775,6 +775,296 @@ Recommended customer setup for the IIS deployment agent:
 3. Run the Azure DevOps agent service as that account.
 4. Restart the agent service.
 
+### Windows-Level Access And Commands
+
+Run these commands from an elevated PowerShell session on the relevant Windows VM. For domain service accounts, replace local examples such as `.\azdoagent` with the domain account, for example `CONTOSO\svc-dba-iisdeploy`.
+
+#### Access Matrix
+
+| Identity | Where | Required Windows-level access | Why |
+| --- | --- | --- | --- |
+| Automation agent service account | Automation VM | Log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, network access to repository/source SQL Servers. Local admin is optional unless customer policy requires it for tool installation. | Runs database deploy, onboard, and collector pipelines. |
+| IIS deployment agent service account | IIS VM | Local Administrators, log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, modify access to IIS publish paths. | Current API/web deploy YAML creates IIS sites, app pools, bindings, file copies, and ACLs locally. |
+| `IIS APPPOOL\DBACapacityApi` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-api`. | Runs the ASP.NET Core API. SQL permissions are handled separately in SQL Server. |
+| `IIS APPPOOL\DBACapacityWeb` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-web`. | Serves the static React build. |
+| DBA or deployment admin | IIS VM | Temporary local Administrator during installation, or equivalent delegated IIS administration. | Installs Windows features, hosting bundle, firewall rules, and agents. |
+
+#### Create A Local Agent Account
+
+Use this only when the customer is not using a domain service account:
+
+```powershell
+$Password = Read-Host "Enter password for .\azdoagent" -AsSecureString
+New-LocalUser `
+  -Name "azdoagent" `
+  -Password $Password `
+  -FullName "Azure DevOps DBA Capacity Agent" `
+  -Description "Runs DBA Capacity Azure DevOps pipelines" `
+  -PasswordNeverExpires
+```
+
+For the IIS deployment agent, add the account to local Administrators:
+
+```powershell
+Add-LocalGroupMember -Group "Administrators" -Member ".\azdoagent"
+```
+
+For a domain service account on the IIS VM:
+
+```powershell
+Add-LocalGroupMember -Group "Administrators" -Member "CONTOSO\svc-dba-iisdeploy"
+```
+
+Do not add the automation-only collector agent to local Administrators unless it also performs local IIS deployment or the customer requires admin rights for software installation.
+
+#### Create Agent And Publish Folders
+
+Automation VM:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "C:\agent" | Out-Null
+icacls "C:\agent" /grant "CONTOSO\svc-dba-automation:(OI)(CI)F" /T
+```
+
+IIS VM:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "C:\iis-agent" | Out-Null
+New-Item -ItemType Directory -Force -Path "C:\inetpub\dba-capacity-api" | Out-Null
+New-Item -ItemType Directory -Force -Path "C:\inetpub\dba-capacity-web" | Out-Null
+
+icacls "C:\iis-agent" /grant "CONTOSO\svc-dba-iisdeploy:(OI)(CI)F" /T
+icacls "C:\inetpub\dba-capacity-api" /grant "CONTOSO\svc-dba-iisdeploy:(OI)(CI)M" /T
+icacls "C:\inetpub\dba-capacity-web" /grant "CONTOSO\svc-dba-iisdeploy:(OI)(CI)M" /T
+```
+
+If using the local account from the previous example:
+
+```powershell
+icacls "C:\iis-agent" /grant ".\azdoagent:(OI)(CI)F" /T
+icacls "C:\inetpub\dba-capacity-api" /grant ".\azdoagent:(OI)(CI)M" /T
+icacls "C:\inetpub\dba-capacity-web" /grant ".\azdoagent:(OI)(CI)M" /T
+```
+
+#### Install IIS Windows Features
+
+On the IIS VM:
+
+```powershell
+Install-WindowsFeature `
+  -Name Web-Server,Web-Mgmt-Tools,Web-Scripting-Tools `
+  -IncludeManagementTools
+
+Import-Module WebAdministration
+Get-Command New-Website
+```
+
+Install the ASP.NET Core Hosting Bundle on the IIS VM before deploying the API. After installation, verify the ASP.NET Core IIS module is available:
+
+```powershell
+Import-Module WebAdministration
+Get-WebGlobalModule |
+  Where-Object { $_.Name -in @("AspNetCoreModuleV2", "AspNetCoreModule") } |
+  Select-Object Name, Image
+```
+
+#### Open Windows Firewall Ports
+
+Open only the ports the customer actually uses.
+
+API on `5088`:
+
+```powershell
+New-NetFirewallRule `
+  -DisplayName "DBA Capacity API 5088" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 5088
+```
+
+Web on standard HTTP/HTTPS:
+
+```powershell
+New-NetFirewallRule `
+  -DisplayName "DBA Capacity Web HTTP" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 80
+
+New-NetFirewallRule `
+  -DisplayName "DBA Capacity Web HTTPS" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 443
+```
+
+Web on non-standard `8080`, if used:
+
+```powershell
+New-NetFirewallRule `
+  -DisplayName "DBA Capacity Web 8080" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 8080
+```
+
+#### Configure The Azure DevOps Agent Service
+
+From the extracted Azure DevOps agent folder, use an agent registration PAT. This is not the same secret as `AZDO_PAT`; the registration PAT is only used to register the self-hosted agent.
+
+Automation agent example:
+
+```powershell
+cd C:\agent
+.\config.cmd `
+  --unattended `
+  --url "https://dev.azure.com/<organization>" `
+  --auth pat `
+  --token "<agent-registration-pat>" `
+  --pool "<automation-agent-pool>" `
+  --agent "<automation-agent-name>" `
+  --work "_work" `
+  --runAsService `
+  --windowsLogonAccount "CONTOSO\svc-dba-automation" `
+  --windowsLogonPassword "<service-account-password>" `
+  --replace
+```
+
+IIS deployment agent example:
+
+```powershell
+cd C:\iis-agent
+.\config.cmd `
+  --unattended `
+  --url "https://dev.azure.com/<organization>" `
+  --auth pat `
+  --token "<agent-registration-pat>" `
+  --pool "<iis-deployment-agent-pool>" `
+  --agent "<iis-agent-name>" `
+  --work "_work" `
+  --runAsService `
+  --windowsLogonAccount "CONTOSO\svc-dba-iisdeploy" `
+  --windowsLogonPassword "<service-account-password>" `
+  --replace
+```
+
+If the customer uses group policy to control `Log on as a service`, grant that right to the agent service accounts before running `config.cmd`, or ask the Windows team to add it through GPO.
+
+#### Verify Agent Services
+
+```powershell
+Get-CimInstance Win32_Service |
+  Where-Object { $_.Name -like "vstsagent*" } |
+  Select-Object Name, StartName, State
+```
+
+Restart agent services after changing account membership or permissions:
+
+```powershell
+Get-Service |
+  Where-Object { $_.Name -like "vstsagent*" } |
+  Restart-Service
+```
+
+#### Verify IIS App Pool Folder ACLs After Deployment
+
+The deploy pipelines grant these automatically, but use this when validating or repairing an environment:
+
+```powershell
+icacls "C:\inetpub\dba-capacity-api" /grant "IIS AppPool\DBACapacityApi:(OI)(CI)RX" /T
+icacls "C:\inetpub\dba-capacity-web" /grant "IIS AppPool\DBACapacityWeb:(OI)(CI)RX" /T
+```
+
+Verify:
+
+```powershell
+icacls "C:\inetpub\dba-capacity-api"
+icacls "C:\inetpub\dba-capacity-web"
+```
+
+#### Verify IIS Sites And App Pools
+
+```powershell
+Import-Module WebAdministration
+
+Get-Website |
+  Select-Object Name, State, PhysicalPath, Bindings
+
+Get-ChildItem IIS:\AppPools |
+  Select-Object Name, State, managedRuntimeVersion
+```
+
+#### Test Required Network Paths
+
+From the collector agent VM:
+
+```powershell
+Test-NetConnection dev.azure.com -Port 443
+Test-NetConnection <repository-sql-server> -Port 1433
+Test-NetConnection <source-sql-server> -Port 1433
+```
+
+From the IIS/API VM:
+
+```powershell
+Test-NetConnection dev.azure.com -Port 443
+Test-NetConnection <repository-sql-server> -Port 1433
+```
+
+From an end-user workstation or jump box:
+
+```powershell
+Test-NetConnection <dashboard-host-or-alias> -Port 80
+Test-NetConnection <dashboard-host-or-alias> -Port 443
+Test-NetConnection <api-host-or-alias> -Port 5088
+```
+
+If SQL Server uses a named instance or custom port, test the actual static TCP port. Avoid depending on SQL Browser unless the customer explicitly supports UDP `1434`.
+
+#### Optional Remote IIS Deployment Access
+
+The current YAML does not perform remote IIS deployment. Use this only if the customer chooses to extend the deploy pipelines for WinRM/PowerShell remoting instead of installing an Azure DevOps agent on the IIS VM.
+
+On the IIS VM, run elevated:
+
+```powershell
+Enable-PSRemoting -Force
+Set-Item WSMan:\localhost\Service\AllowUnencrypted $false
+```
+
+Restrict the WinRM firewall rule to the automation agent IP where possible:
+
+```powershell
+Set-NetFirewallRule `
+  -Name "WINRM-HTTP-In-TCP" `
+  -RemoteAddress "<automation-agent-ip-address>"
+```
+
+The remote deployment account still needs local Administrator on the IIS VM:
+
+```powershell
+Add-LocalGroupMember -Group "Administrators" -Member "CONTOSO\svc-dba-iisdeploy"
+```
+
+Test remoting from the automation VM:
+
+```powershell
+Test-WSMan <iis-server-name>
+
+$Credential = Get-Credential "CONTOSO\svc-dba-iisdeploy"
+Invoke-Command `
+  -ComputerName "<iis-server-name>" `
+  -Credential $Credential `
+  -ScriptBlock {
+    Import-Module WebAdministration
+    Get-Website | Select-Object Name, State, PhysicalPath
+  }
+```
+
 ## 14. Permissions
 
 ### Repository Database Deployment User
@@ -889,10 +1179,11 @@ C:\agent              automation agent
 C:\iis-agent          optional IIS deployment agent
 ```
 
-Run IIS deployment agents as a Windows service using a dedicated local administrator account on the IIS VM:
+Run IIS deployment agents as a Windows service using a dedicated local administrator account on the IIS VM. Example service logon accounts:
 
 ```text
 .\azdoagent
+CONTOSO\svc-dba-iisdeploy
 ```
 
 The collector/database/onboard automation agent does not need to be local administrator unless customer policy or local tool installation requires it. It does need network access to Azure DevOps, the repository SQL Server, and monitored sources.
