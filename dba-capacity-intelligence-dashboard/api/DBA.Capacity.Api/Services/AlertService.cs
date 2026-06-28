@@ -112,6 +112,7 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
             SELECT
                 ah.alert_id,
                 ah.alert_time,
+                ah.alert_key,
                 ah.server_name,
                 si.environment,
                 ah.database_name,
@@ -125,6 +126,26 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
             FROM dbo.AlertHistory AS ah
             LEFT JOIN dbo.ServerInventory AS si
                 ON si.server_name = ah.server_name
+            WHERE ah.is_resolved = 1
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.AlertHistory AS active_alert
+                  WHERE active_alert.is_resolved = 0
+                    AND active_alert.server_name = ah.server_name
+                    AND ISNULL(active_alert.database_name, N'') = ISNULL(ah.database_name, N'')
+                    AND active_alert.alert_type = ah.alert_type
+                    AND
+                    (
+                        (
+                            active_alert.alert_key IS NOT NULL
+                            AND ah.alert_key IS NOT NULL
+                            AND active_alert.alert_key = ah.alert_key
+                        )
+                        OR active_alert.alert_key IS NULL
+                        OR ah.alert_key IS NULL
+                    )
+              )
         ) AS a
         {SourceMapSql}
         ORDER BY a.alert_time DESC, a.alert_id DESC;

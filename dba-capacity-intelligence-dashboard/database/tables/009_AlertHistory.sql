@@ -7,6 +7,7 @@ BEGIN
     (
         alert_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_AlertHistory PRIMARY KEY,
         alert_time DATETIME2(7) NOT NULL CONSTRAINT DF_AlertHistory_alert_time DEFAULT (SYSUTCDATETIME()),
+        alert_key NVARCHAR(512) NULL,
         server_name SYSNAME NOT NULL,
         database_name SYSNAME NULL,
         alert_type VARCHAR(100) NOT NULL,
@@ -31,6 +32,13 @@ BEGIN
 END;
 GO
 
+IF COL_LENGTH(N'dbo.AlertHistory', N'alert_key') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD alert_key NVARCHAR(512) NULL;
+END;
+GO
+
 IF COL_LENGTH(N'dbo.AlertHistory', N'details_json') IS NULL
 BEGIN
     ALTER TABLE dbo.AlertHistory
@@ -42,6 +50,20 @@ IF COL_LENGTH(N'dbo.AlertHistory', N'is_resolved') IS NULL
 BEGIN
     ALTER TABLE dbo.AlertHistory
         ADD is_resolved BIT NOT NULL CONSTRAINT DF_AlertHistory_is_resolved DEFAULT (0);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.AlertHistory')
+      AND name = N'IX_AlertHistory_ActiveAlertKey'
+)
+BEGIN
+    CREATE INDEX IX_AlertHistory_ActiveAlertKey
+        ON dbo.AlertHistory (is_resolved, alert_key)
+        INCLUDE (server_name, database_name, alert_type, alert_time);
 END;
 GO
 

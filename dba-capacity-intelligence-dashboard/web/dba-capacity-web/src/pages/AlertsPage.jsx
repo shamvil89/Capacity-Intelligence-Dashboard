@@ -96,10 +96,10 @@ export default function AlertsPage({ mode = 'active' }) {
     <section className="page-stack">
       <div className="toolbar-row">
         <div>
-          <h2>{isHistoryMode ? 'Alert History' : 'Active Alerts'}</h2>
+          <h2>{isHistoryMode ? 'Resolved Alert History' : 'Active Alerts'}</h2>
           <p className="subtle">
             {isHistoryMode
-              ? 'Historical alert snapshots from collector and forecast runs.'
+              ? 'Resolved repository alerts retired by later collector and forecast runs.'
               : 'Current unresolved repository alerts from the latest collector and forecast runs.'}
           </p>
         </div>
@@ -108,7 +108,7 @@ export default function AlertsPage({ mode = 'active' }) {
       <DataState isLoading={isLoading} error={error} isEmpty={alerts.length === 0}>
         <div className="table-panel alerts-panel">
           <div className="table-panel-header">
-            <h3>{isHistoryMode ? 'Historical Alerts' : 'Alert Queue'}</h3>
+            <h3>{isHistoryMode ? 'Resolved Alerts' : 'Alert Queue'}</h3>
             <span>{visibleAlerts.length} rows</span>
           </div>
 

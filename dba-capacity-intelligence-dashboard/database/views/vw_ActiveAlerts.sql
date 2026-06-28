@@ -6,6 +6,7 @@ AS
 SELECT
     a.alert_id,
     a.alert_time,
+    a.alert_key,
     a.server_name,
     si.environment,
     a.database_name,

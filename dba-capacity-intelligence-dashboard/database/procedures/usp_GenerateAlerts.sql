@@ -7,39 +7,24 @@ BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
-    DECLARE @today DATETIME2(7) = CONVERT(DATE, SYSUTCDATETIME());
-    DECLARE @tomorrow DATETIME2(7) = DATEADD(DAY, 1, @today);
     DECLARE @runStartedAt DATETIME2(7) = SYSUTCDATETIME();
     DECLARE @maxLogFileMb DECIMAL(18,2) = 2097152.00; -- 2 TB SQL Server log file practical cap.
 
     BEGIN TRY
         BEGIN TRANSACTION;
 
-        -- The alert table represents current state, not just append-only events.
-        -- Each run archives previous generated alerts, then inserts the issues
-        -- that are still true from the latest collected evidence. Collector
-        -- failure alerts are excluded because they are written directly by the
-        -- collectors and have their own lifecycle.
-        UPDATE dbo.AlertHistory
-            SET is_resolved = 1,
-                resolved_at = COALESCE(resolved_at, @runStartedAt)
-        WHERE is_resolved = 0
-          AND alert_type IN
-          (
-              'CapacityRisk',
-              'LogFileExhaustionRisk',
-              'FullRecoveryNoLogBackup',
-              'LongRunningTransaction',
-              'BlockingChain',
-              'ActiveTransactionLogReuseWait',
-              'AlwaysOnHealthIssue',
-              'AlwaysOnLogReuseWait',
-              'ReplicationAgentIssue',
-              'ReplicationLogReuseWait',
-              'TempDBUsage',
-              'DiskSpaceLow',
-              'BackupGrowth'
-          );
+        CREATE TABLE #GeneratedAlerts
+        (
+            generated_alert_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+            alert_key NVARCHAR(512) NOT NULL,
+            server_name SYSNAME NOT NULL,
+            database_name SYSNAME NULL,
+            alert_type VARCHAR(100) NOT NULL,
+            severity VARCHAR(20) NOT NULL,
+            message NVARCHAR(2000) NOT NULL,
+            source_script NVARCHAR(260) NULL,
+            details_json NVARCHAR(MAX) NULL
+        );
 
         ;WITH RankedForecast AS
         (
@@ -58,8 +43,9 @@ BEGIN
             FROM RankedForecast
             WHERE rn = 1
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -69,6 +55,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'CapacityRisk|', f.server_name, N'|', ISNULL(f.database_name, N'')),
             f.server_name,
             f.database_name,
             'CapacityRisk',
@@ -93,18 +80,7 @@ BEGIN
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             )
         FROM LatestForecast AS f
-        WHERE f.risk_level IN ('Critical', 'High')
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = f.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(f.database_name, N'')
-                AND a.alert_type = 'CapacityRisk'
-          );
+        WHERE f.risk_level IN ('Critical', 'High');
 
         ;WITH LatestLogFileRows AS
         (
@@ -256,8 +232,9 @@ BEGIN
                 END AS projected_hours_to_cap
             FROM LogRisk AS r
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -267,6 +244,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'LogFileExhaustionRisk|', r.server_name, N'|', ISNULL(r.database_name, N'')),
             r.server_name,
             r.database_name,
             'LogFileExhaustionRisk',
@@ -318,18 +296,7 @@ BEGIN
             OR r.percent_of_effective_cap >= 85
             OR r.projected_hours_to_cap <= 72
             OR (r.growth_24h_gb >= 10 AND r.remaining_to_cap_gb <= r.growth_24h_gb * 3)
-        )
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = r.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(r.database_name, N'')
-                AND a.alert_type = 'LogFileExhaustionRisk'
-          );
+        );
 
         ;WITH LatestLogState AS
         (
@@ -353,8 +320,9 @@ BEGIN
             WHERE b.backup_type = 'Log'
             GROUP BY b.server_name, b.database_name
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -364,6 +332,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'FullRecoveryNoLogBackup|', l.server_name, N'|', ISNULL(l.database_name, N'')),
             l.server_name,
             l.database_name,
             'FullRecoveryNoLogBackup',
@@ -408,17 +377,6 @@ BEGIN
               b.last_log_backup_finish_date IS NULL
               OR b.last_log_backup_finish_date < DATEADD(HOUR, -24, SYSUTCDATETIME())
               OR l.log_reuse_wait_desc = 'LOG_BACKUP'
-          )
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = l.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(l.database_name, N'')
-                AND a.alert_type = 'FullRecoveryNoLogBackup'
           );
 
         ;WITH RecentLongTransactions AS
@@ -440,73 +398,9 @@ BEGIN
             WHERE rn = 1
               AND duration_minutes >= 60
         )
-        UPDATE a
-            SET alert_time = SYSUTCDATETIME(),
-                severity = CASE WHEN t.duration_minutes >= 240 THEN 'Critical' ELSE 'High' END,
-                message = CONCAT
-                (
-                    'Session ', t.session_id, ' has an open transaction for ',
-                    CONVERT(DECIMAL(18,2), t.duration_minutes), ' minutes',
-                    COALESCE(CONCAT(' in ', t.database_name), ''),
-                    '. Login: ', COALESCE(t.login_name, 'unknown'), '.'
-                ),
-                source_script = N'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql',
-                details_json =
-                (
-                    SELECT
-                        'LongRunningTransaction' AS category,
-                        t.server_name AS serverName,
-                        t.database_name AS databaseName,
-                        t.session_id AS sessionId,
-                        t.transaction_id AS transactionId,
-                        t.transaction_begin_time AS transactionBeginTime,
-                        t.duration_minutes AS durationMinutes,
-                        t.collection_time AS durationCollectedAt,
-                        t.login_name AS loginName,
-                        t.host_name AS hostName,
-                        t.program_name AS programName,
-                        t.transaction_name AS transactionName,
-                        t.transaction_type_desc AS transactionType,
-                        t.transaction_state_desc AS transactionState,
-                        t.command,
-                        t.wait_type AS waitType,
-                        t.blocking_session_id AS blockingSessionId,
-                        t.sql_text AS sqlText,
-                        t.query_plan_xml AS queryPlanXml,
-                        'Long transactions can prevent log truncation and accelerate log growth, especially in FULL recovery.' AS explanation,
-                        'Collect-LongRunningTransactions.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
-                        'dbo.LongRunningTransactionHistory' AS evidenceTable
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                )
-        FROM dbo.AlertHistory AS a
-        INNER JOIN LatestLongTransactions AS t
-            ON t.server_name = a.server_name
-           AND ISNULL(t.database_name, N'') = ISNULL(a.database_name, N'')
-           AND a.message LIKE CONCAT('Session ', t.session_id, '%')
-        WHERE a.is_resolved = 0
-          AND a.alert_type = 'LongRunningTransaction';
-
-        ;WITH RecentLongTransactions AS
+        INSERT INTO #GeneratedAlerts
         (
-            SELECT
-                t.*,
-                ROW_NUMBER() OVER
-                (
-                    PARTITION BY t.server_name, t.session_id, t.transaction_id
-                    ORDER BY t.collection_time DESC, t.id DESC
-                ) AS rn
-            FROM dbo.LongRunningTransactionHistory AS t
-            WHERE t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
-        ),
-        LatestLongTransactions AS
-        (
-            SELECT *
-            FROM RecentLongTransactions
-            WHERE rn = 1
-              AND duration_minutes >= 60
-        )
-        INSERT INTO dbo.AlertHistory
-        (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -516,6 +410,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'LongRunningTransaction|', t.server_name, N'|', ISNULL(t.database_name, N''), N'|', CONVERT(NVARCHAR(30), t.session_id), N'|', CONVERT(NVARCHAR(30), t.transaction_id)),
             t.server_name,
             t.database_name,
             'LongRunningTransaction',
@@ -554,17 +449,7 @@ BEGIN
                     'dbo.LongRunningTransactionHistory' AS evidenceTable
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             )
-        FROM LatestLongTransactions AS t
-        WHERE NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.server_name = t.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(t.database_name, N'')
-                AND a.alert_type = 'LongRunningTransaction'
-                AND a.message LIKE CONCAT('Session ', t.session_id, '%')
-          );
+        FROM LatestLongTransactions AS t;
 
         ;WITH LatestBlockedRows AS
         (
@@ -595,8 +480,9 @@ BEGIN
             FROM CurrentBlocked AS b
             GROUP BY b.server_name, b.lead_blocker_session_id
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -606,6 +492,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'BlockingChain|', s.server_name, N'|', CONVERT(NVARCHAR(30), s.lead_blocker_session_id)),
             s.server_name,
             latest_blocker.database_name,
             'BlockingChain',
@@ -685,18 +572,7 @@ BEGIN
             WHERE b.server_name = s.server_name
               AND b.lead_blocker_session_id = s.lead_blocker_session_id
             ORDER BY b.collection_time DESC, ISNULL(b.blocked_wait_duration_ms, 0) DESC
-        ) AS latest_blocker
-        WHERE NOT EXISTS
-        (
-            SELECT 1
-            FROM dbo.AlertHistory AS a
-            WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-              AND a.alert_time < @tomorrow
-              AND a.server_name = s.server_name
-              AND a.alert_type = 'BlockingChain'
-              AND a.message LIKE CONCAT('Lead blocker session ', s.lead_blocker_session_id, '%')
-        );
+        ) AS latest_blocker;
 
         ;WITH LatestLogState AS
         (
@@ -710,8 +586,9 @@ BEGIN
             FROM dbo.FileSizeHistory AS l
             WHERE l.file_type = 'LOG'
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -721,6 +598,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'ActiveTransactionLogReuseWait|', l.server_name, N'|', ISNULL(l.database_name, N'')),
             l.server_name,
             l.database_name,
             'ActiveTransactionLogReuseWait',
@@ -804,18 +682,7 @@ BEGIN
             )
         FROM LatestLogState AS l
         WHERE l.rn = 1
-          AND l.log_reuse_wait_desc = 'ACTIVE_TRANSACTION'
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = l.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(l.database_name, N'')
-                AND a.alert_type = 'ActiveTransactionLogReuseWait'
-          );
+          AND l.log_reuse_wait_desc = 'ACTIVE_TRANSACTION';
 
         ;WITH LatestAlwaysOnRows AS
         (
@@ -859,8 +726,9 @@ BEGIN
             FROM AlwaysOnIssues
             GROUP BY server_name, availability_group_name, replica_server_name
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -870,6 +738,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'AlwaysOnHealthIssue|', s.server_name, N'|', ISNULL(s.availability_group_name, N''), N'|', ISNULL(s.replica_server_name, N'')),
             s.server_name,
             latest_issue.database_name,
             'AlwaysOnHealthIssue',
@@ -947,18 +816,7 @@ BEGIN
                 CASE WHEN i.connected_state_desc = N'DISCONNECTED' OR i.last_connect_error_number IS NOT NULL THEN 0 ELSE 1 END,
                 CASE WHEN ISNULL(i.is_suspended, 0) = 1 THEN 0 ELSE 1 END,
                 i.collection_time DESC
-        ) AS latest_issue
-        WHERE NOT EXISTS
-        (
-            SELECT 1
-            FROM dbo.AlertHistory AS ah
-            WHERE ah.is_resolved = 0
-                AND ah.alert_time >= @today
-              AND ah.alert_time < @tomorrow
-              AND ah.server_name = s.server_name
-              AND ah.alert_type = 'AlwaysOnHealthIssue'
-              AND ah.message LIKE CONCAT('Always On issue in AG ', COALESCE(s.availability_group_name, 'unknown'), ' on replica ', COALESCE(s.replica_server_name, 'unknown'), '%')
-        );
+        ) AS latest_issue;
 
         ;WITH LatestLogState AS
         (
@@ -972,8 +830,9 @@ BEGIN
             FROM dbo.FileSizeHistory AS l
             WHERE l.file_type = 'LOG'
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -983,6 +842,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'AlwaysOnLogReuseWait|', l.server_name, N'|', ISNULL(l.database_name, N'')),
             l.server_name,
             l.database_name,
             'AlwaysOnLogReuseWait',
@@ -1033,18 +893,7 @@ BEGIN
             )
         FROM LatestLogState AS l
         WHERE l.rn = 1
-          AND l.log_reuse_wait_desc = 'AVAILABILITY_REPLICA'
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS ah
-              WHERE ah.is_resolved = 0
-                AND ah.alert_time >= @today
-                AND ah.alert_time < @tomorrow
-                AND ah.server_name = l.server_name
-                AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
-                AND ah.alert_type = 'AlwaysOnLogReuseWait'
-          );
+          AND l.log_reuse_wait_desc = 'AVAILABILITY_REPLICA';
 
         ;WITH LatestReplicationRows AS
         (
@@ -1064,8 +913,9 @@ BEGIN
             FROM LatestReplicationRows
             WHERE rn = 1
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -1075,6 +925,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'ReplicationAgentIssue|', rh.server_name, N'|', ISNULL(rh.database_name, N''), N'|', ISNULL(rh.publication, N''), N'|', ISNULL(rh.agent_type, N''), N'|', ISNULL(rh.agent_name, N'')),
             rh.server_name,
             rh.database_name,
             'ReplicationAgentIssue',
@@ -1120,18 +971,6 @@ BEGIN
               OR rh.run_status_desc IN (N'Retry', N'Failed')
               OR rh.error_id IS NOT NULL
               OR rh.error_code IS NOT NULL
-          )
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS ah
-              WHERE ah.is_resolved = 0
-                AND ah.alert_time >= @today
-                AND ah.alert_time < @tomorrow
-                AND ah.server_name = rh.server_name
-                AND ISNULL(ah.database_name, N'') = ISNULL(rh.database_name, N'')
-                AND ah.alert_type = 'ReplicationAgentIssue'
-                AND ah.message LIKE CONCAT(COALESCE(rh.agent_type, 'Replication'), ' agent ', COALESCE(rh.agent_name, 'unknown'), '%')
           );
 
         ;WITH LatestLogState AS
@@ -1146,8 +985,9 @@ BEGIN
             FROM dbo.FileSizeHistory AS l
             WHERE l.file_type = 'LOG'
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -1157,6 +997,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'ReplicationLogReuseWait|', l.server_name, N'|', ISNULL(l.database_name, N'')),
             l.server_name,
             l.database_name,
             'ReplicationLogReuseWait',
@@ -1218,18 +1059,7 @@ BEGIN
             )
         FROM LatestLogState AS l
         WHERE l.rn = 1
-          AND l.log_reuse_wait_desc = 'REPLICATION'
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS ah
-              WHERE ah.is_resolved = 0
-                AND ah.alert_time >= @today
-                AND ah.alert_time < @tomorrow
-                AND ah.server_name = l.server_name
-                AND ISNULL(ah.database_name, N'') = ISNULL(l.database_name, N'')
-                AND ah.alert_type = 'ReplicationLogReuseWait'
-          );
+          AND l.log_reuse_wait_desc = 'REPLICATION';
 
         ;WITH LatestTempDb AS
         (
@@ -1242,8 +1072,9 @@ BEGIN
                 ) AS rn
             FROM dbo.TempDBUsageHistory AS t
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -1253,6 +1084,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'TempDBUsage|', t.server_name),
             t.server_name,
             'tempdb',
             'TempDBUsage',
@@ -1311,18 +1143,7 @@ BEGIN
         FROM LatestTempDb AS t
         WHERE t.rn = 1
           AND t.tempdb_size_mb > 0
-          AND ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / t.tempdb_size_mb) >= 80
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = t.server_name
-                AND ISNULL(a.database_name, N'') = N'tempdb'
-                AND a.alert_type = 'TempDBUsage'
-          );
+          AND ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / t.tempdb_size_mb) >= 80;
 
         ;WITH LatestDisk AS
         (
@@ -1335,8 +1156,9 @@ BEGIN
                 ) AS rn
             FROM dbo.DiskSpaceHistory AS d
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -1346,6 +1168,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'DiskSpaceLow|', d.server_name, N'|', ISNULL(d.volume_mount_point, N'')),
             d.server_name,
             NULL,
             'DiskSpaceLow',
@@ -1369,18 +1192,7 @@ BEGIN
             )
         FROM LatestDisk AS d
         WHERE d.rn = 1
-          AND (d.available_gb <= 20 OR d.used_percent >= 90)
-          AND NOT EXISTS
-          (
-              SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = d.server_name
-                AND a.alert_type = 'DiskSpaceLow'
-                AND a.message LIKE CONCAT('Volume ', d.volume_mount_point, '%')
-          );
+          AND (d.available_gb <= 20 OR d.used_percent >= 90);
 
         ;WITH RankedBackup AS
         (
@@ -1417,8 +1229,9 @@ BEGIN
             ) AS p
             WHERE b.rn = 1
         )
-        INSERT INTO dbo.AlertHistory
+        INSERT INTO #GeneratedAlerts
         (
+            alert_key,
             server_name,
             database_name,
             alert_type,
@@ -1428,6 +1241,7 @@ BEGIN
             details_json
         )
         SELECT
+            CONCAT(N'BackupGrowth|', bg.server_name, N'|', ISNULL(bg.database_name, N''), N'|', ISNULL(bg.backup_type, N'')),
             bg.server_name,
             bg.database_name,
             'BackupGrowth',
@@ -1450,17 +1264,106 @@ BEGIN
         FROM BackupGrowth AS bg
         WHERE bg.avg_backup_size_gb IS NOT NULL
           AND bg.backup_size_gb >= bg.avg_backup_size_gb * 1.5
-          AND bg.backup_size_gb - bg.avg_backup_size_gb >= 5
+          AND bg.backup_size_gb - bg.avg_backup_size_gb >= 5;
+
+        ;WITH RankedGeneratedAlerts AS
+        (
+            SELECT
+                g.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY g.alert_key
+                    ORDER BY g.generated_alert_id DESC
+                ) AS rn
+            FROM #GeneratedAlerts AS g
+        )
+        SELECT
+            alert_key,
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        INTO #CurrentGeneratedAlerts
+        FROM RankedGeneratedAlerts
+        WHERE rn = 1;
+
+        UPDATE a
+            SET alert_time = @runStartedAt,
+                server_name = c.server_name,
+                database_name = c.database_name,
+                alert_type = c.alert_type,
+                severity = c.severity,
+                message = c.message,
+                source_script = c.source_script,
+                details_json = c.details_json,
+                alert_key = c.alert_key,
+                is_resolved = 0,
+                resolved_at = NULL
+        FROM dbo.AlertHistory AS a
+        INNER JOIN #CurrentGeneratedAlerts AS c
+            ON c.alert_key = a.alert_key
+        WHERE a.is_resolved = 0;
+
+        INSERT INTO dbo.AlertHistory
+        (
+            alert_time,
+            alert_key,
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            @runStartedAt,
+            c.alert_key,
+            c.server_name,
+            c.database_name,
+            c.alert_type,
+            c.severity,
+            c.message,
+            c.source_script,
+            c.details_json
+        FROM #CurrentGeneratedAlerts AS c
+        WHERE NOT EXISTS
+        (
+            SELECT 1
+            FROM dbo.AlertHistory AS a
+            WHERE a.is_resolved = 0
+              AND a.alert_key = c.alert_key
+        );
+
+        UPDATE a
+            SET is_resolved = 1,
+                resolved_at = COALESCE(a.resolved_at, @runStartedAt)
+        FROM dbo.AlertHistory AS a
+        WHERE a.is_resolved = 0
+          AND a.alert_type IN
+          (
+              'CapacityRisk',
+              'LogFileExhaustionRisk',
+              'FullRecoveryNoLogBackup',
+              'LongRunningTransaction',
+              'BlockingChain',
+              'ActiveTransactionLogReuseWait',
+              'AlwaysOnHealthIssue',
+              'AlwaysOnLogReuseWait',
+              'ReplicationAgentIssue',
+              'ReplicationLogReuseWait',
+              'TempDBUsage',
+              'DiskSpaceLow',
+              'BackupGrowth'
+          )
           AND NOT EXISTS
           (
               SELECT 1
-              FROM dbo.AlertHistory AS a
-              WHERE a.is_resolved = 0
-                AND a.alert_time >= @today
-                AND a.alert_time < @tomorrow
-                AND a.server_name = bg.server_name
-                AND ISNULL(a.database_name, N'') = ISNULL(bg.database_name, N'')
-                AND a.alert_type = 'BackupGrowth'
+              FROM #CurrentGeneratedAlerts AS c
+              WHERE c.alert_key = a.alert_key
           );
 
         COMMIT TRANSACTION;
