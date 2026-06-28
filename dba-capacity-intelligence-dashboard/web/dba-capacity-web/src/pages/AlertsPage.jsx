@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Info, X } from 'lucide-react';
-import * as QueryPlanRenderer from 'html-query-plan';
+import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
@@ -11,6 +11,7 @@ import { containsText, getUniqueOptions, nextSortState, sortRows } from '../comp
 import { api } from '../services/api.js';
 
 const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+let queryPlanRendererPromise;
 
 export default function AlertsPage() {
   const { effectiveTimeZone } = useTimezone();
@@ -266,29 +267,32 @@ function QueryPlanSection({ details }) {
 
   useEffect(() => {
     const container = containerRef.current;
+    let isCancelled = false;
+
     if (!container || !selectedPlan) {
       return undefined;
     }
 
     container.innerHTML = '';
+    container.textContent = 'Loading query plan...';
 
-    const showPlan =
-      QueryPlanRenderer.showPlan ??
-      QueryPlanRenderer.default?.showPlan ??
-      (typeof window !== 'undefined' ? window.QP?.showPlan : undefined);
+    loadQueryPlanRenderer()
+      .then((renderer) => {
+        if (isCancelled) {
+          return;
+        }
 
-    if (!showPlan) {
-      container.textContent = 'Query plan renderer is unavailable.';
-      return undefined;
-    }
-
-    try {
-      showPlan(container, selectedPlan.planXml, { jsTooltips: true });
-    } catch (err) {
-      container.textContent = `Could not render query plan: ${err.message}`;
-    }
+        container.innerHTML = '';
+        renderer.showPlan(container, selectedPlan.planXml, { jsTooltips: true });
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          container.textContent = `Could not render query plan: ${err.message}`;
+        }
+      });
 
     return () => {
+      isCancelled = true;
       container.innerHTML = '';
     };
   }, [selectedPlan]);
@@ -371,6 +375,50 @@ function renderDetailValue(value) {
   }
 
   return <span>{formatDetailValue(value)}</span>;
+}
+
+function loadQueryPlanRenderer() {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Query plan rendering requires a browser.'));
+  }
+
+  if (window.QP?.showPlan) {
+    return Promise.resolve(window.QP);
+  }
+
+  if (!queryPlanRendererPromise) {
+    queryPlanRendererPromise = new Promise((resolve, reject) => {
+      try {
+        const patchedScript = queryPlanScript
+          .replace('})(this, function(window, document) {', '})(window, function(window, document) {')
+          .replace('var SVG = this.SVG = function(element) {', 'var SVG = window.SVG = function(element) {');
+
+        const load = new Function(
+          'window',
+          'document',
+          `
+            var define = undefined;
+            var exports = undefined;
+            var module = undefined;
+            ${patchedScript}
+            return window.QP;
+          `
+        );
+
+        const renderer = load(window, document);
+        if (!renderer?.showPlan) {
+          reject(new Error('Query plan renderer did not initialize.'));
+          return;
+        }
+
+        resolve(renderer);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  return queryPlanRendererPromise;
 }
 
 function collectQueryPlans(value, path = [], plans = []) {
