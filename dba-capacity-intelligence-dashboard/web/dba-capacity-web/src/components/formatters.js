@@ -17,6 +17,54 @@ export function formatInteger(value) {
   return Number(value).toLocaleString();
 }
 
+export function formatStorageFromGb(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numericValue = Number(value);
+  const absoluteValue = Math.abs(numericValue);
+
+  if (absoluteValue < 1) {
+    const mbValue = numericValue * 1024;
+    return `${mbValue.toLocaleString(undefined, {
+      maximumFractionDigits: Math.abs(mbValue) >= 10 ? 1 : 2,
+      minimumFractionDigits: 0
+    })} MB`;
+  }
+
+  return `${numericValue.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0
+  })} GB`;
+}
+
+export function formatRemainingTimeFromDays(value, emptyValue = '-') {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return emptyValue;
+  }
+
+  const numericValue = Number(value);
+
+  if (numericValue < 1) {
+    const hours = numericValue * 24;
+
+    if (hours < 1) {
+      return '<1 hour';
+    }
+
+    const roundedHours = Math.max(1, Math.round(hours));
+    return `${roundedHours.toLocaleString()} ${roundedHours === 1 ? 'hour' : 'hours'}`;
+  }
+
+  const formattedDays = numericValue.toLocaleString(undefined, {
+    maximumFractionDigits: numericValue < 10 ? 1 : 0,
+    minimumFractionDigits: 0
+  });
+
+  return `${formattedDays} ${Math.round(numericValue * 10) / 10 === 1 ? 'day' : 'days'}`;
+}
+
 export function parseRepositoryDateTime(value) {
   if (value instanceof Date) {
     return value;

@@ -205,7 +205,7 @@ select {
   padding: 14px 18px;
   border-bottom: 1px solid #dfe5ec;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(150px, 190px));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: end;
 }
@@ -226,7 +226,7 @@ select {
 }
 
 .alerts-controls {
-  grid-template-columns: minmax(320px, 1fr) minmax(180px, 240px) minmax(140px, 180px) minmax(180px, 240px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding: 16px 18px;
 }
@@ -234,6 +234,43 @@ select {
 .alerts-controls .filter-control,
 .alerts-controls .search-control {
   min-width: 0;
+}
+
+.column-filter {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(260px, 1.4fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.column-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-chip {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475467;
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.filter-chip:hover {
+  border-color: #98a2b3;
+  background: #f8fafc;
+}
+
+.filter-chip.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .sort-header {
@@ -850,7 +887,7 @@ body > .qp-tt td {
 
 .evidence-mini-table {
   width: 100%;
-  min-width: 680px;
+  min-width: 760px;
   border-collapse: collapse;
 }
 
@@ -899,6 +936,28 @@ body > .qp-tt td {
   border: 1px solid #e6ebf1;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.resolution-steps {
+  margin: 0;
+  padding-left: 22px;
+  color: #17202a;
+}
+
+.resolution-steps li + li {
+  margin-top: 8px;
+}
+
+.email-body-preview {
+  margin: 0;
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #17202a;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
 
 .risk-badge {
@@ -1032,7 +1091,11 @@ body > .qp-tt td {
 
   .table-controls,
   .alerts-controls {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+  }
+
+  .column-filter {
+    grid-template-columns: 1fr;
   }
 
   .summary-grid,

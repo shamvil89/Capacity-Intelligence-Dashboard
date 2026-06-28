@@ -1,22 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
 import SummaryCard from '../components/SummaryCard.jsx';
-import { formatInteger, formatNumber } from '../components/formatters.js';
-import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
+import { formatInteger, formatRemainingTimeFromDays, formatStorageFromGb } from '../components/formatters.js';
+import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
 const riskLevels = ['All', 'Healthy', 'Low', 'Medium', 'High', 'Critical'];
 const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+const databaseFilterColumns = [
+  { key: 'environment', label: 'Environment' },
+  { key: 'serverName', label: 'Server' },
+  { key: 'databaseName', label: 'Database' },
+  { key: 'riskLevel', label: 'Risk' },
+  { key: 'recommendation', label: 'Recommendation' }
+];
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [riskLevel, setRiskLevel] = useState('All');
   const [environmentFilter, setEnvironmentFilter] = useState('All');
-  const [serverFilter, setServerFilter] = useState('All');
   const [containsFilter, setContainsFilter] = useState('');
+  const [filterColumns, setFilterColumns] = useState(databaseFilterColumns.map((column) => column.key));
   const [sortState, setSortState] = useState({ key: 'riskLevel', direction: 'asc' });
   const [summary, setSummary] = useState(null);
   const [databases, setDatabases] = useState([]);
@@ -32,8 +40,8 @@ export default function DashboardPage() {
 
       try {
         const [summaryResult, databaseResult] = await Promise.all([
-          api.getSummary({ riskLevel, environment: environmentFilter, serverName: serverFilter }),
-          api.getCapacityDatabases({ riskLevel, environment: environmentFilter, serverName: serverFilter })
+          api.getSummary({ riskLevel, environment: environmentFilter }),
+          api.getCapacityDatabases({ riskLevel, environment: environmentFilter })
         ]);
 
         if (isMounted) {
@@ -55,7 +63,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [environmentFilter, riskLevel, serverFilter]);
+  }, [environmentFilter, riskLevel]);
 
   const cards = useMemo(() => [
     { label: 'Total Servers', value: formatInteger(summary?.totalServers), accent: 'teal' },
@@ -66,17 +74,10 @@ export default function DashboardPage() {
     { label: 'Fastest Growing', value: summary?.fastestGrowingDatabaseName || 'No data', accent: 'yellow' }
   ], [summary]);
 
-  const serverOptions = useMemo(() => getUniqueOptions(databases, 'serverName'), [databases]);
-
   const visibleDatabases = useMemo(() => {
+    const activeFilterFields = getSelectedFilterFields(databaseFilterColumns, filterColumns);
     const filteredRows = databases.filter((item) => {
-      const matchesContains = containsText(item, [
-        'environment',
-        'serverName',
-        'databaseName',
-        'riskLevel',
-        'recommendation'
-      ], containsFilter);
+      const matchesContains = containsText(item, activeFilterFields, containsFilter);
 
       return matchesContains;
     });
@@ -89,7 +90,7 @@ export default function DashboardPage() {
       estimatedDaysRemaining: 'number',
       riskLevel: 'risk'
     });
-  }, [containsFilter, databases, sortState]);
+  }, [containsFilter, databases, filterColumns, sortState]);
 
   function handleSort(key) {
     setSortState((currentState) => nextSortState(currentState, key));
@@ -136,25 +137,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="table-controls">
-            <label className="search-control">
-              <span>Contains</span>
-              <input
-                type="search"
-                value={containsFilter}
-                onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Environment, server, database, risk, recommendation"
-              />
-            </label>
-
-            <label className="filter-control">
-              <span>Server</span>
-              <select value={serverFilter} onChange={(event) => setServerFilter(event.target.value)}>
-                <option value="All">All</option>
-                {serverOptions.map((serverName) => (
-                  <option key={serverName} value={serverName}>{serverName}</option>
-                ))}
-              </select>
-            </label>
+            <ColumnFilter
+              columns={databaseFilterColumns}
+              selectedColumns={filterColumns}
+              value={containsFilter}
+              onChange={setContainsFilter}
+              onSelectedColumnsChange={setFilterColumns}
+              placeholder="Environment, server, database, risk, recommendation"
+            />
           </div>
 
           <DataState isLoading={false} error="" isEmpty={visibleDatabases.length === 0}>
@@ -165,11 +155,11 @@ export default function DashboardPage() {
                     <th><SortableHeader label="Environment" sortKey="environment" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Server" sortKey="serverName" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Database" sortKey="databaseName" sortState={sortState} onSort={handleSort} /></th>
-                    <th><SortableHeader label="Current Size GB" sortKey="currentSizeGb" sortState={sortState} onSort={handleSort} /></th>
-                    <th><SortableHeader label="7-Day Growth GB" sortKey="growth7DaysGb" sortState={sortState} onSort={handleSort} /></th>
-                    <th><SortableHeader label="30-Day Growth GB" sortKey="growth30DaysGb" sortState={sortState} onSort={handleSort} /></th>
-                    <th><SortableHeader label="Growth/Day GB" sortKey="averageGrowthPerDayGb" sortState={sortState} onSort={handleSort} /></th>
-                    <th><SortableHeader label="Days Remaining" sortKey="estimatedDaysRemaining" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Current Size" sortKey="currentSizeGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="7-Day Growth" sortKey="growth7DaysGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="30-Day Growth" sortKey="growth30DaysGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Growth/Day" sortKey="averageGrowthPerDayGb" sortState={sortState} onSort={handleSort} /></th>
+                    <th><SortableHeader label="Time Remaining" sortKey="estimatedDaysRemaining" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Risk Level" sortKey="riskLevel" sortState={sortState} onSort={handleSort} /></th>
                     <th><SortableHeader label="Recommendation" sortKey="recommendation" sortState={sortState} onSort={handleSort} /></th>
                   </tr>
@@ -184,11 +174,11 @@ export default function DashboardPage() {
                       <td>{item.environment || '-'}</td>
                       <td>{item.serverName}</td>
                       <td>{item.databaseName}</td>
-                      <td>{formatNumber(item.currentSizeGb)}</td>
-                      <td>{formatNumber(item.growth7DaysGb)}</td>
-                      <td>{formatNumber(item.growth30DaysGb)}</td>
-                      <td>{formatNumber(item.averageGrowthPerDayGb)}</td>
-                      <td>{formatInteger(item.estimatedDaysRemaining)}</td>
+                      <td>{formatStorageFromGb(item.currentSizeGb)}</td>
+                      <td>{formatStorageFromGb(item.growth7DaysGb)}</td>
+                      <td>{formatStorageFromGb(item.growth30DaysGb)}</td>
+                      <td>{formatStorageFromGb(item.averageGrowthPerDayGb)}</td>
+                      <td>{formatRemainingTimeFromDays(item.estimatedDaysRemaining)}</td>
                       <td><RiskBadge level={item.riskLevel} /></td>
                       <td className="recommendation-cell">{item.recommendation || '-'}</td>
                     </tr>

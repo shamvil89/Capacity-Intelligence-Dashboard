@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
+import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
 import { formatInteger, formatNumber } from '../components/formatters.js';
-import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
+import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
-const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+const tableFilterColumns = [
+  { key: 'environment', label: 'Environment' },
+  { key: 'serverName', label: 'Server' },
+  { key: 'databaseName', label: 'Database' },
+  { key: 'schemaName', label: 'Schema' },
+  { key: 'tableName', label: 'Table' }
+];
 
 export default function TopGrowingTablesPage() {
   const [tables, setTables] = useState([]);
   const [containsFilter, setContainsFilter] = useState('');
-  const [environmentFilter, setEnvironmentFilter] = useState('All');
-  const [serverFilter, setServerFilter] = useState('All');
-  const [databaseFilter, setDatabaseFilter] = useState('All');
-  const [schemaFilter, setSchemaFilter] = useState('All');
+  const [filterColumns, setFilterColumns] = useState(tableFilterColumns.map((column) => column.key));
   const [sortState, setSortState] = useState({ key: 'growth30DaysMb', direction: 'desc' });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -26,7 +30,7 @@ export default function TopGrowingTablesPage() {
       setError('');
 
       try {
-        const rows = await api.getTopGrowingTables(500, { environment: environmentFilter });
+        const rows = await api.getTopGrowingTables(500);
         if (isMounted) {
           setTables(rows);
         }
@@ -45,26 +49,14 @@ export default function TopGrowingTablesPage() {
     return () => {
       isMounted = false;
     };
-  }, [environmentFilter]);
-
-  const serverOptions = useMemo(() => getUniqueOptions(tables, 'serverName'), [tables]);
-  const databaseOptions = useMemo(() => getUniqueOptions(tables, 'databaseName'), [tables]);
-  const schemaOptions = useMemo(() => getUniqueOptions(tables, 'schemaName'), [tables]);
+  }, []);
 
   const visibleTables = useMemo(() => {
+    const activeFilterFields = getSelectedFilterFields(tableFilterColumns, filterColumns);
     const filteredRows = tables.filter((item) => {
-      const matchesServer = serverFilter === 'All' || item.serverName === serverFilter;
-      const matchesDatabase = databaseFilter === 'All' || item.databaseName === databaseFilter;
-      const matchesSchema = schemaFilter === 'All' || item.schemaName === schemaFilter;
-      const matchesContains = containsText(item, [
-        'environment',
-        'serverName',
-        'databaseName',
-        'schemaName',
-        'tableName'
-      ], containsFilter);
+      const matchesContains = containsText(item, activeFilterFields, containsFilter);
 
-      return matchesServer && matchesDatabase && matchesSchema && matchesContains;
+      return matchesContains;
     });
 
     return sortRows(filteredRows, sortState, {
@@ -73,7 +65,7 @@ export default function TopGrowingTablesPage() {
       currentRowCount: 'number',
       rowGrowth30Days: 'number'
     });
-  }, [containsFilter, databaseFilter, schemaFilter, serverFilter, sortState, tables]);
+  }, [containsFilter, filterColumns, sortState, tables]);
 
   function handleSort(key) {
     setSortState((currentState) => nextSortState(currentState, key));
@@ -96,54 +88,14 @@ export default function TopGrowingTablesPage() {
           </div>
 
           <div className="table-controls">
-            <label className="search-control">
-              <span>Contains</span>
-              <input
-                type="search"
-                value={containsFilter}
-                onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Environment, server, database, schema, table"
-              />
-            </label>
-
-            <label className="filter-control">
-              <span>Environment</span>
-              <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
-                {environmentOptions.map((environment) => (
-                  <option key={environment} value={environment}>{environment}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Server</span>
-              <select value={serverFilter} onChange={(event) => setServerFilter(event.target.value)}>
-                <option value="All">All</option>
-                {serverOptions.map((serverName) => (
-                  <option key={serverName} value={serverName}>{serverName}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Database</span>
-              <select value={databaseFilter} onChange={(event) => setDatabaseFilter(event.target.value)}>
-                <option value="All">All</option>
-                {databaseOptions.map((databaseName) => (
-                  <option key={databaseName} value={databaseName}>{databaseName}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Schema</span>
-              <select value={schemaFilter} onChange={(event) => setSchemaFilter(event.target.value)}>
-                <option value="All">All</option>
-                {schemaOptions.map((schemaName) => (
-                  <option key={schemaName} value={schemaName}>{schemaName}</option>
-                ))}
-              </select>
-            </label>
+            <ColumnFilter
+              columns={tableFilterColumns}
+              selectedColumns={filterColumns}
+              value={containsFilter}
+              onChange={setContainsFilter}
+              onSelectedColumnsChange={setFilterColumns}
+              placeholder="Environment, server, database, schema, table"
+            />
           </div>
 
           <DataState isLoading={false} error="" isEmpty={visibleTables.length === 0}>

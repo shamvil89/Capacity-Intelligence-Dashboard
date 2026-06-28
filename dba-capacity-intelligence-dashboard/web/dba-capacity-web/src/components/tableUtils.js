@@ -10,6 +10,14 @@ export function containsText(row, fields, searchText) {
   return fields.some((field) => normalize(resolveValue(row, field)).includes(normalizedSearch));
 }
 
+export function getSelectedFilterFields(columns, selectedColumnKeys) {
+  const selectedKeySet = new Set(selectedColumnKeys);
+  const activeColumns = columns.filter((column) => selectedKeySet.has(column.key));
+  const fallbackColumns = activeColumns.length > 0 ? activeColumns : columns;
+
+  return fallbackColumns.map((column) => column.field ?? column.key);
+}
+
 export function getUniqueOptions(rows, field) {
   return [...new Set(rows.map((row) => resolveValue(row, field)).filter((value) => value !== null && value !== undefined && value !== ''))]
     .sort((left, right) => String(left).localeCompare(String(right)));

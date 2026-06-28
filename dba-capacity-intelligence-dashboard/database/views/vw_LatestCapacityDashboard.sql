@@ -40,7 +40,18 @@ SELECT
     f.recommendation,
     f.calculation_time
 FROM RankedForecast AS f
-LEFT JOIN dbo.ServerInventory AS si
-    ON si.server_name = f.server_name
+OUTER APPLY
+(
+    SELECT TOP (1)
+        si.environment
+    FROM dbo.ServerInventory AS si
+    WHERE si.server_name = f.server_name
+       OR
+       (
+           CHARINDEX(N'.', si.server_name) > 0
+           AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = f.server_name
+       )
+    ORDER BY CASE WHEN si.server_name = f.server_name THEN 0 ELSE 1 END
+) AS si
 WHERE f.rn = 1;
 GO

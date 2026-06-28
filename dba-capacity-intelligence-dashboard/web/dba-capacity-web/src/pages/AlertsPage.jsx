@@ -2,15 +2,26 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Info, Maximize2, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
+import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
 import { useTimezone } from '../components/TimezoneContext.jsx';
 import { formatDateTime } from '../components/formatters.js';
-import { containsText, getUniqueOptions, nextSortState, sortRows } from '../components/tableUtils.js';
+import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
-const environmentOptions = ['All', 'Development', 'Test', 'QA', 'UAT', 'Production', 'DR'];
+const alertFilterColumns = [
+  { key: 'environment', label: 'Environment' },
+  { key: 'serverName', label: 'Server' },
+  { key: 'databaseName', label: 'Database' },
+  { key: 'alertType', label: 'Type' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'status', label: 'Status', field: (row) => (row.isResolved ? 'Resolved' : 'Active') },
+  { key: 'message', label: 'Message' },
+  { key: 'sourceScript', label: 'Source' },
+  { key: 'detailsJson', label: 'Evidence' }
+];
 let queryPlanRendererPromise;
 
 export default function AlertsPage({ mode = 'active' }) {
@@ -18,10 +29,7 @@ export default function AlertsPage({ mode = 'active' }) {
   const [alerts, setAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [containsFilter, setContainsFilter] = useState('');
-  const [environmentFilter, setEnvironmentFilter] = useState('All');
-  const [serverFilter, setServerFilter] = useState('All');
-  const [severityFilter, setSeverityFilter] = useState('All');
-  const [alertTypeFilter, setAlertTypeFilter] = useState('All');
+  const [filterColumns, setFilterColumns] = useState(alertFilterColumns.map((column) => column.key));
   const [sortState, setSortState] = useState({ key: 'alertTime', direction: 'desc' });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,29 +64,12 @@ export default function AlertsPage({ mode = 'active' }) {
     };
   }, [isHistoryMode]);
 
-  const serverOptions = useMemo(() => getUniqueOptions(alerts, 'serverName'), [alerts]);
-  const severityOptions = useMemo(() => getUniqueOptions(alerts, 'severity'), [alerts]);
-  const alertTypeOptions = useMemo(() => getUniqueOptions(alerts, 'alertType'), [alerts]);
-
   const visibleAlerts = useMemo(() => {
+    const activeFilterFields = getSelectedFilterFields(alertFilterColumns, filterColumns);
     const filteredRows = alerts.filter((item) => {
-      const matchesEnvironment = environmentFilter === 'All' || item.environment === environmentFilter;
-      const matchesServer = serverFilter === 'All' || item.serverName === serverFilter;
-      const matchesSeverity = severityFilter === 'All' || item.severity === severityFilter;
-      const matchesAlertType = alertTypeFilter === 'All' || item.alertType === alertTypeFilter;
-      const matchesContains = containsText(item, [
-        'environment',
-        'serverName',
-        'databaseName',
-        'alertType',
-        'severity',
-        'isResolved',
-        'message',
-        'sourceScript',
-        'detailsJson'
-      ], containsFilter);
+      const matchesContains = containsText(item, activeFilterFields, containsFilter);
 
-      return matchesEnvironment && matchesServer && matchesSeverity && matchesAlertType && matchesContains;
+      return matchesContains;
     });
 
     return sortRows(filteredRows, sortState, {
@@ -86,7 +77,7 @@ export default function AlertsPage({ mode = 'active' }) {
       resolvedAt: 'date',
       severity: 'risk'
     });
-  }, [alertTypeFilter, alerts, containsFilter, environmentFilter, serverFilter, severityFilter, sortState]);
+  }, [alerts, containsFilter, filterColumns, sortState]);
 
   function handleSort(key) {
     setSortState((currentState) => nextSortState(currentState, key));
@@ -113,54 +104,14 @@ export default function AlertsPage({ mode = 'active' }) {
           </div>
 
           <div className="table-controls alerts-controls">
-            <label className="search-control">
-              <span>Contains</span>
-              <input
-                type="search"
-                value={containsFilter}
-                onChange={(event) => setContainsFilter(event.target.value)}
-                placeholder="Environment, server, database, type, message"
-              />
-            </label>
-
-            <label className="filter-control">
-              <span>Environment</span>
-              <select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)}>
-                {environmentOptions.map((environment) => (
-                  <option key={environment} value={environment}>{environment}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Server</span>
-              <select value={serverFilter} onChange={(event) => setServerFilter(event.target.value)}>
-                <option value="All">All</option>
-                {serverOptions.map((serverName) => (
-                  <option key={serverName} value={serverName}>{serverName}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Severity</span>
-              <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value)}>
-                <option value="All">All</option>
-                {severityOptions.map((severity) => (
-                  <option key={severity} value={severity}>{severity}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter-control">
-              <span>Type</span>
-              <select value={alertTypeFilter} onChange={(event) => setAlertTypeFilter(event.target.value)}>
-                <option value="All">All</option>
-                {alertTypeOptions.map((alertType) => (
-                  <option key={alertType} value={alertType}>{alertType}</option>
-                ))}
-              </select>
-            </label>
+            <ColumnFilter
+              columns={alertFilterColumns}
+              selectedColumns={filterColumns}
+              value={containsFilter}
+              onChange={setContainsFilter}
+              onSelectedColumnsChange={setFilterColumns}
+              placeholder="Environment, server, database, type, severity, message, evidence"
+            />
           </div>
 
           <DataState isLoading={false} error="" isEmpty={visibleAlerts.length === 0}>
@@ -223,6 +174,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const nowMs = useNowMs(hasLiveDurationDetails(details));
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
   const displayMessage = useMemo(() => formatAlertMessage(alert, displayDetails), [alert, displayDetails]);
+  const resolutionSteps = useMemo(() => getResolutionSteps(alert, displayDetails), [alert, displayDetails]);
+  const emailBody = useMemo(() => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps), [alert, displayDetails, displayMessage, resolutionSteps]);
   const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
     const cleanedDetails = stripQueryPlanXml(displayDetails);
@@ -271,6 +224,10 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
               <p>No additional structured details were stored for this alert.</p>
             )}
           </section>
+
+          <ResolutionStepsSection steps={resolutionSteps} />
+
+          <EmailBodySection body={emailBody} />
         </div>
       </section>
     </div>
@@ -336,6 +293,7 @@ function BlockingEvidenceSection({ details }) {
                   <th>Database</th>
                   <th>Object</th>
                   <th>Resource</th>
+                  <th>Resource Detail</th>
                   <th>Mode</th>
                   <th>Status</th>
                 </tr>
@@ -344,8 +302,9 @@ function BlockingEvidenceSection({ details }) {
                 {heldLocks.map((lock, index) => (
                   <tr key={`${lock.databaseName}-${lock.objectName}-${lock.lockMode}-${index}`}>
                     <td>{formatDetailValue(lock.databaseName)}</td>
-                    <td>{formatDetailValue(lock.objectName)}</td>
+                    <td>{formatDetailValue(formatLockObject(lock))}</td>
                     <td>{formatDetailValue(lock.resourceType)}</td>
+                    <td>{formatDetailValue(formatLockResourceDetail(lock))}</td>
                     <td>{formatDetailValue(lock.lockMode)}</td>
                     <td>{formatDetailValue(lock.lockStatus)}</td>
                   </tr>
@@ -420,6 +379,34 @@ function BlockingEvidenceSection({ details }) {
         </CollapsibleSection>
       ) : null}
     </>
+  );
+}
+
+function ResolutionStepsSection({ steps }) {
+  if (!steps.length) {
+    return null;
+  }
+
+  return (
+    <CollapsibleSection title="Steps to Resolve" summary={`${steps.length} step${steps.length === 1 ? '' : 's'}`}>
+      <ol className="resolution-steps">
+        {steps.map((step, index) => (
+          <li key={`${step}-${index}`}>{step}</li>
+        ))}
+      </ol>
+    </CollapsibleSection>
+  );
+}
+
+function EmailBodySection({ body }) {
+  if (!body) {
+    return null;
+  }
+
+  return (
+    <CollapsibleSection title="Email Body" summary="Stakeholder summary">
+      <pre className="email-body-preview">{body}</pre>
+    </CollapsibleSection>
   );
 }
 
@@ -983,6 +970,220 @@ function formatAlertMessage(alert, details) {
 
   const databaseText = details.databaseName ? ` in ${details.databaseName}` : '';
   return `Session ${details.sessionId} has an open transaction for ${formatDurationMinutes(details.durationMinutes)} minutes${databaseText}. Login: ${details.loginName || 'unknown'}.`;
+}
+
+function getResolutionSteps(alert, details) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+  const defaultSteps = [
+    'Confirm the alert is still active by checking the latest collector run time and source evidence.',
+    'Validate the affected server, database, owner, application, and business impact before making changes.',
+    'Resolve the root cause, then rerun the collector to retire the active alert.'
+  ];
+
+  if (alertType.includes('collectionfailure')) {
+    return [
+      'Open the latest collector pipeline log and capture the exact source script and error message.',
+      'Verify repository and source SQL connectivity, credentials, firewall rules, and certificate settings for the affected server.',
+      'Grant the collector account the required SQL permissions, then rerun the failed collector metric.'
+    ];
+  }
+
+  switch (alertType) {
+    case 'capacityrisk':
+      return [
+        'Review growth trend, current size, available space, and estimated time remaining for the affected database.',
+        'Confirm whether the growth is expected from a release, load, index rebuild, or retention change.',
+        'Plan the right remediation: purge/archive data, compress data/indexes, add storage, or adjust file growth settings.',
+        'After remediation, rerun collection and forecast generation to verify the risk level drops.'
+      ];
+    case 'logfileexhaustionrisk':
+      return [
+        'Check the current log size, used log space, max size, growth rate, and available disk headroom.',
+        'Review log reuse wait and correlate with open transactions, Always On, replication, or missing log backups.',
+        'Clear the blocker first, then take a log backup if the database is in FULL recovery.',
+        'Add disk or increase max size if growth is legitimate; shrink only after the root cause is fixed and with DBA approval.'
+      ];
+    case 'fullrecoverynologbackup':
+      return [
+        'Confirm the database must remain in FULL recovery for point-in-time restore or HA requirements.',
+        'Take an immediate log backup if the backup chain is valid and storage is available.',
+        'Fix or create the recurring log backup job and validate job history after the next scheduled run.',
+        'If point-in-time recovery is not required, discuss switching to SIMPLE recovery with the application and recovery owners.'
+      ];
+    case 'longrunningtransaction':
+      return [
+        `Contact the owner of session ${formatDetailValue(details?.sessionId)} from login ${formatDetailValue(details?.loginName)} and host ${formatDetailValue(details?.hostName)}.`,
+        'Review the SQL text and query plan to determine whether the transaction is waiting, scanning, or blocked.',
+        'Ask the owner to commit or roll back if safe; kill the session only after business approval and rollback impact review.',
+        'After the transaction clears, rerun collection and confirm log reuse wait, blocking, and alert status recover.'
+      ];
+    case 'blockingchain':
+      return [
+        `Identify lead blocker session ${formatDetailValue(details?.leadBlockerSessionId)} and the blocked session count.`,
+        'Review lead blocker SQL, query plan, held locks, wait resource, and blocked session SQL before taking action.',
+        'Contact the application/user owner to commit, roll back, or stop the lead blocking workload.',
+        'If blocking recurs, tune the query/indexes, reduce transaction scope, and review isolation level or batching.'
+      ];
+    case 'activetransactionlogreusewait':
+      return [
+        'Find the open transaction or blocker preventing log truncation using the long-running transaction and blocking sections.',
+        'Resolve or safely terminate the open transaction after confirming business impact.',
+        'Run a log backup after the transaction clears if the database is in FULL recovery.',
+        'Confirm log reuse wait changes from ACTIVE_TRANSACTION and log used space starts decreasing.'
+      ];
+    case 'alwaysonhealthissue':
+    case 'alwaysonlogreusewait':
+      return [
+        'Open the Always On dashboard and identify the unhealthy replica, database, synchronization state, and send/redo queue.',
+        'Check SQL Server error logs, endpoint state, cluster health, DNS, firewall, and network connectivity between replicas.',
+        'Resume data movement or fix suspended databases only after confirming the reason for suspension.',
+        'Confirm replicas return to connected and healthy state, then rerun the collector.'
+      ];
+    case 'replicationagentissue':
+    case 'replicationlogreusewait':
+      return [
+        'Open Replication Monitor or SQL Agent history for the named replication agent.',
+        'Review the error text, subscriber/distributor connectivity, permissions, and distribution backlog.',
+        'Restart or reinitialize the affected agent only after validating the replication topology and data impact.',
+        'Confirm agent status is healthy and log reuse wait is no longer REPLICATION.'
+      ];
+    case 'tempdbusage':
+      return [
+        'Review the top TempDB consumers and identify whether user objects, internal objects, or version store are driving usage.',
+        'Tune or stop the consuming query/session if it is runaway or no longer needed.',
+        'Check TempDB file count, file sizes, autogrowth settings, and disk headroom.',
+        'If version store is high, investigate long-running snapshot transactions and row-versioning workload.'
+      ];
+    case 'diskspacelow':
+      return [
+        'Confirm the affected volume, free space, SQL files on that volume, and recent growth drivers.',
+        'Free space safely by clearing approved old backups, dumps, logs, or moving non-critical files.',
+        'Add storage or move database files if growth is expected to continue.',
+        'Review SQL autogrowth and max-size settings to prevent an uncontrolled outage.'
+      ];
+    case 'backupgrowth':
+      return [
+        'Confirm the backup type, latest size, baseline average, and whether compression or encryption changed.',
+        'Check for large data loads, index maintenance, retention changes, or unusual transaction volume.',
+        'Validate backup storage capacity and retention policy.',
+        'If the growth is expected, update capacity planning; otherwise investigate the data or workload change.'
+      ];
+    default:
+      return defaultSteps;
+  }
+}
+
+function buildAlertEmailBody(alert, details, message, steps) {
+  const subject = `[${formatDetailValue(alert.severity)}] ${formatDetailValue(alert.alertType)} on ${formatDetailValue(alert.serverName)}${alert.databaseName ? `/${alert.databaseName}` : ''}`;
+  const evidenceLines = getEmailEvidenceLines(alert, details);
+  const actionLines = steps.slice(0, 4).map((step, index) => `${index + 1}. ${step}`);
+
+  return [
+    `Subject: ${subject}`,
+    '',
+    'Hi team,',
+    '',
+    `The DBA Capacity dashboard raised a ${formatDetailValue(alert.severity)} alert that needs review.`,
+    '',
+    'Alert summary:',
+    `- Environment: ${formatDetailValue(alert.environment)}`,
+    `- Server: ${formatDetailValue(alert.serverName)}`,
+    `- Database: ${formatDetailValue(alert.databaseName)}`,
+    `- Alert type: ${formatDetailValue(alert.alertType)}`,
+    `- Status: ${alert.isResolved ? 'Resolved' : 'Active'}`,
+    `- Time: ${formatDetailValue(alert.alertTime)}`,
+    `- Message: ${message}`,
+    '',
+    'Relevant evidence:',
+    ...evidenceLines.map((line) => `- ${line}`),
+    '',
+    'Recommended next actions:',
+    ...actionLines,
+    '',
+    'Please review the application impact and confirm ownership before taking any disruptive action such as killing sessions, changing recovery model, or moving data files.',
+    '',
+    'Regards,',
+    'DBA Team'
+  ].join('\n');
+}
+
+function getEmailEvidenceLines(alert, details) {
+  const lines = [];
+
+  if (details?.leadBlockerSessionId) {
+    lines.push(`Lead blocker session: ${details.leadBlockerSessionId}`);
+  }
+  if (details?.blockedSessionCount) {
+    lines.push(`Blocked sessions: ${details.blockedSessionCount}`);
+  }
+  if (details?.sessionId) {
+    lines.push(`Session id: ${details.sessionId}`);
+  }
+  if (details?.loginName || details?.leadBlockerLoginName) {
+    lines.push(`Login: ${details.loginName || details.leadBlockerLoginName}`);
+  }
+  if (details?.hostName || details?.leadBlockerHostName) {
+    lines.push(`Host: ${details.hostName || details.leadBlockerHostName}`);
+  }
+  if (details?.durationMinutes) {
+    lines.push(`Duration: ${formatDurationMinutes(details.durationMinutes)} minutes`);
+  }
+  if (details?.currentLogSizeGb) {
+    lines.push(`Current log size: ${formatDetailValue(details.currentLogSizeGb)} GB`);
+  }
+  if (details?.logReuseWait) {
+    lines.push(`Log reuse wait: ${details.logReuseWait}`);
+  }
+  if (details?.availabilityGroupName) {
+    lines.push(`Availability group: ${details.availabilityGroupName}`);
+  }
+  if (details?.replicaServerName) {
+    lines.push(`Replica: ${details.replicaServerName}`);
+  }
+  if (details?.agentName) {
+    lines.push(`Replication agent: ${details.agentName}`);
+  }
+  if (details?.sourceScripts || alert.sourceScript) {
+    lines.push(`Source scripts: ${formatDetailValue(details?.sourceScripts || alert.sourceScript)}`);
+  }
+
+  if (lines.length === 0) {
+    lines.push('Structured evidence is available in the dashboard More info panel.');
+  }
+
+  return lines;
+}
+
+function formatLockObject(lock) {
+  const objectName = String(lock?.objectName ?? '').trim();
+
+  if (objectName && objectName !== '.') {
+    return objectName;
+  }
+
+  return lock?.pageId || lock?.resourceDescription || lock?.resourceAssociatedEntityId || '-';
+}
+
+function formatLockResourceDetail(lock) {
+  if (!lock || typeof lock !== 'object') {
+    return '-';
+  }
+
+  const parts = [];
+  if (lock.pageId) {
+    parts.push(`Page ${lock.pageId}`);
+  }
+  if (lock.fileId) {
+    parts.push(`File ${lock.fileId}`);
+  }
+  if (lock.resourceDescription) {
+    parts.push(lock.resourceDescription);
+  }
+  if (lock.resourceAssociatedEntityId) {
+    parts.push(`Entity ${lock.resourceAssociatedEntityId}`);
+  }
+
+  return parts.length > 0 ? [...new Set(parts)].join(' | ') : '-';
 }
 
 function formatDurationMinutes(value) {

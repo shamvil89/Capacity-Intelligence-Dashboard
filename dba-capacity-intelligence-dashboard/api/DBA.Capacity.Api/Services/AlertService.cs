@@ -124,8 +124,19 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
                 ah.is_resolved,
                 ah.resolved_at
             FROM dbo.AlertHistory AS ah
-            LEFT JOIN dbo.ServerInventory AS si
-                ON si.server_name = ah.server_name
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    si.environment
+                FROM dbo.ServerInventory AS si
+                WHERE si.server_name = ah.server_name
+                   OR
+                   (
+                       CHARINDEX(N'.', si.server_name) > 0
+                       AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = ah.server_name
+                   )
+                ORDER BY CASE WHEN si.server_name = ah.server_name THEN 0 ELSE 1 END
+            ) AS si
             WHERE ah.is_resolved = 1
               AND NOT EXISTS
               (

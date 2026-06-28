@@ -18,7 +18,18 @@ SELECT
     a.is_resolved,
     a.resolved_at
 FROM dbo.AlertHistory AS a
-LEFT JOIN dbo.ServerInventory AS si
-    ON si.server_name = a.server_name
+OUTER APPLY
+(
+    SELECT TOP (1)
+        si.environment
+    FROM dbo.ServerInventory AS si
+    WHERE si.server_name = a.server_name
+       OR
+       (
+           CHARINDEX(N'.', si.server_name) > 0
+           AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = a.server_name
+       )
+    ORDER BY CASE WHEN si.server_name = a.server_name THEN 0 ELSE 1 END
+) AS si
 WHERE a.is_resolved = 0;
 GO

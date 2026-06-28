@@ -26,8 +26,19 @@ SELECT
     l.row_count AS current_row_count,
     l.row_count - p.row_count AS row_growth_30d
 FROM LatestTable AS l
-LEFT JOIN dbo.ServerInventory AS si
-    ON si.server_name = l.server_name
+OUTER APPLY
+(
+    SELECT TOP (1)
+        si.environment
+    FROM dbo.ServerInventory AS si
+    WHERE si.server_name = l.server_name
+       OR
+       (
+           CHARINDEX(N'.', si.server_name) > 0
+           AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = l.server_name
+       )
+    ORDER BY CASE WHEN si.server_name = l.server_name THEN 0 ELSE 1 END
+) AS si
 OUTER APPLY
 (
     SELECT TOP (1)

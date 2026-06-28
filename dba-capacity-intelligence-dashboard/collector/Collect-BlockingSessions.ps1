@@ -223,12 +223,28 @@ OUTER APPLY
                 SELECT TOP (30)
                     DB_NAME(l.resource_database_id) AS databaseName,
                     l.resource_type AS resourceType,
+                    l.resource_description AS resourceDescription,
+                    CONVERT(NVARCHAR(40), l.resource_associated_entity_id) AS resourceAssociatedEntityId,
+                    CASE
+                        WHEN l.resource_type = 'PAGE'
+                             AND CHARINDEX(':', l.resource_description) > 0
+                        THEN LEFT(l.resource_description, CHARINDEX(':', l.resource_description) - 1)
+                        ELSE NULL
+                    END AS fileId,
+                    CASE
+                        WHEN l.resource_type = 'PAGE'
+                             AND CHARINDEX(':', l.resource_description) > 0
+                        THEN SUBSTRING(l.resource_description, CHARINDEX(':', l.resource_description) + 1, 4000)
+                        ELSE NULL
+                    END AS pageId,
                     l.request_mode AS lockMode,
                     l.request_status AS lockStatus,
                     CASE
                         WHEN l.resource_type = 'OBJECT'
+                             AND OBJECT_NAME(CONVERT(INT, l.resource_associated_entity_id), l.resource_database_id) IS NOT NULL
                             THEN CONCAT(OBJECT_SCHEMA_NAME(CONVERT(INT, l.resource_associated_entity_id), l.resource_database_id), N'.', OBJECT_NAME(CONVERT(INT, l.resource_associated_entity_id), l.resource_database_id))
                         WHEN p.object_id IS NOT NULL
+                             AND OBJECT_NAME(p.object_id, l.resource_database_id) IS NOT NULL
                             THEN CONCAT(OBJECT_SCHEMA_NAME(p.object_id, l.resource_database_id), N'.', OBJECT_NAME(p.object_id, l.resource_database_id))
                         ELSE NULL
                     END AS objectName
