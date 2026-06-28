@@ -265,13 +265,28 @@ function BlockingEvidenceSection({ details }) {
   const heldLocks = normalizeEvidenceList(details?.leadBlockerHeldLocks);
   const blockedSessions = normalizeEvidenceList(details?.blockedSessions);
   const blockingEvidence = normalizeEvidenceList(details?.blockingEvidence);
+  const lockContext = getBlockingContext(details);
 
-  if (heldLocks.length === 0 && blockedSessions.length === 0 && blockingEvidence.length === 0) {
+  if (heldLocks.length === 0 && blockedSessions.length === 0 && blockingEvidence.length === 0 && !lockContext) {
     return null;
   }
 
   return (
     <>
+      {lockContext ? (
+        <CollapsibleSection
+          title="Lock / Blocking Context"
+          summary={details?.blockingSessionId ? `Blocked by session ${details.blockingSessionId}` : 'Session context'}
+        >
+          <StructuredDetails value={lockContext} />
+          {heldLocks.length === 0 && blockedSessions.length === 0 && blockingEvidence.length === 0 ? (
+            <div className="query-plan-empty">
+              No lock graph rows were captured for this alert. BlockingChain alerts include lead blocker locks and blocked sessions when the blocking collector finds an active chain.
+            </div>
+          ) : null}
+        </CollapsibleSection>
+      ) : null}
+
       {heldLocks.length > 0 ? (
         <CollapsibleSection title="Lead Blocker Held Locks" summary={`${heldLocks.length} lock${heldLocks.length === 1 ? '' : 's'}`}>
           <div className="evidence-table-scroll">
@@ -372,12 +387,13 @@ function QueryPlanSection({ alertType, sourceScript, details }) {
   const containerRef = useRef(null);
   const planEntries = useMemo(() => collectQueryPlans(details), [details]);
   const isPlanAwareAlert = isPlanAwareAlertType(alertType, details?.category, sourceScript, details?.sourceScripts);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(() => planEntries.length > 0);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const selectedPlan = planEntries[Math.min(selectedPlanIndex, Math.max(planEntries.length - 1, 0))];
 
   useEffect(() => {
     setSelectedPlanIndex(0);
+    setIsOpen(planEntries.length > 0);
   }, [planEntries.length]);
 
   useEffect(() => {
@@ -612,6 +628,52 @@ function hasBlockingEvidence(details) {
     normalizeEvidenceList(details?.blockedSessions).length > 0 ||
     normalizeEvidenceList(details?.blockingEvidence).length > 0
   );
+}
+
+function getBlockingContext(details) {
+  if (!details || typeof details !== 'object') {
+    return null;
+  }
+
+  const contextKeys = [
+    'leadBlockerSessionId',
+    'blockedSessionId',
+    'blockingSessionId',
+    'sessionId',
+    'waitType',
+    'waitDurationMs',
+    'waitResource',
+    'blockedObjectName',
+    'blockedLockMode',
+    'lockMode',
+    'command',
+    'databaseName',
+    'loginName',
+    'hostName',
+    'programName',
+    'sqlText',
+    'leadBlockerSqlText',
+    'blockedSqlText'
+  ];
+
+  const context = Object.fromEntries(
+    contextKeys
+      .filter((key) => hasRenderableDetail(details[key]))
+      .map((key) => [key, details[key]])
+  );
+
+  const hasBlockingSignal = [
+    'leadBlockerSessionId',
+    'blockedSessionId',
+    'blockingSessionId',
+    'waitType',
+    'waitResource',
+    'blockedObjectName',
+    'blockedLockMode',
+    'lockMode'
+  ].some((key) => hasRenderableDetail(details[key]));
+
+  return hasBlockingSignal && Object.keys(context).length > 0 ? context : null;
 }
 
 function normalizeEvidenceList(value) {
