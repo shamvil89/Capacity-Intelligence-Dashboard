@@ -460,17 +460,17 @@ function EmailBodySection({ body, subject, attachments = [] }) {
 
   function handleOpenOutlookDraft() {
     const outlookBody = body;
-    const outlookUrl = buildOutlookDesktopUrl(subject, outlookBody);
+    const draftUrl = buildMailDraftUrl(subject, outlookBody);
 
-    if (outlookUrl.length > 7500) {
+    if (draftUrl.length > 7500) {
       navigator.clipboard.writeText(`Subject: ${subject}\n\n${outlookBody}`).catch(() => {});
-      window.location.href = buildOutlookDesktopUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it into this draft before sending.');
+      window.location.href = buildMailDraftUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it into this draft before sending.');
       setOutlookStatus('Copied for Outlook');
       window.setTimeout(() => setOutlookStatus(''), 2600);
       return;
     }
 
-    window.location.href = outlookUrl;
+    window.location.href = draftUrl;
   }
 
   function handleDownloadAllAttachments() {
@@ -528,8 +528,8 @@ function EmailBodySection({ body, subject, attachments = [] }) {
   );
 }
 
-function buildOutlookDesktopUrl(subject, body) {
-  return `ms-outlook://compose?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function buildMailDraftUrl(subject, body) {
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function QueryPlanSection({ alertType, sourceScript, details }) {
