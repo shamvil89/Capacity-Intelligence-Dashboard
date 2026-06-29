@@ -98,6 +98,7 @@ jobs:
               }
             }
 
+<<<<<<< HEAD
             function Ensure-WebAdministrationModule {
               param(
                 [string]$Context
@@ -194,6 +195,66 @@ jobs:
               $session = $null
               $remotePackagePath = Join-Path $RemoteStagingRoot 'web'
 
+=======
+            function Invoke-RobocopyMirror {
+              param(
+                [string]$Source,
+                [string]$Destination
+              )
+
+              robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP
+              $exitCode = $LASTEXITCODE
+
+              if ($exitCode -gt 7) {
+                throw "Robocopy failed with exit code $exitCode."
+              }
+
+              $global:LASTEXITCODE = 0
+            }
+
+            function New-RemoteSession {
+              param(
+                [string]$ComputerName
+              )
+
+              if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+                throw "Remote IIS deployment requires iisHostName or IIS_REMOTE_HOST."
+              }
+
+              $remoteUser = Get-Setting $env:IIS_REMOTE_USER ''
+              $remotePassword = Get-Setting $env:IIS_REMOTE_PASSWORD ''
+
+              if ([string]::IsNullOrWhiteSpace($remoteUser)) {
+                Write-Host "Opening remote PowerShell session to '$ComputerName' using current pipeline identity '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
+                return New-PSSession -ComputerName $ComputerName -ErrorAction Stop
+              }
+
+              if ([string]::IsNullOrWhiteSpace($remotePassword)) {
+                throw "IIS_REMOTE_PASSWORD is required when IIS_REMOTE_USER is set. For gMSA or trusted remoting, leave both IIS_REMOTE_USER and IIS_REMOTE_PASSWORD empty and run the agent service as that identity."
+              }
+
+              $securePassword = ConvertTo-SecureString $remotePassword -AsPlainText -Force
+              $credential = New-Object System.Management.Automation.PSCredential($remoteUser, $securePassword)
+
+              Write-Host "Opening remote PowerShell session to '$ComputerName' using configured deployment credential '$remoteUser'."
+              return New-PSSession -ComputerName $ComputerName -Credential $credential -ErrorAction Stop
+            }
+
+            function Invoke-RemoteWebDeployment {
+              param(
+                [string]$RemoteHost,
+                [string]$RemoteStagingRoot,
+                [string]$DistPath,
+                [string]$SiteName,
+                [string]$AppPoolName,
+                [string]$PhysicalPath,
+                [int]$Port
+              )
+
+              $session = $null
+              $remotePackagePath = Join-Path $RemoteStagingRoot 'web'
+
+>>>>>>> c5eff12a69633e4223521cd5c13aae355f7e5f18
               try {
                 $session = New-RemoteSession -ComputerName $RemoteHost
 
@@ -226,6 +287,7 @@ jobs:
                     }
                   }
 
+<<<<<<< HEAD
                   function Ensure-WebAdministrationModule {
                     param(
                       [string]$Context
@@ -264,6 +326,8 @@ jobs:
                     Import-Module WebAdministration -ErrorAction Stop
                   }
 
+=======
+>>>>>>> c5eff12a69633e4223521cd5c13aae355f7e5f18
                   function Invoke-RobocopyMirror {
                     param(
                       [string]$Source,
@@ -281,7 +345,11 @@ jobs:
                   }
 
                   Assert-Administrator
+<<<<<<< HEAD
                   Ensure-WebAdministrationModule -Context "remote IIS host '$env:COMPUTERNAME'"
+=======
+                  Import-Module WebAdministration -ErrorAction Stop
+>>>>>>> c5eff12a69633e4223521cd5c13aae355f7e5f18
                   Write-Host "Remote IIS deployment is running on '$env:COMPUTERNAME' as '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
 
                   New-Item -ItemType Directory -Force -Path $PhysicalPath | Out-Null
@@ -357,7 +425,11 @@ jobs:
             }
 
             Assert-Administrator
+<<<<<<< HEAD
             Ensure-WebAdministrationModule -Context "local agent host '$env:COMPUTERNAME'"
+=======
+            Import-Module WebAdministration -ErrorAction Stop
+>>>>>>> c5eff12a69633e4223521cd5c13aae355f7e5f18
             Write-Host "IIS deployment is running locally on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
 
             New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
