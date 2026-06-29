@@ -169,6 +169,74 @@ jobs:
               Import-Module WebAdministration -ErrorAction Stop
             }
 
+            function Ensure-AspNetCoreHostingBundle {
+              param(
+                [string]$Context,
+                [string]$BundleUrl
+              )
+
+              $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+              if ($aspNetCoreModule) {
+                Write-Host "ASP.NET Core IIS module '$($aspNetCoreModule.Name)' is available on $Context."
+                return
+              }
+
+              if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
+                throw "ASP.NET Core IIS Hosting Bundle is missing on $Context and IIS_ASPNETCORE_HOSTING_BUNDLE_URL is empty. Install the .NET 9 Windows Hosting Bundle on the IIS server, then rerun the pipeline."
+              }
+
+              Write-Warning "ASP.NET Core IIS module was not found on $Context. Downloading and installing .NET hosting bundle from $BundleUrl"
+
+              $installerPath = Join-Path $env:TEMP ("dotnet-hosting-{0}.exe" -f ([guid]::NewGuid().ToString('N')))
+
+              try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -Uri $BundleUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+
+                $process = Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru -WindowStyle Hidden
+                if ($process.ExitCode -notin @(0, 3010, 1641)) {
+                  throw "ASP.NET Core Hosting Bundle installer failed on $Context with exit code $($process.ExitCode)."
+                }
+
+                $iisResetPath = Join-Path $env:SystemRoot 'System32\iisreset.exe'
+                if (Test-Path $iisResetPath) {
+                  & $iisResetPath /restart /noforce
+                  if ($LASTEXITCODE -gt 0) {
+                    Write-Warning "iisreset returned exit code $LASTEXITCODE on $Context. Continuing with module verification."
+                    $global:LASTEXITCODE = 0
+                  }
+                }
+
+                $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+                if (-not $aspNetCoreModule) {
+                  Write-Warning "Hosting bundle install did not register the IIS module on first check. Attempting repair."
+                  $repair = Start-Process -FilePath $installerPath -ArgumentList '/repair', '/quiet', '/norestart' -Wait -PassThru -WindowStyle Hidden
+                  if ($repair.ExitCode -notin @(0, 3010, 1641)) {
+                    throw "ASP.NET Core Hosting Bundle repair failed on $Context with exit code $($repair.ExitCode)."
+                  }
+
+                  if (Test-Path $iisResetPath) {
+                    & $iisResetPath /restart /noforce
+                    if ($LASTEXITCODE -gt 0) {
+                      Write-Warning "iisreset returned exit code $LASTEXITCODE on $Context after repair. Continuing with module verification."
+                      $global:LASTEXITCODE = 0
+                    }
+                  }
+
+                  $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+                }
+
+                if (-not $aspNetCoreModule) {
+                  throw "ASP.NET Core Hosting Bundle install completed but AspNetCoreModuleV2 is still not registered on $Context. Reboot the IIS server or manually install/repair the .NET 9 Windows Hosting Bundle, then rerun the pipeline."
+                }
+
+                Write-Host "ASP.NET Core IIS module '$($aspNetCoreModule.Name)' is available on $Context."
+              }
+              finally {
+                Remove-Item -Path $installerPath -Force -ErrorAction SilentlyContinue
+              }
+            }
+
             function Invoke-RobocopyMirror {
               param(
                 [string]$Source,
@@ -410,7 +478,8 @@ jobs:
             [string]$AppPoolName,
             [string]$PhysicalPath,
             [int]$Port,
-            [string]$ProductionSettingsJson
+            [string]$ProductionSettingsJson,
+            [string]$HostingBundleUrl
             )
 
             $session = $null
@@ -435,7 +504,8 @@ jobs:
                 [string]$AppPoolName,
                 [string]$PhysicalPath,
                 [int]$Port,
-                [string]$ProductionSettingsJson
+                [string]$ProductionSettingsJson,
+                [string]$HostingBundleUrl
               )
 
               $ErrorActionPreference = 'Stop'
@@ -485,6 +555,74 @@ jobs:
                 }
 
                 Import-Module WebAdministration -ErrorAction Stop
+              }
+
+              function Ensure-AspNetCoreHostingBundle {
+                param(
+                  [string]$Context,
+                  [string]$BundleUrl
+                )
+
+                $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+                if ($aspNetCoreModule) {
+                  Write-Host "ASP.NET Core IIS module '$($aspNetCoreModule.Name)' is available on $Context."
+                  return
+                }
+
+                if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
+                  throw "ASP.NET Core IIS Hosting Bundle is missing on $Context and IIS_ASPNETCORE_HOSTING_BUNDLE_URL is empty. Install the .NET 9 Windows Hosting Bundle on the IIS server, then rerun the pipeline."
+                }
+
+                Write-Warning "ASP.NET Core IIS module was not found on $Context. Downloading and installing .NET hosting bundle from $BundleUrl"
+
+                $installerPath = Join-Path $env:TEMP ("dotnet-hosting-{0}.exe" -f ([guid]::NewGuid().ToString('N')))
+
+                try {
+                  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                  Invoke-WebRequest -Uri $BundleUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+
+                  $process = Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru -WindowStyle Hidden
+                  if ($process.ExitCode -notin @(0, 3010, 1641)) {
+                    throw "ASP.NET Core Hosting Bundle installer failed on $Context with exit code $($process.ExitCode)."
+                  }
+
+                  $iisResetPath = Join-Path $env:SystemRoot 'System32\iisreset.exe'
+                  if (Test-Path $iisResetPath) {
+                    & $iisResetPath /restart /noforce
+                    if ($LASTEXITCODE -gt 0) {
+                      Write-Warning "iisreset returned exit code $LASTEXITCODE on $Context. Continuing with module verification."
+                      $global:LASTEXITCODE = 0
+                    }
+                  }
+
+                  $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+                  if (-not $aspNetCoreModule) {
+                    Write-Warning "Hosting bundle install did not register the IIS module on first check. Attempting repair."
+                    $repair = Start-Process -FilePath $installerPath -ArgumentList '/repair', '/quiet', '/norestart' -Wait -PassThru -WindowStyle Hidden
+                    if ($repair.ExitCode -notin @(0, 3010, 1641)) {
+                      throw "ASP.NET Core Hosting Bundle repair failed on $Context with exit code $($repair.ExitCode)."
+                    }
+
+                    if (Test-Path $iisResetPath) {
+                      & $iisResetPath /restart /noforce
+                      if ($LASTEXITCODE -gt 0) {
+                        Write-Warning "iisreset returned exit code $LASTEXITCODE on $Context after repair. Continuing with module verification."
+                        $global:LASTEXITCODE = 0
+                      }
+                    }
+
+                    $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+                  }
+
+                  if (-not $aspNetCoreModule) {
+                    throw "ASP.NET Core Hosting Bundle install completed but AspNetCoreModuleV2 is still not registered on $Context. Reboot the IIS server or manually install/repair the .NET 9 Windows Hosting Bundle, then rerun the pipeline."
+                  }
+
+                  Write-Host "ASP.NET Core IIS module '$($aspNetCoreModule.Name)' is available on $Context."
+                }
+                finally {
+                  Remove-Item -Path $installerPath -Force -ErrorAction SilentlyContinue
+                }
               }
 
               function Invoke-RobocopyMirror {
@@ -553,11 +691,7 @@ jobs:
               Assert-Administrator
               Ensure-WebAdministrationModule -Context "remote IIS host '$env:COMPUTERNAME'"
               Write-Host "Remote IIS deployment is running on '$env:COMPUTERNAME' as '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
-
-              $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
-              if (-not $aspNetCoreModule) {
-                throw "ASP.NET Core IIS Hosting Bundle is required on the remote IIS server before deploying the API."
-              }
+              Ensure-AspNetCoreHostingBundle -Context "remote IIS host '$env:COMPUTERNAME'" -BundleUrl $HostingBundleUrl
 
               New-Item -ItemType Directory -Force -Path $PhysicalPath | Out-Null
 
@@ -599,7 +733,7 @@ jobs:
               }
 
               Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
-            } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson
+            } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson, $HostingBundleUrl
 
             Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity to DBAUtility."
             }
@@ -617,6 +751,7 @@ jobs:
             $deploymentMode = (Get-Setting $env:IIS_DEPLOYMENT_MODE 'Local').Trim()
             $remoteHost = Get-Setting $env:IIS_REMOTE_HOST 'localhost'
             $remoteStagingRoot = Get-Setting $env:IIS_REMOTE_STAGING_PATH 'C:\Windows\Temp\dba-capacity-deploy'
+            $hostingBundleUrl = Get-Setting $env:IIS_ASPNETCORE_HOSTING_BUNDLE_URL 'https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe'
             $allowedOrigins = Get-Setting $env:DBA_API_ALLOWED_ORIGINS ''
             $connectionString = Get-Setting $env:DBA_API_CONNECTION_STRING ''
             $azdoOrganization = Get-Setting $env:AZDO_ORGANIZATION ''
@@ -651,7 +786,8 @@ jobs:
             -AppPoolName $appPoolName `
             -PhysicalPath $physicalPath `
             -Port $port `
-            -ProductionSettingsJson $productionSettingsJson
+            -ProductionSettingsJson $productionSettingsJson `
+            -HostingBundleUrl $hostingBundleUrl
             return
             }
 
@@ -662,11 +798,7 @@ jobs:
             Assert-Administrator
             Ensure-WebAdministrationModule -Context "local agent host '$env:COMPUTERNAME'"
             Write-Host "IIS deployment is running locally on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
-
-            $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
-            if (-not $aspNetCoreModule) {
-            throw "ASP.NET Core IIS Hosting Bundle is required. Install it on the IIS server before deploying the API."
-            }
+            Ensure-AspNetCoreHostingBundle -Context "local agent host '$env:COMPUTERNAME'" -BundleUrl $hostingBundleUrl
 
             New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
 
@@ -719,6 +851,7 @@ jobs:
           IIS_REMOTE_USER: $(IIS_REMOTE_USER)
           IIS_REMOTE_PASSWORD: $(IIS_REMOTE_PASSWORD)
           IIS_REMOTE_STAGING_PATH: $(IIS_REMOTE_STAGING_PATH)
+          IIS_ASPNETCORE_HOSTING_BUNDLE_URL: $(IIS_ASPNETCORE_HOSTING_BUNDLE_URL)
           DBA_API_CONNECTION_STRING: $(DBA_API_CONNECTION_STRING)
           DBA_API_ALLOWED_ORIGINS: $(DBA_API_ALLOWED_ORIGINS)
           DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)

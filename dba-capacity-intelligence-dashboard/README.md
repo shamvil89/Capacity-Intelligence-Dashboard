@@ -182,6 +182,7 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_REMOTE_USER`
 - `IIS_REMOTE_PASSWORD`
 - `IIS_REMOTE_STAGING_PATH`
+- `IIS_ASPNETCORE_HOSTING_BUNDLE_URL`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
 - `AZDO_ORGANIZATION`
@@ -247,6 +248,8 @@ Only include a port when the web IIS binding uses a non-standard port, such as `
 The deploy pipelines support two IIS deployment modes. Use `iisDeploymentMode = Local` when the selected Azure DevOps agent is installed on the IIS server. Use `iisDeploymentMode = Remote` when the selected agent is on a separate automation server and should deploy to `iisHostName` over PowerShell remoting.
 
 For local mode, the Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. For remote mode, the remoting identity must be local administrator on the IIS host; set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD` only when you do not want to use the agent service identity. For gMSA/current-identity remoting, leave both remote credential variables empty.
+
+The API deploy pipeline also verifies the ASP.NET Core IIS module and installs or repairs the .NET 9 Windows Hosting Bundle when it is missing. By default it downloads from `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe`; set `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` if the customer requires an internal software mirror.
 
 The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` in local mode when the repository SQL variables are configured. Remote mode skips that virtual-account grant because `IIS APPPOOL\...` is local to the remote IIS server; use `DBA_API_CONNECTION_STRING` with a SQL/domain credential or manually grant the remote app pool/domain identity in SQL Server.
 

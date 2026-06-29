@@ -87,6 +87,7 @@ Important variables:
 | `IIS_REMOTE_USER` | No | Optional account for remote IIS deployment. Leave blank to use the agent service identity. |
 | `IIS_REMOTE_PASSWORD` | Yes | Password for `IIS_REMOTE_USER`; leave blank for gMSA/current-identity remoting. |
 | `IIS_REMOTE_STAGING_PATH` | No | Remote staging folder, default `C:\Windows\Temp\dba-capacity-deploy`. |
+| `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` | No | Optional .NET 9 Windows Hosting Bundle URL override for API IIS hosting. |
 
 ## Deploy Database
 

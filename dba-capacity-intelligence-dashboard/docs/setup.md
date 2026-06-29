@@ -164,6 +164,7 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_REMOTE_USER`
 - `IIS_REMOTE_PASSWORD`
 - `IIS_REMOTE_STAGING_PATH`
+- `IIS_ASPNETCORE_HOSTING_BUNDLE_URL`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
 
@@ -228,6 +229,14 @@ The deploy pipelines try to install the IIS PowerShell management module automat
 ```powershell
 Install-WindowsFeature Web-Server, Web-Mgmt-Tools, Web-Scripting-Tools -IncludeManagementTools
 ```
+
+The API deploy pipeline also tries to install or repair the .NET 9 Windows Hosting Bundle when `AspNetCoreModuleV2` is missing. The default download URL is:
+
+```text
+https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe
+```
+
+Set `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` in `configs` only when the customer wants to use an internal package mirror instead of the public Microsoft redirect.
 
 For full Windows-level access requirements and PowerShell commands for agent accounts, IIS features, firewall rules, folder ACLs, and verification, see `docs/customer-lift-and-shift-wiki.md` section **Windows-Level Access And Commands**.
 

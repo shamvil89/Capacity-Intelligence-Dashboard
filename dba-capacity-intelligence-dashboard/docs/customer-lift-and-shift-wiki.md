@@ -473,6 +473,7 @@ Important API variables:
 | `IIS_REMOTE_USER` | Optional domain/local deployment account for remote IIS deployment. Leave empty to use the Azure DevOps agent service identity for remoting. |
 | `IIS_REMOTE_PASSWORD` | Secret password for `IIS_REMOTE_USER`. Leave empty for gMSA/current-identity remoting. |
 | `IIS_REMOTE_STAGING_PATH` | Optional remote staging folder. Default is `C:\Windows\Temp\dba-capacity-deploy`. |
+| `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` | Optional .NET 9 Windows Hosting Bundle URL. Defaults to `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe`. |
 
 Example:
 
@@ -682,6 +683,7 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `IIS_REMOTE_USER` | No | `CONTOSO\svc-dba-iisdeploy` | Optional remoting account for remote IIS deployment. Leave blank to use the agent service identity. |
 | `IIS_REMOTE_PASSWORD` | Yes | `********` | Password for `IIS_REMOTE_USER`. Leave blank for gMSA/current-identity remoting. |
 | `IIS_REMOTE_STAGING_PATH` | No | `C:\Windows\Temp\dba-capacity-deploy` | Remote staging folder used before robocopy mirrors files into IIS paths. |
+| `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` | No | `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe` | Optional override for the API pipeline's hosting bundle download. Use an internal mirror when IIS servers cannot reach Microsoft download endpoints. |
 | `DBA_API_CONNECTION_STRING` | Yes | SQL connection string | API connection to `DBAUtility`. |
 | `DBA_API_ALLOWED_ORIGINS` | No | `https://dba-capacity.contoso.local` | Dashboard browser origin allowed by API CORS. Use the dashboard server name or DNS alias. |
 | `AZDO_ORGANIZATION` | No | `customer-org` | Azure DevOps organization used by the API to trigger the collector pipeline. |
@@ -943,7 +945,15 @@ Import-Module WebAdministration
 Get-Command New-Website
 ```
 
-Install the ASP.NET Core Hosting Bundle on the IIS VM before deploying the API. After installation, verify the ASP.NET Core IIS module is available:
+The API deploy pipeline attempts to install or repair the .NET 9 Windows Hosting Bundle automatically when the ASP.NET Core IIS module is missing. If the IIS VM cannot reach the public Microsoft redirect, set `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` to an internal package mirror.
+
+Default public URL:
+
+```text
+https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe
+```
+
+After installation, verify the ASP.NET Core IIS module is available:
 
 ```powershell
 Import-Module WebAdministration
