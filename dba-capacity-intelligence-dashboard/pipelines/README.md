@@ -26,6 +26,15 @@ Agent: shamvil
 OS: Windows_NT
 ```
 
+`deploy-api.yml` and `deploy-web.yml` expose queue-time parameters so the IIS deployment host can be selected without editing YAML:
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `iisAgentPool` | `Shamvil-pool` | Self-hosted agent pool containing the IIS deployment agent. |
+| `iisAgentName` | API: `eve-vsts`; Web: `shamvil` | Agent name on the Windows server that should act as the IIS host. |
+
+Because the deploy scripts use local IIS commands, the selected agent must be installed on the IIS server unless remote IIS deployment has been added.
+
 All pipelines import the Azure DevOps variable group:
 
 ```text
@@ -106,11 +115,28 @@ Queue-time parameters:
 | `serverName` | Source server or Azure SQL logical server. |
 | `environment` | Development, Test, QA, UAT, Production, or DR. |
 | `serverType` | `SQLServer`, `AzureSQL`, or `ManagedInstance`. |
-| `connectionMode` | `SqlAuth`, `WindowsAuth`, or `ManagedIdentity`. |
-| `credentialKey` | Source credential key. |
+| `connectionMode` | Authentication protocol: `SqlAuth`, `WindowsAuth`, `AzureADPassword`, or `AzureADIntegrated`. |
+| `credentialKey` | Free-text secret lookup key such as `default`, `prod`, `azuresql-sql`, or `azuresql-aad`. |
 | `isActive` | Whether the collector should process the server. |
 
 The pipeline performs an upsert into `dbo.ServerInventory`.
+
+`connectionMode` and `credentialKey` are intentionally separate:
+
+- `connectionMode` tells the collector how to authenticate.
+- `credentialKey` tells the collector which username/password entry to read from `SOURCE_SQL_CREDENTIALS_JSON`.
+- Windows/integrated modes usually do not need a username/password credential key because the collector uses the Windows identity running the agent.
+- Add customer-specific keys such as `prod`, `finance-prod`, or `customer-a` directly in `SOURCE_SQL_CREDENTIALS_JSON`, then type the same value in `credentialKey`.
+
+Examples:
+
+| Scenario | `connectionMode` | `credentialKey` |
+| --- | --- | --- |
+| Local SQL Server using SQL login from default secret | `SqlAuth` | `default` |
+| Azure SQL using SQL authentication | `SqlAuth` | `azuresql-sql` |
+| Azure SQL using Entra ID username/password | `AzureADPassword` | `azuresql-aad` |
+| SQL Server trusted connection from agent service account | `WindowsAuth` | `default` |
+| Azure SQL integrated auth from suitable domain/AAD identity | `AzureADIntegrated` | `default` |
 
 ## Collect Metrics
 
@@ -175,6 +201,13 @@ Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, a
 
 The agent service must run as a local administrator.
 
+Queue-time IIS host selection:
+
+| Parameter | Purpose |
+| --- | --- |
+| `iisAgentPool` | Agent pool containing the IIS server agent. |
+| `iisAgentName` | Agent installed on the IIS server where API should be deployed. |
+
 ## Deploy Web
 
 File:
@@ -193,9 +226,16 @@ What it does:
 
 The web app is static. The API URL is compiled at build time using `VITE_API_BASE_URL`.
 
+Queue-time IIS host selection:
+
+| Parameter | Purpose |
+| --- | --- |
+| `iisAgentPool` | Agent pool containing the IIS server agent. |
+| `iisAgentName` | Agent installed on the IIS server where web should be deployed. |
+
 ## Customer Lift-And-Shift Checklist
 
-1. Update agent pool and demands in all YAML files.
+1. Update automation pipeline pool/demands where needed; use `iisAgentPool` and `iisAgentName` when queueing API/web deploys.
 2. Update `projectRoot` if repository layout changes.
 3. Create variable group `configs`.
 4. Mark passwords and connection strings secret.

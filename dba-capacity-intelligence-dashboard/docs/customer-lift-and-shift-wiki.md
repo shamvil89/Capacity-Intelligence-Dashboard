@@ -38,7 +38,7 @@ Keep the application layout the same and change only environment-specific config
 1. Copy or import the repository into the customer Azure DevOps project.
 2. Install a self-hosted Windows Azure DevOps agent on the customer automation host. If IIS is on a separate VM, see the topology note below.
 3. Run the deployment agent service as a dedicated local administrator account on the machine where IIS deployment tasks execute.
-4. Update only the `pool`, `Agent.Name`, and `projectRoot` values in the YAML files if they differ.
+4. Update only the automation pipeline `pool`, `Agent.Name`, and `projectRoot` values if they differ. For API/web IIS deploys, prefer queue-time `iisAgentPool` and `iisAgentName`.
 5. Create the Azure DevOps variable group named `configs`.
 6. Fill the variables in section 12.
 7. Create the five pipelines from the YAML files in section 15 phase 6.
@@ -71,7 +71,7 @@ The self-hosted Azure DevOps agent and IIS do not have to be on the same VM in r
 | --- | --- | --- |
 | Single VM: agent and IIS together | Fastest proof-of-value or small customer estate. | Current YAML works as-is because IIS deployment is local to the agent. |
 | Split VMs: automation agent separate from IIS | Production environments with dedicated automation and web tiers. | Collection/database/onboard pipelines can run on the automation VM, but API/web IIS deployment must run on an agent installed on the IIS VM or use a remote deployment mechanism. |
-| Two agents: automation agent plus IIS deployment agent | Recommended split model. | Point `collect-capacity.yml`, `deploy-database.yml`, and `onboard-server.yml` at the automation pool; point `deploy-api.yml` and `deploy-web.yml` at the IIS deployment pool. |
+| Two agents: automation agent plus IIS deployment agent | Recommended split model. | Point `collect-capacity.yml`, `deploy-database.yml`, and `onboard-server.yml` at the automation pool; queue `deploy-api.yml` and `deploy-web.yml` with the IIS `iisAgentPool` and `iisAgentName` values. |
 | Remote IIS deployment from automation agent | Use only when the customer standardizes on WinRM/PowerShell remoting or another deployment tool. | Extend `deploy-api.yml` and `deploy-web.yml` to copy artifacts and run IIS commands remotely. The current YAML does not do remote IIS deployment. |
 
 Important: the current `deploy-api.yml` and `deploy-web.yml` scripts use the local IIS `WebAdministration` module and local paths such as `C:\inetpub\...`. Therefore, out of the box, those deployment pipelines must execute on the IIS VM.
@@ -330,6 +330,25 @@ Connection mode behavior:
 | `AzureADPassword` | Reads Entra ID username/password from `SOURCE_SQL_CREDENTIALS_JSON`. |
 | `AzureADIntegrated` | Uses the Windows/domain/AAD-joined identity running the collector process for integrated Azure SQL authentication. |
 | `ManagedIdentity` | Reserved for a future Microsoft.Data.SqlClient token-based collector implementation. |
+
+Why `connectionMode` and `credentialKey` are both needed:
+
+- `connectionMode` chooses the authentication method and connection-string behavior.
+- `credentialKey` chooses which secret entry to use when that method needs a username/password.
+- This lets many servers share the same authentication method while using different credentials.
+- It also lets Azure SQL SQL-auth and Azure SQL Entra-password auth live side by side without hard-coding usernames in `DBAUtility`.
+- `credentialKey` is free text in the onboard pipeline; it must match a key in `SOURCE_SQL_CREDENTIALS_JSON` unless it is `default`, which can fall back to `SQL_USER` and `SQL_PASSWORD`.
+
+Common pairings:
+
+| Target | `connectionMode` | `credentialKey` | Why |
+| --- | --- | --- | --- |
+| SQL Server with shared SQL login | `SqlAuth` | `default` | Uses default SQL login from `SOURCE_SQL_CREDENTIALS_JSON` or `SQL_USER`/`SQL_PASSWORD`. |
+| Production SQL Server with its own SQL login | `SqlAuth` | `prod` | Uses a named secret entry such as `prod`. |
+| SQL Server trusted connection | `WindowsAuth` | `default` | Uses the agent service account; no password is read from the JSON. |
+| Azure SQL SQL authentication | `SqlAuth` | `azuresql-sql` | Azure SQL does not use `sa`; this key stores the Azure SQL login. |
+| Azure SQL Entra password authentication | `AzureADPassword` | `azuresql-aad` | This key stores the Entra ID username/password. |
+| Azure SQL integrated authentication | `AzureADIntegrated` | `default` | Uses the domain/AAD-joined agent identity; no password is read from the JSON. |
 
 ### Example Inventory Updates
 
@@ -1294,13 +1313,11 @@ git push customer master
 
 ### Phase 4 - Adjust Pipeline Pool And Project Root
 
-Update each YAML under `pipelines/`:
+Update automation YAMLs under `pipelines/` when the customer automation pool or agent name differs:
 
 - `deploy-database.yml`
 - `onboard-server.yml`
 - `collect-capacity.yml`
-- `deploy-api.yml`
-- `deploy-web.yml`
 
 Change the pool:
 
@@ -1328,18 +1345,27 @@ If the customer uses separate automation and IIS VMs, use two pools or two agent
 | `deploy-database.yml` | Automation VM with repository SQL access. |
 | `onboard-server.yml` | Automation VM with repository SQL access. |
 | `collect-capacity.yml` | Automation VM with repository and source SQL access. |
-| `deploy-api.yml` | IIS VM, unless remote IIS deployment is added. |
-| `deploy-web.yml` | IIS VM, unless remote IIS deployment is added. |
+| `deploy-api.yml` | IIS VM selected at queue time with `iisAgentPool` and `iisAgentName`, unless remote IIS deployment is added. |
+| `deploy-web.yml` | IIS VM selected at queue time with `iisAgentPool` and `iisAgentName`, unless remote IIS deployment is added. |
 
-Example split-pool approach:
+Example automation pool approach:
 
 ```yaml
 pool:
-  name: <customer-iis-deployment-pool>
+  name: <customer-automation-pool>
   demands:
-    - Agent.Name -equals <customer-iis-agent-name>
+    - Agent.Name -equals <customer-automation-agent-name>
     - Agent.OS -equals Windows_NT
 ```
+
+For API and web deploys, select these queue-time parameters instead of editing YAML:
+
+```text
+iisAgentPool = <customer-iis-deployment-pool>
+iisAgentName = <customer-iis-agent-name>
+```
+
+`iisAgentName` should be the Azure DevOps agent installed on the Windows server that should act as the IIS host.
 
 ### Phase 5 - Create Variable Group
 
@@ -1535,6 +1561,15 @@ Run:
 DBA Capacity - Deploy API
 ```
 
+Queue-time parameters:
+
+```text
+iisAgentPool = <customer-iis-deployment-pool>
+iisAgentName = <customer-iis-agent-name>
+```
+
+The selected agent must run on the IIS VM because the current deploy script uses local IIS commands.
+
 Validate:
 
 ```text
@@ -1572,6 +1607,15 @@ Run:
 ```text
 DBA Capacity - Deploy Web
 ```
+
+Queue-time parameters:
+
+```text
+iisAgentPool = <customer-iis-deployment-pool>
+iisAgentName = <customer-iis-agent-name>
+```
+
+Use the same IIS host agent as the API deployment unless the customer intentionally hosts API and web on different IIS servers.
 
 Validate:
 

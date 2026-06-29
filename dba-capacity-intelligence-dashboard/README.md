@@ -261,6 +261,10 @@ Supported source `connection_mode` values:
 
 For SQL auth Azure SQL, use `connection_mode = SqlAuth` and `credential_key = azuresql-sql`. For Entra ID password auth, use `connection_mode = AzureADPassword` and `credential_key = azuresql-aad`. For trusted Windows SQL Server auth, use `connection_mode = WindowsAuth` and run the agent service as the Windows or domain account that SQL Server trusts.
 
+`connection_mode` chooses the authentication method. `credential_key` chooses which secret entry to read from `SOURCE_SQL_CREDENTIALS_JSON`; it can be any customer-defined key such as `default`, `prod`, `finance-prod`, `azuresql-sql`, or `azuresql-aad`.
+
+The API and web deploy pipelines expose queue-time `iisAgentPool` and `iisAgentName` parameters. Use them to choose which self-hosted agent/server should act as the IIS host for that deployment.
+
 ## Security Notes
 
 - The web app never connects directly to production SQL Servers.

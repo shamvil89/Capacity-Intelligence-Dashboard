@@ -1,10 +1,21 @@
 trigger: none
 pr: none
 
+parameters:
+  - name: iisAgentPool
+    displayName: IIS deployment agent pool
+    type: string
+    default: Shamvil-pool
+
+  - name: iisAgentName
+    displayName: IIS host agent name
+    type: string
+    default: shamvil
+
 pool:
-  name: Shamvil-pool
+  name: ${{ parameters.iisAgentPool }}
   demands:
-    - Agent.Name -equals shamvil
+    - Agent.Name -equals ${{ parameters.iisAgentName }}
     - Agent.OS -equals Windows_NT
 
 variables:
@@ -87,6 +98,7 @@ steps:
 
         Assert-Administrator
         Import-Module WebAdministration -ErrorAction Stop
+        Write-Host "IIS deployment is running on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
 
         $siteName = Get-Setting $env:IIS_WEB_SITE_NAME 'DBA Capacity Dashboard'
         $appPoolName = Get-Setting $env:IIS_WEB_APP_POOL 'DBACapacityWeb'
