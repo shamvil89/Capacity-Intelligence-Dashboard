@@ -8,15 +8,22 @@ parameters:
     default: Shamvil-pool
 
   - name: iisAgentName
-    displayName: IIS host agent name
+    displayName: Pipeline agent name
     type: string
     default: eve-vsts
 
-pool:
-  name: ${{ parameters.iisAgentPool }}
-  demands:
-    - Agent.Name -equals ${{ parameters.iisAgentName }}
-    - Agent.OS -equals Windows_NT
+  - name: iisDeploymentMode
+    displayName: IIS deployment mode
+    type: string
+    default: Local
+    values:
+      - Local
+      - Remote
+
+  - name: iisHostName
+    displayName: Remote IIS host name
+    type: string
+    default: localhost
 
 variables:
   - group: configs
@@ -27,366 +34,624 @@ variables:
   - name: apiProject
     value: $(projectRoot)/api/DBA.Capacity.Api/DBA.Capacity.Api.csproj
 
-steps:
-  - checkout: self
+jobs:
+  - job: BuildAndDeployApi
+    displayName: Build and deploy API
+    pool:
+      name: ${{ parameters.iisAgentPool }}
+      demands:
+        - Agent.Name -equals ${{ parameters.iisAgentName }}
+        - Agent.OS -equals Windows_NT
+    steps:
+      - checkout: self
 
-  - task: UseDotNet@2
-    displayName: Install .NET SDK
-    inputs:
-      packageType: sdk
-      version: 9.x
+      - task: UseDotNet@2
+        displayName: Install .NET SDK
+        inputs:
+          packageType: sdk
+          version: 9.x
 
-  - task: DotNetCoreCLI@2
-    displayName: Restore API
-    inputs:
-      command: restore
-      projects: $(apiProject)
-      feedsToUse: config
-      nugetConfigPath: $(projectRoot)/NuGet.config
+      - task: DotNetCoreCLI@2
+        displayName: Restore API
+        inputs:
+          command: restore
+          projects: $(apiProject)
+          feedsToUse: config
+          nugetConfigPath: $(projectRoot)/NuGet.config
 
-  - task: DotNetCoreCLI@2
-    displayName: Build API
-    inputs:
-      command: build
-      projects: $(apiProject)
-      arguments: --configuration $(buildConfiguration) --no-restore
+      - task: DotNetCoreCLI@2
+        displayName: Build API
+        inputs:
+          command: build
+          projects: $(apiProject)
+          arguments: --configuration $(buildConfiguration) --no-restore
 
-  - task: PowerShell@2
-    displayName: Run API tests if present
-    inputs:
-      pwsh: false
-      targetType: inline
-      workingDirectory: $(Build.SourcesDirectory)/$(projectRoot)
-      script: |
-        $testProjects = Get-ChildItem -Recurse -Filter '*.csproj' |
-          Where-Object { $_.FullName -match '[\\/]tests?[\\/]' -or $_.BaseName -match 'Tests?$' }
+      - task: PowerShell@2
+        displayName: Run API tests if present
+        inputs:
+          pwsh: false
+          targetType: inline
+          workingDirectory: $(Build.SourcesDirectory)/$(projectRoot)
+          script: |
+            $testProjects = Get-ChildItem -Recurse -Filter '*.csproj' |
+              Where-Object { $_.FullName -match '[\\/]tests?[\\/]' -or $_.BaseName -match 'Tests?$' }
 
-        if (-not $testProjects) {
-          Write-Host 'No test projects found.'
-          return
-        }
-
-        foreach ($project in $testProjects) {
-          dotnet test $project.FullName --configuration $(buildConfiguration) --no-build
-        }
-
-  - task: DotNetCoreCLI@2
-    displayName: Publish API artifact
-    inputs:
-      command: publish
-      publishWebProjects: false
-      projects: $(apiProject)
-      arguments: --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/api
-      zipAfterPublish: false
-
-  - task: PublishPipelineArtifact@1
-    displayName: Publish API package
-    inputs:
-      targetPath: $(Build.ArtifactStagingDirectory)/api
-      artifact: api
-      publishLocation: pipeline
-
-  - task: PowerShell@2
-    displayName: Deploy API to IIS
-    inputs:
-      pwsh: false
-      targetType: inline
-      script: |
-        $ErrorActionPreference = 'Stop'
-
-        function Get-Setting {
-          param(
-            [string]$Value,
-            [string]$DefaultValue
-          )
-
-          if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
-            return $DefaultValue
-          }
-
-          return $Value
-        }
-
-        function Assert-Administrator {
-          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-          $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-
-          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            throw "IIS deployment requires the Azure DevOps agent process to run as local Administrator. Current identity: $($identity.Name)"
-          }
-        }
-
-        function Invoke-RobocopyMirror {
-          param(
-            [string]$Source,
-            [string]$Destination
-          )
-
-          robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP /R:5 /W:2
-          $exitCode = $LASTEXITCODE
-
-          if ($exitCode -gt 7) {
-            throw "Robocopy failed with exit code $exitCode."
-          }
-
-          $global:LASTEXITCODE = 0
-        }
-
-        function Stop-IisApplication {
-          param(
-            [string]$SiteName,
-            [string]$AppPoolName,
-            [string]$PhysicalPath
-          )
-
-          $appOfflinePath = Join-Path $PhysicalPath 'app_offline.htm'
-          Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
-
-          Write-Host "Stopping IIS site '$SiteName'..."
-          Stop-Website -Name $SiteName -ErrorAction SilentlyContinue
-
-          if (Test-Path "IIS:\AppPools\$AppPoolName") {
-            Write-Host "Stopping IIS app pool '$AppPoolName'..."
-            Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
-
-            $deadline = (Get-Date).AddSeconds(30)
-            do {
-              Start-Sleep -Milliseconds 500
-              $poolState = (Get-WebAppPoolState -Name $AppPoolName).Value
-            } while ($poolState -ne 'Stopped' -and (Get-Date) -lt $deadline)
-
-            if ($poolState -ne 'Stopped') {
-              Write-Warning "App pool '$AppPoolName' did not report Stopped within 30 seconds. Checking worker processes."
+            if (-not $testProjects) {
+              Write-Host 'No test projects found.'
+              return
             }
 
-            $appcmd = Join-Path $env:SystemRoot 'System32\inetsrv\appcmd.exe'
-            if (Test-Path $appcmd) {
-              $workerProcessLines = & $appcmd list wp "/apppool.name:$AppPoolName" 2>$null
-              foreach ($line in $workerProcessLines) {
-                if ($line -match 'WP \"(?<pid>\d+)\"') {
-                  $processId = [int]$Matches.pid
-                  Write-Warning "Stopping lingering IIS worker process $processId for app pool '$AppPoolName'."
-                  Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            foreach ($project in $testProjects) {
+              dotnet test $project.FullName --configuration $(buildConfiguration) --no-build
+            }
+
+      - task: DotNetCoreCLI@2
+        displayName: Publish API artifact
+        inputs:
+          command: publish
+          publishWebProjects: false
+          projects: $(apiProject)
+          arguments: --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/api
+          zipAfterPublish: false
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish API package
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/api
+          artifact: api
+          publishLocation: pipeline
+
+      - task: PowerShell@2
+        displayName: Deploy API to IIS
+        inputs:
+          pwsh: false
+          targetType: inline
+          script: |
+            $ErrorActionPreference = 'Stop'
+
+            function Get-Setting {
+              param(
+                [string]$Value,
+                [string]$DefaultValue
+              )
+
+              if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
+                return $DefaultValue
+              }
+
+              return $Value
+            }
+
+            function Assert-Administrator {
+              $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+              $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+              if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+                throw "IIS deployment requires the Azure DevOps agent process to run as local Administrator. Current identity: $($identity.Name)"
+              }
+            }
+
+            function Invoke-RobocopyMirror {
+              param(
+                [string]$Source,
+                [string]$Destination
+              )
+
+              robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP /R:5 /W:2
+              $exitCode = $LASTEXITCODE
+
+              if ($exitCode -gt 7) {
+                throw "Robocopy failed with exit code $exitCode."
+              }
+
+              $global:LASTEXITCODE = 0
+            }
+
+            function Stop-IisApplication {
+              param(
+                [string]$SiteName,
+                [string]$AppPoolName,
+                [string]$PhysicalPath
+              )
+
+              $appOfflinePath = Join-Path $PhysicalPath 'app_offline.htm'
+              Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
+
+              Write-Host "Stopping IIS site '$SiteName'..."
+              Stop-Website -Name $SiteName -ErrorAction SilentlyContinue
+
+              if (Test-Path "IIS:\AppPools\$AppPoolName") {
+                Write-Host "Stopping IIS app pool '$AppPoolName'..."
+                Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+
+                $deadline = (Get-Date).AddSeconds(30)
+                do {
+                  Start-Sleep -Milliseconds 500
+                  $poolState = (Get-WebAppPoolState -Name $AppPoolName).Value
+                } while ($poolState -ne 'Stopped' -and (Get-Date) -lt $deadline)
+
+                if ($poolState -ne 'Stopped') {
+                  Write-Warning "App pool '$AppPoolName' did not report Stopped within 30 seconds. Checking worker processes."
+                }
+
+                $appcmd = Join-Path $env:SystemRoot 'System32\inetsrv\appcmd.exe'
+                if (Test-Path $appcmd) {
+                  $workerProcessLines = & $appcmd list wp "/apppool.name:$AppPoolName" 2>$null
+                  foreach ($line in $workerProcessLines) {
+                    if ($line -match 'WP \"(?<pid>\d+)\"') {
+                      $processId = [int]$Matches.pid
+                      Write-Warning "Stopping lingering IIS worker process $processId for app pool '$AppPoolName'."
+                      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+                    }
+                  }
                 }
               }
             }
-          }
-        }
 
-        function Start-IisApplication {
-          param(
-            [string]$SiteName,
-            [string]$AppPoolName
-          )
+            function Start-IisApplication {
+              param(
+                [string]$SiteName,
+                [string]$AppPoolName
+              )
 
-          if ((Get-WebAppPoolState -Name $AppPoolName).Value -ne 'Started') {
-            Start-WebAppPool -Name $AppPoolName
-          }
-
-          Start-Website -Name $SiteName
-        }
-
-        function Grant-ApiDatabaseAccess {
-          param(
-            [string]$AppPoolName
-          )
-
-          $repositoryServer = Get-Setting $env:DBA_REPOSITORY_SERVER ''
-          $repositoryDatabase = Get-Setting $env:DBA_REPOSITORY_DB 'DBAUtility'
-          $authMode = Get-Setting $env:DBA_SQL_AUTH_MODE 'WindowsAuth'
-
-          if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
-            Write-Warning "Skipping SQL permission grant because DBA_REPOSITORY_SERVER is not configured."
-            return
-          }
-
-          if (-not (Get-Module -ListAvailable -Name SqlServer)) {
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-            Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
-          }
-
-          Import-Module SqlServer -ErrorAction Stop
-
-          $principalName = "IIS APPPOOL\$AppPoolName"
-          $escapedPrincipalName = $principalName.Replace("'", "''")
-          $grantScript = @"
-        IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$escapedPrincipalName')
-        BEGIN
-            CREATE LOGIN [$principalName] FROM WINDOWS;
-        END;
-
-        USE [$repositoryDatabase];
-
-        IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$escapedPrincipalName')
-        BEGIN
-            CREATE USER [$principalName] FOR LOGIN [$principalName];
-        END;
-
-        IF NOT EXISTS
-        (
-            SELECT 1
-            FROM sys.database_role_members AS drm
-            INNER JOIN sys.database_principals AS role_principal
-                ON role_principal.principal_id = drm.role_principal_id
-            INNER JOIN sys.database_principals AS member_principal
-                ON member_principal.principal_id = drm.member_principal_id
-            WHERE role_principal.name = N'db_datareader'
-              AND member_principal.name = N'$escapedPrincipalName'
-        )
-        BEGIN
-            ALTER ROLE db_datareader ADD MEMBER [$principalName];
-        END;
-
-        IF NOT EXISTS
-        (
-            SELECT 1
-            FROM sys.database_permissions AS permission
-            INNER JOIN sys.database_principals AS principal
-                ON principal.principal_id = permission.grantee_principal_id
-            WHERE principal.name = N'$escapedPrincipalName'
-              AND permission.class = 1
-              AND permission.major_id = OBJECT_ID(N'dbo.AlertHistory')
-              AND permission.permission_name = N'DELETE'
-              AND permission.state_desc IN (N'GRANT', N'GRANT_WITH_GRANT_OPTION')
-        )
-        BEGIN
-            GRANT DELETE ON dbo.AlertHistory TO [$principalName];
-        END;
-        "@
-
-          $sqlParams = @{
-            ServerInstance = $repositoryServer
-            TrustServerCertificate = $true
-            ErrorAction = 'Stop'
-          }
-
-          if ($authMode -eq 'SqlAuth') {
-            $sqlParams.Username = $env:SQL_USER
-            $sqlParams.Password = $env:SQL_PASSWORD
-          }
-
-          Write-Host "Granting DBAUtility dashboard API access to $principalName..."
-          Invoke-Sqlcmd @sqlParams -Query $grantScript | Out-Null
-        }
-
-        Assert-Administrator
-        Import-Module WebAdministration -ErrorAction Stop
-        Write-Host "IIS deployment is running on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
-
-        $siteName = Get-Setting $env:IIS_API_SITE_NAME 'DBA Capacity API'
-        $appPoolName = Get-Setting $env:IIS_API_APP_POOL 'DBACapacityApi'
-        $physicalPath = Get-Setting $env:IIS_API_PHYSICAL_PATH 'C:\inetpub\dba-capacity-api'
-        $port = [int](Get-Setting $env:IIS_API_PORT '5088')
-        $allowedOrigins = Get-Setting $env:DBA_API_ALLOWED_ORIGINS ''
-        $connectionString = Get-Setting $env:DBA_API_CONNECTION_STRING ''
-        $azdoOrganization = Get-Setting $env:AZDO_ORGANIZATION ''
-        $azdoProject = Get-Setting $env:AZDO_PROJECT ''
-        $azdoCollectorPipelineId = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_ID ''
-        $azdoCollectorPipelineName = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_NAME ''
-        $azdoPat = Get-Setting $env:AZDO_PAT ''
-
-        $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
-        if (-not $aspNetCoreModule) {
-          throw "ASP.NET Core IIS Hosting Bundle is required. Install it on the IIS server before deploying the API."
-        }
-
-        $publishRoot = '$(Build.ArtifactStagingDirectory)\api'
-        $apiDll = Get-ChildItem -Path $publishRoot -Recurse -Filter 'DBA.Capacity.Api.dll' | Select-Object -First 1
-        if (-not $apiDll) {
-          throw "Could not find DBA.Capacity.Api.dll under $publishRoot"
-        }
-
-        $publishPath = $apiDll.Directory.FullName
-        New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
-
-        if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {
-          New-WebAppPool -Name $appPoolName | Out-Null
-        }
-
-        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedRuntimeVersion -Value ''
-        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
-
-        if (-not (Test-Path "IIS:\Sites\$siteName")) {
-          New-Website -Name $siteName -Port $port -PhysicalPath $physicalPath -ApplicationPool $appPoolName | Out-Null
-        }
-        else {
-          Set-ItemProperty "IIS:\Sites\$siteName" -Name physicalPath -Value $physicalPath
-          Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationPool -Value $appPoolName
-        }
-
-        $site = Get-Website -Name $siteName
-        if (-not ($site.Bindings.Collection | Where-Object { $_.bindingInformation -eq "*:$($port):" })) {
-          New-WebBinding -Name $siteName -Protocol http -Port $port | Out-Null
-        }
-
-        $appOfflinePath = Join-Path $physicalPath 'app_offline.htm'
-
-        try {
-          Stop-IisApplication -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $physicalPath
-          Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
-          Grant-ApiDatabaseAccess -AppPoolName $appPoolName
-
-          $hasAzureDevOpsSettings =
-            -not [string]::IsNullOrWhiteSpace($azdoOrganization) -or
-            -not [string]::IsNullOrWhiteSpace($azdoProject) -or
-            -not [string]::IsNullOrWhiteSpace($azdoCollectorPipelineId) -or
-            -not [string]::IsNullOrWhiteSpace($azdoCollectorPipelineName) -or
-            -not [string]::IsNullOrWhiteSpace($azdoPat)
-
-          if (-not [string]::IsNullOrWhiteSpace($connectionString) -or
-              -not [string]::IsNullOrWhiteSpace($allowedOrigins) -or
-              $hasAzureDevOpsSettings) {
-            $productionSettings = @{}
-
-            if (-not [string]::IsNullOrWhiteSpace($connectionString)) {
-              $productionSettings.ConnectionStrings = @{
-                DBAUtility = $connectionString
+              if ((Get-WebAppPoolState -Name $AppPoolName).Value -ne 'Started') {
+                Start-WebAppPool -Name $AppPoolName
               }
+
+              Start-Website -Name $SiteName
             }
 
-            if (-not [string]::IsNullOrWhiteSpace($allowedOrigins)) {
-              $productionSettings.Cors = @{
-                AllowedOrigins = @($allowedOrigins -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            function Grant-ApiDatabaseAccess {
+            param(
+            [string]$AppPoolName
+            )
+
+              $repositoryServer = Get-Setting $env:DBA_REPOSITORY_SERVER ''
+              $repositoryDatabase = Get-Setting $env:DBA_REPOSITORY_DB 'DBAUtility'
+              $authMode = Get-Setting $env:DBA_SQL_AUTH_MODE 'WindowsAuth'
+
+              if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
+                Write-Warning "Skipping SQL permission grant because DBA_REPOSITORY_SERVER is not configured."
+                return
               }
+
+              if (-not (Get-Module -ListAvailable -Name SqlServer)) {
+                Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+                Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
+              }
+
+              Import-Module SqlServer -ErrorAction Stop
+
+              $principalName = "IIS APPPOOL\$AppPoolName"
+              $escapedPrincipalName = $principalName.Replace("'", "''")
+              $grantScript = @"
+            IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$escapedPrincipalName')
+            BEGIN
+                CREATE LOGIN [$principalName] FROM WINDOWS;
+            END;
+
+            USE [$repositoryDatabase];
+
+            IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$escapedPrincipalName')
+            BEGIN
+                CREATE USER [$principalName] FOR LOGIN [$principalName];
+            END;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM sys.database_role_members AS drm
+                INNER JOIN sys.database_principals AS role_principal
+                    ON role_principal.principal_id = drm.role_principal_id
+                INNER JOIN sys.database_principals AS member_principal
+                    ON member_principal.principal_id = drm.member_principal_id
+                WHERE role_principal.name = N'db_datareader'
+                  AND member_principal.name = N'$escapedPrincipalName'
+            )
+            BEGIN
+                ALTER ROLE db_datareader ADD MEMBER [$principalName];
+            END;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM sys.database_permissions AS permission
+                INNER JOIN sys.database_principals AS principal
+                    ON principal.principal_id = permission.grantee_principal_id
+                WHERE principal.name = N'$escapedPrincipalName'
+                  AND permission.class = 1
+                  AND permission.major_id = OBJECT_ID(N'dbo.AlertHistory')
+                  AND permission.permission_name = N'DELETE'
+                  AND permission.state_desc IN (N'GRANT', N'GRANT_WITH_GRANT_OPTION')
+            )
+            BEGIN
+                GRANT DELETE ON dbo.AlertHistory TO [$principalName];
+            END;
+            "@
+
+              $sqlParams = @{
+                ServerInstance = $repositoryServer
+                TrustServerCertificate = $true
+                ErrorAction = 'Stop'
+              }
+
+              if ($authMode -eq 'SqlAuth') {
+                $sqlParams.Username = $env:SQL_USER
+                $sqlParams.Password = $env:SQL_PASSWORD
+              }
+
+            Write-Host "Granting DBAUtility dashboard API access to $principalName..."
+            Invoke-Sqlcmd @sqlParams -Query $grantScript | Out-Null
+            }
+
+            function New-ApiProductionSettingsJson {
+            param(
+            [string]$ConnectionString,
+            [string]$AllowedOrigins,
+            [string]$AzdoOrganization,
+            [string]$AzdoProject,
+            [string]$AzdoCollectorPipelineId,
+            [string]$AzdoCollectorPipelineName,
+            [string]$AzdoPat
+            )
+
+            $hasAzureDevOpsSettings =
+            -not [string]::IsNullOrWhiteSpace($AzdoOrganization) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoProject) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineId) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineName) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoPat)
+
+            if ([string]::IsNullOrWhiteSpace($ConnectionString) -and
+              [string]::IsNullOrWhiteSpace($AllowedOrigins) -and
+              -not $hasAzureDevOpsSettings) {
+            return ''
+            }
+
+            $productionSettings = @{}
+
+            if (-not [string]::IsNullOrWhiteSpace($ConnectionString)) {
+            $productionSettings.ConnectionStrings = @{
+              DBAUtility = $ConnectionString
+            }
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($AllowedOrigins)) {
+            $productionSettings.Cors = @{
+              AllowedOrigins = @($AllowedOrigins -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            }
             }
 
             if ($hasAzureDevOpsSettings) {
-              $productionSettings.AzureDevOps = @{
-                Organization = $azdoOrganization
-                Project = $azdoProject
-                CollectorPipelineId = $azdoCollectorPipelineId
-                CollectorPipelineName = $azdoCollectorPipelineName
-                Pat = $azdoPat
-              }
+            $productionSettings.AzureDevOps = @{
+              Organization = $AzdoOrganization
+              Project = $AzdoProject
+              CollectorPipelineId = $AzdoCollectorPipelineId
+              CollectorPipelineName = $AzdoCollectorPipelineName
+              Pat = $AzdoPat
+            }
             }
 
-            $productionSettings |
-              ConvertTo-Json -Depth 6 |
-              Set-Content -Path (Join-Path $physicalPath 'appsettings.Production.json') -Encoding UTF8
-          }
+            return ($productionSettings | ConvertTo-Json -Depth 6)
+            }
 
-          icacls $physicalPath /grant "IIS AppPool\$($appPoolName):(OI)(CI)RX" /T | Out-Null
-        }
-        finally {
-          Remove-Item -Path $appOfflinePath -ErrorAction SilentlyContinue
-          Start-IisApplication -SiteName $siteName -AppPoolName $appPoolName
-        }
+            function New-RemoteSession {
+            param(
+            [string]$ComputerName
+            )
 
-        Write-Host "API deployed to http://localhost:$port"
-    env:
-      IIS_API_SITE_NAME: $(IIS_API_SITE_NAME)
-      IIS_API_APP_POOL: $(IIS_API_APP_POOL)
-      IIS_API_PHYSICAL_PATH: $(IIS_API_PHYSICAL_PATH)
-      IIS_API_PORT: $(IIS_API_PORT)
-      DBA_API_CONNECTION_STRING: $(DBA_API_CONNECTION_STRING)
-      DBA_API_ALLOWED_ORIGINS: $(DBA_API_ALLOWED_ORIGINS)
-      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
-      DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
-      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
-      SQL_USER: $(SQL_USER)
-      SQL_PASSWORD: $(SQL_PASSWORD)
-      AZDO_ORGANIZATION: $(AZDO_ORGANIZATION)
-      AZDO_PROJECT: $(AZDO_PROJECT)
-      AZDO_COLLECTOR_PIPELINE_ID: $(AZDO_COLLECTOR_PIPELINE_ID)
-      AZDO_COLLECTOR_PIPELINE_NAME: $(AZDO_COLLECTOR_PIPELINE_NAME)
-      AZDO_PAT: $(AZDO_PAT)
+            if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+            throw "Remote IIS deployment requires iisHostName or IIS_REMOTE_HOST."
+            }
+
+            $remoteUser = Get-Setting $env:IIS_REMOTE_USER ''
+            $remotePassword = Get-Setting $env:IIS_REMOTE_PASSWORD ''
+
+            if ([string]::IsNullOrWhiteSpace($remoteUser)) {
+            Write-Host "Opening remote PowerShell session to '$ComputerName' using current pipeline identity '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
+            return New-PSSession -ComputerName $ComputerName -ErrorAction Stop
+            }
+
+            if ([string]::IsNullOrWhiteSpace($remotePassword)) {
+            throw "IIS_REMOTE_PASSWORD is required when IIS_REMOTE_USER is set. For gMSA or trusted remoting, leave both IIS_REMOTE_USER and IIS_REMOTE_PASSWORD empty and run the agent service as that identity."
+            }
+
+            $securePassword = ConvertTo-SecureString $remotePassword -AsPlainText -Force
+            $credential = New-Object System.Management.Automation.PSCredential($remoteUser, $securePassword)
+
+            Write-Host "Opening remote PowerShell session to '$ComputerName' using configured deployment credential '$remoteUser'."
+            return New-PSSession -ComputerName $ComputerName -Credential $credential -ErrorAction Stop
+            }
+
+            function Invoke-RemoteApiDeployment {
+            param(
+            [string]$RemoteHost,
+            [string]$RemoteStagingRoot,
+            [string]$PublishPath,
+            [string]$SiteName,
+            [string]$AppPoolName,
+            [string]$PhysicalPath,
+            [int]$Port,
+            [string]$ProductionSettingsJson
+            )
+
+            $session = $null
+            $remotePackagePath = Join-Path $RemoteStagingRoot 'api'
+
+            try {
+            $session = New-RemoteSession -ComputerName $RemoteHost
+
+            Invoke-Command -Session $session -ScriptBlock {
+              param([string]$Path)
+
+              Remove-Item -Path $Path -Recurse -Force -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Force -Path $Path | Out-Null
+            } -ArgumentList $remotePackagePath
+
+            Copy-Item -Path (Join-Path $PublishPath '*') -Destination $remotePackagePath -ToSession $session -Recurse -Force
+
+            Invoke-Command -Session $session -ScriptBlock {
+              param(
+                [string]$PackagePath,
+                [string]$SiteName,
+                [string]$AppPoolName,
+                [string]$PhysicalPath,
+                [int]$Port,
+                [string]$ProductionSettingsJson
+              )
+
+              $ErrorActionPreference = 'Stop'
+
+              function Assert-Administrator {
+                $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+                $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+                if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+                  throw "Remote IIS deployment requires the remoting identity to be local Administrator on $env:COMPUTERNAME. Current identity: $($identity.Name)"
+                }
+              }
+
+              function Invoke-RobocopyMirror {
+                param(
+                  [string]$Source,
+                  [string]$Destination
+                )
+
+                robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP /R:5 /W:2
+                $exitCode = $LASTEXITCODE
+
+                if ($exitCode -gt 7) {
+                  throw "Robocopy failed with exit code $exitCode."
+                }
+
+                $global:LASTEXITCODE = 0
+              }
+
+              function Stop-IisApplication {
+                param(
+                  [string]$SiteName,
+                  [string]$AppPoolName,
+                  [string]$PhysicalPath
+                )
+
+                New-Item -ItemType Directory -Force -Path $PhysicalPath | Out-Null
+                $appOfflinePath = Join-Path $PhysicalPath 'app_offline.htm'
+                Set-Content -Path $appOfflinePath -Value 'Deploying DBA Capacity API...' -Encoding UTF8
+
+                Stop-Website -Name $SiteName -ErrorAction SilentlyContinue
+
+                if (Test-Path "IIS:\AppPools\$AppPoolName") {
+                  Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+
+                  $deadline = (Get-Date).AddSeconds(30)
+                  do {
+                    Start-Sleep -Milliseconds 500
+                    $poolState = (Get-WebAppPoolState -Name $AppPoolName).Value
+                  } while ($poolState -ne 'Stopped' -and (Get-Date) -lt $deadline)
+
+                  $appcmd = Join-Path $env:SystemRoot 'System32\inetsrv\appcmd.exe'
+                  if (Test-Path $appcmd) {
+                    $workerProcessLines = & $appcmd list wp "/apppool.name:$AppPoolName" 2>$null
+                    foreach ($line in $workerProcessLines) {
+                      if ($line -match 'WP \"(?<pid>\d+)\"') {
+                        Stop-Process -Id ([int]$Matches.pid) -Force -ErrorAction SilentlyContinue
+                      }
+                    }
+                  }
+                }
+              }
+
+              function Start-IisApplication {
+                param(
+                  [string]$SiteName,
+                  [string]$AppPoolName
+                )
+
+                if ((Get-WebAppPoolState -Name $AppPoolName).Value -ne 'Started') {
+                  Start-WebAppPool -Name $AppPoolName
+                }
+
+                Start-Website -Name $SiteName
+              }
+
+              Assert-Administrator
+              Import-Module WebAdministration -ErrorAction Stop
+              Write-Host "Remote IIS deployment is running on '$env:COMPUTERNAME' as '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
+
+              $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+              if (-not $aspNetCoreModule) {
+                throw "ASP.NET Core IIS Hosting Bundle is required on the remote IIS server before deploying the API."
+              }
+
+              New-Item -ItemType Directory -Force -Path $PhysicalPath | Out-Null
+
+              if (-not (Test-Path "IIS:\AppPools\$AppPoolName")) {
+                New-WebAppPool -Name $AppPoolName | Out-Null
+              }
+
+              Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name managedRuntimeVersion -Value ''
+              Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
+
+              if (-not (Test-Path "IIS:\Sites\$SiteName")) {
+                New-Website -Name $SiteName -Port $Port -PhysicalPath $PhysicalPath -ApplicationPool $AppPoolName | Out-Null
+              }
+              else {
+                Set-ItemProperty "IIS:\Sites\$SiteName" -Name physicalPath -Value $PhysicalPath
+                Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $AppPoolName
+              }
+
+              $site = Get-Website -Name $SiteName
+              if (-not ($site.Bindings.Collection | Where-Object { $_.bindingInformation -eq "*:$($Port):" })) {
+                New-WebBinding -Name $SiteName -Protocol http -Port $Port | Out-Null
+              }
+
+              $appOfflinePath = Join-Path $PhysicalPath 'app_offline.htm'
+
+              try {
+                Stop-IisApplication -SiteName $SiteName -AppPoolName $AppPoolName -PhysicalPath $PhysicalPath
+                Invoke-RobocopyMirror -Source $PackagePath -Destination $PhysicalPath
+
+                if (-not [string]::IsNullOrWhiteSpace($ProductionSettingsJson)) {
+                  Set-Content -Path (Join-Path $PhysicalPath 'appsettings.Production.json') -Value $ProductionSettingsJson -Encoding UTF8
+                }
+
+                icacls $PhysicalPath /grant "IIS AppPool\$($AppPoolName):(OI)(CI)RX" /T | Out-Null
+              }
+              finally {
+                Remove-Item -Path $appOfflinePath -ErrorAction SilentlyContinue
+                Start-IisApplication -SiteName $SiteName -AppPoolName $AppPoolName
+              }
+
+              Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
+            } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson
+
+            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity to DBAUtility."
+            }
+            finally {
+            if ($session) {
+              Remove-PSSession -Session $session
+            }
+            }
+            }
+
+            $siteName = Get-Setting $env:IIS_API_SITE_NAME 'DBA Capacity API'
+            $appPoolName = Get-Setting $env:IIS_API_APP_POOL 'DBACapacityApi'
+            $physicalPath = Get-Setting $env:IIS_API_PHYSICAL_PATH 'C:\inetpub\dba-capacity-api'
+            $port = [int](Get-Setting $env:IIS_API_PORT '5088')
+            $deploymentMode = (Get-Setting $env:IIS_DEPLOYMENT_MODE 'Local').Trim()
+            $remoteHost = Get-Setting $env:IIS_REMOTE_HOST 'localhost'
+            $remoteStagingRoot = Get-Setting $env:IIS_REMOTE_STAGING_PATH 'C:\Windows\Temp\dba-capacity-deploy'
+            $allowedOrigins = Get-Setting $env:DBA_API_ALLOWED_ORIGINS ''
+            $connectionString = Get-Setting $env:DBA_API_CONNECTION_STRING ''
+            $azdoOrganization = Get-Setting $env:AZDO_ORGANIZATION ''
+            $azdoProject = Get-Setting $env:AZDO_PROJECT ''
+            $azdoCollectorPipelineId = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_ID ''
+            $azdoCollectorPipelineName = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_NAME ''
+            $azdoPat = Get-Setting $env:AZDO_PAT ''
+
+            $publishRoot = '$(Build.ArtifactStagingDirectory)\api'
+            $apiDll = Get-ChildItem -Path $publishRoot -Recurse -Filter 'DBA.Capacity.Api.dll' | Select-Object -First 1
+            if (-not $apiDll) {
+              throw "Could not find DBA.Capacity.Api.dll under $publishRoot"
+            }
+
+            $publishPath = $apiDll.Directory.FullName
+            $productionSettingsJson = New-ApiProductionSettingsJson `
+            -ConnectionString $connectionString `
+            -AllowedOrigins $allowedOrigins `
+            -AzdoOrganization $azdoOrganization `
+            -AzdoProject $azdoProject `
+            -AzdoCollectorPipelineId $azdoCollectorPipelineId `
+            -AzdoCollectorPipelineName $azdoCollectorPipelineName `
+            -AzdoPat $azdoPat
+
+            if ($deploymentMode -eq 'Remote') {
+            Write-Host "IIS deployment is running on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME' and targeting remote IIS host '$remoteHost'."
+            Invoke-RemoteApiDeployment `
+            -RemoteHost $remoteHost `
+            -RemoteStagingRoot $remoteStagingRoot `
+            -PublishPath $publishPath `
+            -SiteName $siteName `
+            -AppPoolName $appPoolName `
+            -PhysicalPath $physicalPath `
+            -Port $port `
+            -ProductionSettingsJson $productionSettingsJson
+            return
+            }
+
+            if ($deploymentMode -ne 'Local') {
+            throw "Unsupported IIS deployment mode '$deploymentMode'. Use Local or Remote."
+            }
+
+            Assert-Administrator
+            Import-Module WebAdministration -ErrorAction Stop
+            Write-Host "IIS deployment is running locally on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
+
+            $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
+            if (-not $aspNetCoreModule) {
+            throw "ASP.NET Core IIS Hosting Bundle is required. Install it on the IIS server before deploying the API."
+            }
+
+            New-Item -ItemType Directory -Force -Path $physicalPath | Out-Null
+
+            if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {
+            New-WebAppPool -Name $appPoolName | Out-Null
+            }
+
+            Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedRuntimeVersion -Value ''
+            Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
+
+            if (-not (Test-Path "IIS:\Sites\$siteName")) {
+              New-Website -Name $siteName -Port $port -PhysicalPath $physicalPath -ApplicationPool $appPoolName | Out-Null
+            }
+            else {
+              Set-ItemProperty "IIS:\Sites\$siteName" -Name physicalPath -Value $physicalPath
+              Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationPool -Value $appPoolName
+            }
+
+            $site = Get-Website -Name $siteName
+            if (-not ($site.Bindings.Collection | Where-Object { $_.bindingInformation -eq "*:$($port):" })) {
+              New-WebBinding -Name $siteName -Protocol http -Port $port | Out-Null
+            }
+
+            $appOfflinePath = Join-Path $physicalPath 'app_offline.htm'
+
+            try {
+            Stop-IisApplication -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $physicalPath
+            Invoke-RobocopyMirror -Source $publishPath -Destination $physicalPath
+            Grant-ApiDatabaseAccess -AppPoolName $appPoolName
+
+            if (-not [string]::IsNullOrWhiteSpace($productionSettingsJson)) {
+            Set-Content -Path (Join-Path $physicalPath 'appsettings.Production.json') -Value $productionSettingsJson -Encoding UTF8
+            }
+
+              icacls $physicalPath /grant "IIS AppPool\$($appPoolName):(OI)(CI)RX" /T | Out-Null
+            }
+            finally {
+              Remove-Item -Path $appOfflinePath -ErrorAction SilentlyContinue
+              Start-IisApplication -SiteName $siteName -AppPoolName $appPoolName
+            }
+
+            Write-Host "API deployed to http://localhost:$port"
+        env:
+          IIS_API_SITE_NAME: $(IIS_API_SITE_NAME)
+          IIS_API_APP_POOL: $(IIS_API_APP_POOL)
+          IIS_API_PHYSICAL_PATH: $(IIS_API_PHYSICAL_PATH)
+          IIS_API_PORT: $(IIS_API_PORT)
+          IIS_DEPLOYMENT_MODE: ${{ parameters.iisDeploymentMode }}
+          IIS_REMOTE_HOST: ${{ parameters.iisHostName }}
+          IIS_REMOTE_USER: $(IIS_REMOTE_USER)
+          IIS_REMOTE_PASSWORD: $(IIS_REMOTE_PASSWORD)
+          IIS_REMOTE_STAGING_PATH: $(IIS_REMOTE_STAGING_PATH)
+          DBA_API_CONNECTION_STRING: $(DBA_API_CONNECTION_STRING)
+          DBA_API_ALLOWED_ORIGINS: $(DBA_API_ALLOWED_ORIGINS)
+          DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+          DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
+          DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
+          SQL_USER: $(SQL_USER)
+          SQL_PASSWORD: $(SQL_PASSWORD)
+          AZDO_ORGANIZATION: $(AZDO_ORGANIZATION)
+          AZDO_PROJECT: $(AZDO_PROJECT)
+          AZDO_COLLECTOR_PIPELINE_ID: $(AZDO_COLLECTOR_PIPELINE_ID)
+          AZDO_COLLECTOR_PIPELINE_NAME: $(AZDO_COLLECTOR_PIPELINE_NAME)
+          AZDO_PAT: $(AZDO_PAT)
