@@ -298,6 +298,215 @@ BEGIN
             OR (r.growth_24h_gb >= 10 AND r.remaining_to_cap_gb <= r.growth_24h_gb * 3)
         );
 
+        ;WITH LatestDatabaseSizeRows AS
+        (
+            SELECT
+                d.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY d.server_name, d.database_name
+                    ORDER BY d.collection_time DESC, d.id DESC
+                ) AS rn
+            FROM dbo.DatabaseSizeHistory AS d
+        ),
+        LatestDatabaseSize AS
+        (
+            SELECT
+                d.server_name,
+                d.database_name,
+                d.collection_time AS database_size_collection_time,
+                d.total_size_mb / 1024.0 AS total_size_gb,
+                d.data_size_mb / 1024.0 AS data_size_gb,
+                d.log_size_mb / 1024.0 AS database_reported_log_size_gb
+            FROM LatestDatabaseSizeRows AS d
+            WHERE d.rn = 1
+        ),
+        LatestLogFileRows AS
+        (
+            SELECT
+                f.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY f.server_name, f.database_name, f.logical_file_name
+                    ORDER BY f.collection_time DESC, f.id DESC
+                ) AS rn
+            FROM dbo.FileSizeHistory AS f
+            WHERE f.file_type = 'LOG'
+        ),
+        LatestLogFiles AS
+        (
+            SELECT *
+            FROM LatestLogFileRows
+            WHERE rn = 1
+        ),
+        LargeLogSummary AS
+        (
+            SELECT
+                l.server_name,
+                l.database_name,
+                MAX(l.collection_time) AS latest_collection_time,
+                SUM(l.file_size_mb) / 1024.0 AS current_log_size_gb,
+                SUM(ISNULL(l.used_space_mb, 0)) / 1024.0 AS used_log_gb,
+                SUM(ISNULL(l.free_space_mb, 0)) / 1024.0 AS free_log_gb,
+                MAX(l.recovery_model_desc) AS recovery_model_desc,
+                MAX(l.log_reuse_wait_desc) AS log_reuse_wait_desc,
+                MAX(l.volume_mount_point) AS sample_volume_mount_point,
+                SUM(ISNULL(l.volume_available_gb, 0)) AS observed_volume_available_gb,
+                SUM
+                (
+                    CASE
+                        WHEN l.volume_available_gb IS NOT NULL
+                        THEN
+                            CASE
+                                WHEN ISNULL(l.max_size_mb, @maxLogFileMb) < l.file_size_mb + (l.volume_available_gb * 1024.0)
+                                THEN ISNULL(l.max_size_mb, @maxLogFileMb)
+                                ELSE l.file_size_mb + (l.volume_available_gb * 1024.0)
+                            END
+                        ELSE ISNULL(l.max_size_mb, @maxLogFileMb)
+                    END
+                ) / 1024.0 AS effective_log_cap_gb
+            FROM LatestLogFiles AS l
+            GROUP BY l.server_name, l.database_name
+        ),
+        LargeLogRisk AS
+        (
+            SELECT
+                s.server_name,
+                inv.environment,
+                s.database_name,
+                s.latest_collection_time,
+                d.database_size_collection_time,
+                s.current_log_size_gb,
+                s.used_log_gb,
+                s.free_log_gb,
+                d.total_size_gb,
+                d.data_size_gb,
+                d.database_reported_log_size_gb,
+                CASE
+                    WHEN d.data_size_gb > 0
+                    THEN s.current_log_size_gb / d.data_size_gb
+                    ELSE NULL
+                END AS log_to_data_ratio,
+                s.effective_log_cap_gb,
+                CASE
+                    WHEN s.effective_log_cap_gb > 0
+                    THEN s.current_log_size_gb * 100.0 / s.effective_log_cap_gb
+                    ELSE NULL
+                END AS percent_of_effective_cap,
+                s.recovery_model_desc,
+                s.log_reuse_wait_desc,
+                s.sample_volume_mount_point,
+                s.observed_volume_available_gb
+            FROM LargeLogSummary AS s
+            LEFT JOIN LatestDatabaseSize AS d
+                ON d.server_name = s.server_name
+               AND d.database_name = s.database_name
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    si.environment
+                FROM dbo.ServerInventory AS si
+                WHERE si.server_name = s.server_name
+                   OR
+                   (
+                       CHARINDEX(N'.', si.server_name) > 0
+                       AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = s.server_name
+                   )
+                ORDER BY CASE WHEN si.server_name = s.server_name THEN 0 ELSE 1 END
+            ) AS inv
+        )
+        INSERT INTO #GeneratedAlerts
+        (
+            alert_key,
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            CONCAT(N'UnusuallyLargeLogFile|', r.server_name, N'|', ISNULL(r.database_name, N'')),
+            r.server_name,
+            r.database_name,
+            'UnusuallyLargeLogFile',
+            CASE
+                WHEN r.current_log_size_gb >= 512
+                  OR r.log_to_data_ratio >= 8
+                  OR r.percent_of_effective_cap >= 75
+                THEN 'Critical'
+                WHEN r.current_log_size_gb >= 128
+                  OR r.log_to_data_ratio >= 4
+                  OR r.percent_of_effective_cap >= 50
+                THEN 'High'
+                ELSE 'Medium'
+            END,
+            CONCAT
+            (
+                r.database_name,
+                ' has an unusually large transaction log. Current log: ',
+                CONVERT(DECIMAL(18,2), r.current_log_size_gb),
+                ' GB',
+                CASE
+                    WHEN r.data_size_gb > 0
+                    THEN CONCAT
+                    (
+                        '; data size: ',
+                        CONVERT(DECIMAL(18,2), r.data_size_gb),
+                        ' GB; log/data ratio: ',
+                        CONVERT(DECIMAL(18,2), r.log_to_data_ratio),
+                        'x'
+                    )
+                    ELSE '; data size unavailable'
+                END,
+                '. Recovery: ',
+                COALESCE(r.recovery_model_desc, 'unknown'),
+                '; log reuse wait: ',
+                COALESCE(r.log_reuse_wait_desc, 'unknown'),
+                '.'
+            ),
+            N'Collect-FileSize.ps1; Collect-DatabaseSize.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'UnusuallyLargeLogFile' AS category,
+                    r.server_name AS serverName,
+                    r.environment,
+                    r.database_name AS databaseName,
+                    r.latest_collection_time AS latestFileCollectionTime,
+                    r.database_size_collection_time AS latestDatabaseSizeCollectionTime,
+                    r.current_log_size_gb AS currentLogSizeGb,
+                    r.used_log_gb AS usedLogGb,
+                    r.free_log_gb AS freeLogGb,
+                    r.total_size_gb AS totalSizeGb,
+                    r.data_size_gb AS dataSizeGb,
+                    r.database_reported_log_size_gb AS databaseReportedLogSizeGb,
+                    r.log_to_data_ratio AS logToDataRatio,
+                    r.effective_log_cap_gb AS effectiveLogCapGb,
+                    r.percent_of_effective_cap AS percentOfEffectiveCap,
+                    r.recovery_model_desc AS recoveryModel,
+                    r.log_reuse_wait_desc AS logReuseWait,
+                    r.sample_volume_mount_point AS sampleVolumeMountPoint,
+                    r.observed_volume_available_gb AS observedVolumeAvailableGb,
+                    16.0 AS minimumLogAlertThresholdGb,
+                    2.0 AS logToDataRatioAlertThreshold,
+                    128.0 AS absoluteLogAlertThresholdGb,
+                    512.0 AS criticalLogAlertThresholdGb,
+                    @maxLogFileMb / 1024.0 AS sqlServerLogFileCapGb,
+                    'Flags log files that are large by absolute size or disproportionately large compared with data size. This is separate from exhaustion risk because an oversized reusable log may not be close to disk/full cap but still needs review.' AS calculationNote,
+                    'Collect-FileSize.ps1; Collect-DatabaseSize.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.FileSizeHistory; dbo.DatabaseSizeHistory' AS evidenceTable
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM LargeLogRisk AS r
+        WHERE r.current_log_size_gb >= 16
+          AND
+          (
+              r.log_to_data_ratio >= 2
+              OR r.current_log_size_gb >= 128
+              OR r.percent_of_effective_cap >= 50
+          );
+
         ;WITH LatestLogState AS
         (
             SELECT
@@ -1347,6 +1556,7 @@ BEGIN
           (
               'CapacityRisk',
               'LogFileExhaustionRisk',
+              'UnusuallyLargeLogFile',
               'FullRecoveryNoLogBackup',
               'LongRunningTransaction',
               'BlockingChain',
