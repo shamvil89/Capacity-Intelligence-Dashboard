@@ -10,12 +10,20 @@ parameters:
   - name: iisAgentName
     displayName: IIS host agent name
     type: string
+<<<<<<< HEAD
     default: eve-vsts
+=======
+    default: shamvil
+>>>>>>> 86c3d8e187950d804be3ce7188e3f916aa9ed7a9
 
 pool:
   name: ${{ parameters.iisAgentPool }}
   demands:
+<<<<<<< HEAD
     - Agent.Name -equals ${{ parameters.iisAgentName }}
+=======
+    - Agent.Name -equals shamvil
+>>>>>>> 86c3d8e187950d804be3ce7188e3f916aa9ed7a9
     - Agent.OS -equals Windows_NT
 
 variables:
