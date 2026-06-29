@@ -8,7 +8,7 @@ schedules:
       include:
         - master
         - main
-    always: true
+    always: false
 
 pool:
   name: Shamvil-pool
