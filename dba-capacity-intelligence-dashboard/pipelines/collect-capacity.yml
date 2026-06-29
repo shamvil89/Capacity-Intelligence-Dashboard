@@ -13,7 +13,7 @@ schedules:
 pool:
   name: Shamvil-pool
   demands:
-    - Agent.Name -equals shamvil
+    - Agent.Name -equals eve-vsts
     - Agent.OS -equals Windows_NT
 
 variables:
