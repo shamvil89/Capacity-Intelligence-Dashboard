@@ -1070,6 +1070,13 @@ body > .qp-tt td {
   overflow-wrap: anywhere;
 }
 
+.email-helper {
+  margin: 0;
+  color: #526070;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .email-attachments > strong {
   color: #17202a;
 }

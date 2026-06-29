@@ -442,6 +442,9 @@ function ResolutionStepsSection({ steps }) {
 function EmailBodySection({ body, subject, attachments = [] }) {
   const [copyStatus, setCopyStatus] = useState('');
   const [outlookStatus, setOutlookStatus] = useState('');
+  const outlookPackageLabel = attachments.length > 0
+    ? 'Download Outlook email + evidence'
+    : 'Download Outlook email';
 
   if (!body) {
     return null;
@@ -500,18 +503,22 @@ function EmailBodySection({ body, subject, attachments = [] }) {
             Download all evidence
           </button>
         ) : null}
-        {attachments.length > 0 ? (
-          <button type="button" className="secondary-action" onClick={handleDownloadOutlookEmail}>
-            <Mail aria-hidden="true" size={14} />
-            Download Outlook email
-          </button>
-        ) : null}
+        <button type="button" className="secondary-action" onClick={handleDownloadOutlookEmail}>
+          <Mail aria-hidden="true" size={14} />
+          {outlookPackageLabel}
+        </button>
       </div>
 
       <div className="email-subject-preview">
         <span>Subject</span>
         <strong>{subject}</strong>
       </div>
+
+      <p className="email-helper">
+        {attachments.length > 0
+          ? 'Open Outlook app creates a normal draft but browsers cannot pass attachments through that link. Use Download Outlook email + evidence, then open the .eml file in Outlook to get the body and embedded evidence files together.'
+          : 'Open Outlook app creates a normal draft. Download Outlook email creates an .eml draft file you can open in Outlook.'}
+      </p>
 
       {attachments.length > 0 ? (
         <div className="email-attachments">
@@ -529,7 +536,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
               </button>
             ))}
           </div>
-          <p>Use Download Outlook email to open a draft with these files already embedded, or download files individually and attach them manually.</p>
+          <p>Download the Outlook email package to keep the draft body and these files together, or download files individually and attach them manually.</p>
         </div>
       ) : null}
 
