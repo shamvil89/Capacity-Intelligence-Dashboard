@@ -143,6 +143,8 @@ Organization: https://dev.azure.com/kaz-tec/
 
 The agent currently uses Windows PowerShell for `PowerShell@2` tasks because `pwsh` is not installed on the host.
 
+Database, onboarding, and collector pipelines expose queue-time `agentPool` and `agentName` parameters. API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` parameters.
+
 The YAMLs assume the project folder is checked out as `$(Build.SourcesDirectory)\dba-capacity-intelligence-dashboard`. If you later move the contents of that folder to the repository root, update the `projectRoot` variable in each pipeline to `.`.
 
 All pipeline YAMLs import the Azure DevOps variable group named `configs`. Create these variables in that group and mark secrets as secret.

@@ -1,10 +1,24 @@
 trigger: none
 pr: none
 
+parameters:
+  - name: agentPool
+    displayName: Pipeline agent pool
+    type: string
+    default: Shamvil-pool
+
+  - name: agentName
+    displayName: Pipeline agent name
+    type: string
+    default: eve-vsts
+    values:
+      - shamvil
+      - eve-test
+
 pool:
-  name: Shamvil-pool
+  name: ${{ parameters.agentPool }}
   demands:
-    - Agent.Name -equals eve-vsts
+    - Agent.Name -equals ${{ parameters.agentName }}
     - Agent.OS -equals Windows_NT
 
 variables:

@@ -39,7 +39,7 @@ Keep the application layout the same and change only environment-specific config
 2. Install a self-hosted Windows Azure DevOps agent on the customer automation host.
 3. If IIS is on a separate VM, enable PowerShell remoting from the automation host to the IIS host, or install a second agent on the IIS host.
 4. Run the identity that performs IIS changes as local Administrator on the IIS VM.
-5. Update only the automation pipeline `pool`, `Agent.Name`, and `projectRoot` values if they differ. For API/web IIS deploys, prefer queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName`.
+5. Use queue-time `agentPool`/`agentName` for database/onboard/collector pipelines. Use queue-time `iisAgentPool`/`iisAgentName`/`iisDeploymentMode`/`iisHostName` for API/web IIS deploys.
 6. Create the Azure DevOps variable group named `configs`.
 7. Fill the variables in section 12.
 8. Create the five pipelines from the YAML files in section 15 phase 6.
@@ -1371,20 +1371,17 @@ git push customer master
 
 ### Phase 4 - Adjust Pipeline Pool And Project Root
 
-Update automation YAMLs under `pipelines/` when the customer automation pool or agent name differs:
+Automation YAMLs under `pipelines/` now expose queue-time `agentPool` and `agentName` parameters, so customer pool/agent changes should not require YAML edits:
 
 - `deploy-database.yml`
 - `onboard-server.yml`
 - `collect-capacity.yml`
 
-Change the pool:
+Queue these automation pipelines with:
 
-```yaml
-pool:
-  name: <customer-agent-pool>
-  demands:
-    - Agent.Name -equals <customer-agent-name>
-    - Agent.OS -equals Windows_NT
+```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 ```
 
 If the project files are at repo root, set:
@@ -1406,14 +1403,11 @@ If the customer uses separate automation and IIS VMs, use two pools or two agent
 | `deploy-api.yml` | Automation VM when `iisDeploymentMode = Remote`; IIS VM when `iisDeploymentMode = Local`. |
 | `deploy-web.yml` | Automation VM when `iisDeploymentMode = Remote`; IIS VM when `iisDeploymentMode = Local`. |
 
-Example automation pool approach:
+Automation queue-time parameters:
 
-```yaml
-pool:
-  name: <customer-automation-pool>
-  demands:
-    - Agent.Name -equals <customer-automation-agent-name>
-    - Agent.OS -equals Windows_NT
+```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 ```
 
 For API and web deploys, select these queue-time parameters instead of editing YAML:
@@ -1500,6 +1494,13 @@ Run:
 DBA Capacity - Deploy Database
 ```
 
+Queue-time parameters:
+
+```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
+```
+
 Validate in SQL Server:
 
 ```sql
@@ -1536,11 +1537,13 @@ Run:
 DBA Capacity - Onboard Server
 ```
 
-Use queue-time parameters.
+Use queue-time parameters:
 
 On-prem SQL Server example:
 
 ```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 serverName = prod-sql-01
 environment = Production
 serverType = SQLServer
@@ -1552,6 +1555,8 @@ isActive = true
 Azure SQL example:
 
 ```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 serverName = customer-sql.database.windows.net
 environment = Production
 serverType = AzureSQL
@@ -1563,6 +1568,8 @@ isActive = true
 Azure SQL Entra ID password example:
 
 ```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 serverName = customer-sql.database.windows.net
 environment = Production
 serverType = AzureSQL
@@ -1585,6 +1592,13 @@ Run:
 
 ```text
 DBA Capacity - Collect Metrics
+```
+
+Queue-time parameters:
+
+```text
+agentPool = <customer-automation-pool>
+agentName = <customer-automation-agent-name>
 ```
 
 Expected log pattern:

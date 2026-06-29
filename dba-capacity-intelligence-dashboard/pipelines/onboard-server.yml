@@ -2,6 +2,19 @@ trigger: none
 pr: none
 
 parameters:
+  - name: agentPool
+    displayName: Pipeline agent pool
+    type: string
+    default: Shamvil-pool
+
+  - name: agentName
+    displayName: Pipeline agent name
+    type: string
+    default: shamvil
+    values:
+      - shamvil
+      - eve-test
+
   - name: serverName
     displayName: SQL Server name
     type: string
@@ -49,9 +62,9 @@ parameters:
     default: true
 
 pool:
-  name: Shamvil-pool
+  name: ${{ parameters.agentPool }}
   demands:
-    - Agent.Name -equals shamvil
+    - Agent.Name -equals ${{ parameters.agentName }}
     - Agent.OS -equals Windows_NT
 
 variables:
