@@ -26,14 +26,16 @@ Agent: shamvil
 OS: Windows_NT
 ```
 
-`deploy-api.yml` and `deploy-web.yml` expose queue-time parameters so the IIS deployment host can be selected without editing YAML:
+`deploy-api.yml` and `deploy-web.yml` expose queue-time parameters so the job runner and IIS host can be selected without editing YAML:
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
-| `iisAgentPool` | `Shamvil-pool` | Self-hosted agent pool containing the IIS deployment agent. |
-| `iisAgentName` | API: `eve-vsts`; Web: `shamvil` | Agent name on the Windows server that should act as the IIS host. |
+| `iisAgentPool` | `Shamvil-pool` | Self-hosted agent pool containing the agent that runs the deploy job. |
+| `iisAgentName` | API: `eve-vsts`; Web: `shamvil` | Agent name that runs the deploy job. |
+| `iisDeploymentMode` | `Local` | `Local` runs IIS commands on the selected agent; `Remote` runs IIS commands on `iisHostName` through PowerShell remoting. |
+| `iisHostName` | `localhost` | Remote IIS server name or FQDN when `iisDeploymentMode = Remote`. |
 
-Because the deploy scripts use local IIS commands, the selected agent must be installed on the IIS server unless remote IIS deployment has been added.
+For a split automation/IIS topology, select the automation agent with `iisAgentPool`/`iisAgentName`, set `iisDeploymentMode = Remote`, and set `iisHostName` to the IIS web server.
 
 All pipelines import the Azure DevOps variable group:
 
@@ -82,6 +84,9 @@ Important variables:
 | `AZDO_PAT` | Yes | Automation PAT used by the API to queue and read collector pipeline runs. |
 | `IIS_API_*` | No | API IIS settings. |
 | `IIS_WEB_*` | No | Web IIS settings. |
+| `IIS_REMOTE_USER` | No | Optional account for remote IIS deployment. Leave blank to use the agent service identity. |
+| `IIS_REMOTE_PASSWORD` | Yes | Password for `IIS_REMOTE_USER`; leave blank for gMSA/current-identity remoting. |
+| `IIS_REMOTE_STAGING_PATH` | No | Remote staging folder, default `C:\Windows\Temp\dba-capacity-deploy`. |
 
 ## Deploy Database
 
@@ -199,14 +204,16 @@ AZDO_PAT
 
 Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, and grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics`.
 
-The agent service must run as a local administrator.
+In `Local` mode, the selected agent service must run as local administrator on the IIS server. In `Remote` mode, the remoting identity must be local administrator on `iisHostName`.
 
-Queue-time IIS host selection:
+Queue-time deployment selection:
 
 | Parameter | Purpose |
 | --- | --- |
-| `iisAgentPool` | Agent pool containing the IIS server agent. |
-| `iisAgentName` | Agent installed on the IIS server where API should be deployed. |
+| `iisAgentPool` | Agent pool containing the agent that runs the deploy job. |
+| `iisAgentName` | Agent that runs the deploy job. |
+| `iisDeploymentMode` | `Local` for IIS-side agent deployment, `Remote` for automation-agent-to-IIS deployment. |
+| `iisHostName` | Remote IIS host name when `iisDeploymentMode = Remote`. |
 
 ## Deploy Web
 
@@ -226,16 +233,18 @@ What it does:
 
 The web app is static. The API URL is compiled at build time using `VITE_API_BASE_URL`.
 
-Queue-time IIS host selection:
+Queue-time deployment selection:
 
 | Parameter | Purpose |
 | --- | --- |
-| `iisAgentPool` | Agent pool containing the IIS server agent. |
-| `iisAgentName` | Agent installed on the IIS server where web should be deployed. |
+| `iisAgentPool` | Agent pool containing the agent that runs the deploy job. |
+| `iisAgentName` | Agent that runs the deploy job. |
+| `iisDeploymentMode` | `Local` for IIS-side agent deployment, `Remote` for automation-agent-to-IIS deployment. |
+| `iisHostName` | Remote IIS host name when `iisDeploymentMode = Remote`. |
 
 ## Customer Lift-And-Shift Checklist
 
-1. Update automation pipeline pool/demands where needed; use `iisAgentPool` and `iisAgentName` when queueing API/web deploys.
+1. Update automation pipeline pool/demands where needed; use `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` when queueing API/web deploys.
 2. Update `projectRoot` if repository layout changes.
 3. Create variable group `configs`.
 4. Mark passwords and connection strings secret.

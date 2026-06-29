@@ -161,6 +161,9 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_WEB_APP_POOL`
 - `IIS_WEB_PHYSICAL_PATH`
 - `IIS_WEB_PORT`
+- `IIS_REMOTE_USER`
+- `IIS_REMOTE_PASSWORD`
+- `IIS_REMOTE_STAGING_PATH`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
 
@@ -209,13 +212,22 @@ DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
 
 Use the dashboard server name or DNS alias that users enter in the browser. CORS origins are `scheme://host[:port]`; omit the port for standard HTTPS `443` or HTTP `80`, and include it only for non-standard IIS bindings such as `http://dba-capacity-web:8080`.
 
-The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools.
+The API and web deploy pipelines support local and remote IIS deployment:
+
+```text
+iisDeploymentMode = Local
+iisDeploymentMode = Remote
+```
+
+Use `Local` when the selected Azure DevOps agent is installed on the IIS server. Use `Remote` when the selected agent runs on an automation server and should deploy to a separate IIS host through PowerShell remoting. In remote mode, set queue-time `iisHostName = <iis-server-name-or-fqdn>`.
+
+For local mode, the Azure DevOps agent process must run as a local administrator on the IIS server. For remote mode, the remoting identity must be local administrator on the IIS server. Set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD` only when an explicit remoting credential is required; leave both empty for gMSA/current-identity remoting.
 
 For full Windows-level access requirements and PowerShell commands for agent accounts, IIS features, firewall rules, folder ACLs, and verification, see `docs/customer-lift-and-shift-wiki.md` section **Windows-Level Access And Commands**.
 
 For the API database connection, choose one of these options:
 
-1. Let `deploy-api.yml` grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.
+1. In local mode, let `deploy-api.yml` grant SQL Server access to the IIS app pool identity `IIS APPPOOL\DBACapacityApi`.
 2. Set `DBA_API_CONNECTION_STRING` in the `configs` variable group. Example:
 
 ```text

@@ -26,7 +26,7 @@ Keep the application layout the same and change only environment-specific config
 | Area | Low-effort choice |
 | --- | --- |
 | Repository database | `DBAUtility` on a customer SQL Server. |
-| Automation host | Lowest effort: one Windows server runs the Azure DevOps self-hosted agent and IIS. Real-world split deployments can use separate automation and IIS VMs. |
+| Automation host | Customer-friendly production default: one Windows server runs the Azure DevOps self-hosted agent; IIS can be on the same VM or a separate web VM. |
 | API hosting | IIS site on port `5088` unless the customer requires another port. |
 | Web hosting | IIS static site on a server name or DNS alias, preferably standard `80` or `443`. Use `8080` only for local/dev or when the customer explicitly wants a non-standard port. |
 | Secrets | Azure DevOps variable group named `configs`. |
@@ -36,21 +36,22 @@ Keep the application layout the same and change only environment-specific config
 ### Fastest Deployment Checklist
 
 1. Copy or import the repository into the customer Azure DevOps project.
-2. Install a self-hosted Windows Azure DevOps agent on the customer automation host. If IIS is on a separate VM, see the topology note below.
-3. Run the deployment agent service as a dedicated local administrator account on the machine where IIS deployment tasks execute.
-4. Update only the automation pipeline `pool`, `Agent.Name`, and `projectRoot` values if they differ. For API/web IIS deploys, prefer queue-time `iisAgentPool` and `iisAgentName`.
-5. Create the Azure DevOps variable group named `configs`.
-6. Fill the variables in section 12.
-7. Create the five pipelines from the YAML files in section 15 phase 6.
-8. Set `AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics`.
-9. Optionally set `AZDO_COLLECTOR_PIPELINE_ID` after the pipeline is created.
-10. Run `DBA Capacity - Deploy Database`.
-11. Run `DBA Capacity - Onboard Server` for each SQL Server or Azure SQL logical server.
-12. Run `DBA Capacity - Collect Metrics` once manually.
-13. Run `DBA Capacity - Deploy API`.
-14. Run `DBA Capacity - Deploy Web`.
-15. Open the dashboard and click **Run collector** to verify the dashboard-triggered pipeline path.
-16. Confirm the scheduled collector interval with the customer.
+2. Install a self-hosted Windows Azure DevOps agent on the customer automation host.
+3. If IIS is on a separate VM, enable PowerShell remoting from the automation host to the IIS host, or install a second agent on the IIS host.
+4. Run the identity that performs IIS changes as local Administrator on the IIS VM.
+5. Update only the automation pipeline `pool`, `Agent.Name`, and `projectRoot` values if they differ. For API/web IIS deploys, prefer queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName`.
+6. Create the Azure DevOps variable group named `configs`.
+7. Fill the variables in section 12.
+8. Create the five pipelines from the YAML files in section 15 phase 6.
+9. Set `AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics`.
+10. Optionally set `AZDO_COLLECTOR_PIPELINE_ID` after the pipeline is created.
+11. Run `DBA Capacity - Deploy Database`.
+12. Run `DBA Capacity - Onboard Server` for each SQL Server or Azure SQL logical server.
+13. Run `DBA Capacity - Collect Metrics` once manually.
+14. Run `DBA Capacity - Deploy API`.
+15. Run `DBA Capacity - Deploy Web`.
+16. Open the dashboard and click **Run collector** to verify the dashboard-triggered pipeline path.
+17. Confirm the scheduled collector interval with the customer.
 
 ### What Should Not Need Code Changes
 
@@ -69,12 +70,12 @@ The self-hosted Azure DevOps agent and IIS do not have to be on the same VM in r
 
 | Topology | When to use | Pipeline impact |
 | --- | --- | --- |
-| Single VM: agent and IIS together | Fastest proof-of-value or small customer estate. | Current YAML works as-is because IIS deployment is local to the agent. |
-| Split VMs: automation agent separate from IIS | Production environments with dedicated automation and web tiers. | Collection/database/onboard pipelines can run on the automation VM, but API/web IIS deployment must run on an agent installed on the IIS VM or use a remote deployment mechanism. |
-| Two agents: automation agent plus IIS deployment agent | Recommended split model. | Point `collect-capacity.yml`, `deploy-database.yml`, and `onboard-server.yml` at the automation pool; queue `deploy-api.yml` and `deploy-web.yml` with the IIS `iisAgentPool` and `iisAgentName` values. |
-| Remote IIS deployment from automation agent | Use only when the customer standardizes on WinRM/PowerShell remoting or another deployment tool. | Extend `deploy-api.yml` and `deploy-web.yml` to copy artifacts and run IIS commands remotely. The current YAML does not do remote IIS deployment. |
+| Single VM: agent and IIS together | Fastest proof-of-value or small customer estate. | Queue API/web deploys with `iisDeploymentMode = Local`; `iisAgentPool` and `iisAgentName` select the IIS server agent. |
+| Split VMs: automation agent separate from IIS | Production environments with dedicated automation and web tiers. | Queue API/web deploys with `iisDeploymentMode = Remote`; `iisAgentPool` and `iisAgentName` select the automation agent, and `iisHostName` names the IIS server. |
+| Two agents: automation agent plus IIS deployment agent | Customers that do not allow WinRM from automation to IIS. | Queue API/web deploys with `iisDeploymentMode = Local`; `iisAgentPool` and `iisAgentName` select the second agent installed on the IIS VM. |
+| Customer deployment platform | Enterprises already using Octopus, SCCM, Azure DevOps deployment groups, or another approved tool. | Keep build artifacts from the YAMLs and map the final IIS copy/create-site steps into the customer tool. |
 
-Important: the current `deploy-api.yml` and `deploy-web.yml` scripts use the local IIS `WebAdministration` module and local paths such as `C:\inetpub\...`. Therefore, out of the box, those deployment pipelines must execute on the IIS VM.
+Important: `iisAgentPool` and `iisAgentName` always mean "which Azure DevOps agent runs the job." In `Local` mode that agent must be on the IIS VM. In `Remote` mode that agent can be on the automation VM and the pipeline uses WinRM/PowerShell remoting to run IIS commands on `iisHostName`.
 
 ## 2. High-Level Architecture
 
@@ -469,6 +470,9 @@ Important API variables:
 | `IIS_API_APP_POOL` | IIS app pool for the API. |
 | `IIS_API_PHYSICAL_PATH` | Physical publish path. |
 | `IIS_API_PORT` | API HTTP port. |
+| `IIS_REMOTE_USER` | Optional domain/local deployment account for remote IIS deployment. Leave empty to use the Azure DevOps agent service identity for remoting. |
+| `IIS_REMOTE_PASSWORD` | Secret password for `IIS_REMOTE_USER`. Leave empty for gMSA/current-identity remoting. |
+| `IIS_REMOTE_STAGING_PATH` | Optional remote staging folder. Default is `C:\Windows\Temp\dba-capacity-deploy`. |
 
 Example:
 
@@ -477,6 +481,15 @@ DBA_API_CONNECTION_STRING = Server=.;Database=DBAUtility;Trusted_Connection=True
 DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
 IIS_API_PORT = 5088
 ```
+
+Remote IIS deployment is controlled by queue-time parameters, not by editing the YAML:
+
+```text
+iisDeploymentMode = Remote
+iisHostName = <iis-server-name-or-fqdn>
+```
+
+When `iisDeploymentMode = Remote`, `iisAgentPool` and `iisAgentName` select the automation agent that runs the pipeline. The pipeline copies the API package to `iisHostName` over PowerShell remoting and runs the IIS create/update steps on that remote server.
 
 CORS origin format must match what the browser sends:
 
@@ -666,6 +679,9 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `IIS_WEB_APP_POOL` | No | `DBACapacityWeb` | Web app pool. |
 | `IIS_WEB_PHYSICAL_PATH` | No | `C:\inetpub\dba-capacity-web` | Web deploy path. |
 | `IIS_WEB_PORT` | No | `80`, `443`, or `8080` | Web port. Prefer standard `80` or `443` for customer DNS aliases. |
+| `IIS_REMOTE_USER` | No | `CONTOSO\svc-dba-iisdeploy` | Optional remoting account for remote IIS deployment. Leave blank to use the agent service identity. |
+| `IIS_REMOTE_PASSWORD` | Yes | `********` | Password for `IIS_REMOTE_USER`. Leave blank for gMSA/current-identity remoting. |
+| `IIS_REMOTE_STAGING_PATH` | No | `C:\Windows\Temp\dba-capacity-deploy` | Remote staging folder used before robocopy mirrors files into IIS paths. |
 | `DBA_API_CONNECTION_STRING` | Yes | SQL connection string | API connection to `DBAUtility`. |
 | `DBA_API_ALLOWED_ORIGINS` | No | `https://dba-capacity.contoso.local` | Dashboard browser origin allowed by API CORS. Use the dashboard server name or DNS alias. |
 | `AZDO_ORGANIZATION` | No | `customer-org` | Azure DevOps organization used by the API to trigger the collector pipeline. |
@@ -765,13 +781,16 @@ URL: http://localhost:8080
 
 ### Agent Permission Requirement
 
-The API and web deploy pipelines create or update IIS sites and app pools. With the current YAML, those pipelines execute IIS commands locally on the agent machine. Therefore, the agent that runs `deploy-api.yml` and `deploy-web.yml` must be on the IIS VM and must run as a local administrator.
+The API and web deploy pipelines create or update IIS sites and app pools. They support two deployment modes:
 
-If the customer keeps the main automation agent on a separate VM, use one of these patterns:
+| Mode | Queue-time setting | Where IIS commands run | Required access |
+| --- | --- | --- | --- |
+| Local | `iisDeploymentMode = Local` | On the selected Azure DevOps agent machine. | The selected agent must be on the IIS VM and run as local Administrator. |
+| Remote | `iisDeploymentMode = Remote` | On `iisHostName` through PowerShell remoting. | The remoting identity must be local Administrator on the IIS VM and WinRM must allow the automation host. |
 
-1. Install a second self-hosted agent on the IIS VM and point only `deploy-api.yml` and `deploy-web.yml` at that agent.
-2. Extend the deploy YAMLs to use WinRM/PowerShell remoting, copy artifacts to the IIS VM, and run IIS commands remotely.
-3. Use a customer-approved deployment tool such as Octopus Deploy, Azure DevOps Environments deployment groups, or a release pipeline that targets the IIS VM.
+If the customer keeps the main automation agent on a separate VM, use `Remote` mode first unless the customer security standard blocks WinRM. If WinRM is blocked, install a second self-hosted agent on the IIS VM and use `Local` mode for only the API/web deploy pipelines.
+
+Remote mode copies the build output to `IIS_REMOTE_STAGING_PATH` on the IIS VM and then mirrors it into `IIS_API_PHYSICAL_PATH` or `IIS_WEB_PHYSICAL_PATH`.
 
 Check the service account:
 
@@ -787,12 +806,13 @@ If the service runs as `NT AUTHORITY\NETWORK SERVICE`, IIS deployment will fail 
 IIS deployment requires the Azure DevOps agent process to run as local Administrator.
 ```
 
-Recommended customer setup for the IIS deployment agent:
+Recommended customer setup for an IIS deployment identity:
 
-1. Create a dedicated local account, for example `.\azdoagent`.
+1. Create a dedicated domain/local account, or use a gMSA.
 2. Add it to the local Administrators group.
-3. Run the Azure DevOps agent service as that account.
-4. Restart the agent service.
+3. For `Local` mode, run the IIS-side Azure DevOps agent service as that account.
+4. For `Remote` mode, either run the automation agent service as that account/gMSA and leave `IIS_REMOTE_USER` empty, or set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD` in `configs`.
+5. Restart the relevant agent service after changing account membership.
 
 ### Windows-Level Access And Commands
 
@@ -802,8 +822,8 @@ Run these commands from an elevated PowerShell session on the relevant Windows V
 
 | Identity | Where | Required Windows-level access | Why |
 | --- | --- | --- | --- |
-| Automation agent service account | Automation VM | Log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, network access to repository/source SQL Servers. Local admin is optional unless customer policy requires it for tool installation. Standard domain service account or gMSA is supported. | Runs database deploy, onboard, and collector pipelines. |
-| IIS deployment agent service account | IIS VM | Local Administrators, log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, modify access to IIS publish paths. Standard domain service account or gMSA is supported. | Current API/web deploy YAML creates IIS sites, app pools, bindings, file copies, and ACLs locally. |
+| Automation agent service account | Automation VM | Log on as a service, read/write to the agent folder, outbound HTTPS to Azure DevOps, network access to repository/source SQL Servers. Local admin is optional unless customer policy requires it for tool installation. Standard domain service account or gMSA is supported. | Runs database deploy, onboard, and collector pipelines. In remote IIS mode, it can also initiate WinRM to the IIS VM. |
+| IIS deployment identity | IIS VM | Local Administrators, modify access to IIS publish paths, ability to create/update IIS sites/app pools/bindings. Standard domain service account or gMSA is supported. | Creates IIS sites, app pools, bindings, file copies, and ACLs. In local mode this is the IIS-side agent service account; in remote mode this is the remoting identity. |
 | `IIS APPPOOL\DBACapacityApi` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-api`. | Runs the ASP.NET Core API. SQL permissions are handled separately in SQL Server. |
 | `IIS APPPOOL\DBACapacityWeb` | IIS VM | Read/execute on `C:\inetpub\dba-capacity-web`. | Serves the static React build. |
 | DBA or deployment admin | IIS VM | Temporary local Administrator during installation, or equivalent delegated IIS administration. | Installs Windows features, hosting bundle, firewall rules, and agents. |
@@ -1125,9 +1145,16 @@ Test-NetConnection <api-host-or-alias> -Port 5088
 
 If SQL Server uses a named instance or custom port, test the actual static TCP port. Avoid depending on SQL Browser unless the customer explicitly supports UDP `1434`.
 
-#### Optional Remote IIS Deployment Access
+#### Remote IIS Deployment Access
 
-The current YAML does not perform remote IIS deployment. Use this only if the customer chooses to extend the deploy pipelines for WinRM/PowerShell remoting instead of installing an Azure DevOps agent on the IIS VM.
+Use this when the Azure DevOps self-hosted agent runs on an automation VM and IIS runs on a separate web VM. The API and web deploy pipelines support this through:
+
+```text
+iisDeploymentMode = Remote
+iisHostName = <iis-server-name-or-fqdn>
+```
+
+The deploy job opens a PowerShell remoting session to `iisHostName`, copies the build artifact to `IIS_REMOTE_STAGING_PATH`, and runs the IIS commands on the remote server.
 
 On the IIS VM, run elevated:
 
@@ -1144,11 +1171,20 @@ Set-NetFirewallRule `
   -RemoteAddress "<automation-agent-ip-address>"
 ```
 
-The remote deployment account still needs local Administrator on the IIS VM:
+The remote deployment identity still needs local Administrator on the IIS VM:
 
 ```powershell
 Add-LocalGroupMember -Group "Administrators" -Member "CONTOSO\svc-dba-iisdeploy"
 ```
+
+Credential options:
+
+| Option | Variable group setup | When to use |
+| --- | --- | --- |
+| Current agent identity | Leave `IIS_REMOTE_USER` and `IIS_REMOTE_PASSWORD` empty. | Best for domain service accounts and gMSA. The agent service identity is used for WinRM. |
+| Explicit deployment credential | Set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD`. | Use when the automation agent runs as one identity but the customer wants a different IIS deployment identity. |
+
+For gMSA accounts ending in `$`, do not set a password. Run the Azure DevOps agent service as the gMSA and leave `IIS_REMOTE_USER`/`IIS_REMOTE_PASSWORD` empty so Kerberos uses the service identity.
 
 Test remoting from the automation VM:
 
@@ -1160,6 +1196,18 @@ Invoke-Command `
   -ComputerName "<iis-server-name>" `
   -Credential $Credential `
   -ScriptBlock {
+    Import-Module WebAdministration
+    Get-Website | Select-Object Name, State, PhysicalPath
+  }
+```
+
+Test current-identity remoting without a password:
+
+```powershell
+Invoke-Command `
+  -ComputerName "<iis-server-name>" `
+  -ScriptBlock {
+    whoami
     Import-Module WebAdministration
     Get-Website | Select-Object Name, State, PhysicalPath
   }
@@ -1345,8 +1393,8 @@ If the customer uses separate automation and IIS VMs, use two pools or two agent
 | `deploy-database.yml` | Automation VM with repository SQL access. |
 | `onboard-server.yml` | Automation VM with repository SQL access. |
 | `collect-capacity.yml` | Automation VM with repository and source SQL access. |
-| `deploy-api.yml` | IIS VM selected at queue time with `iisAgentPool` and `iisAgentName`, unless remote IIS deployment is added. |
-| `deploy-web.yml` | IIS VM selected at queue time with `iisAgentPool` and `iisAgentName`, unless remote IIS deployment is added. |
+| `deploy-api.yml` | Automation VM when `iisDeploymentMode = Remote`; IIS VM when `iisDeploymentMode = Local`. |
+| `deploy-web.yml` | Automation VM when `iisDeploymentMode = Remote`; IIS VM when `iisDeploymentMode = Local`. |
 
 Example automation pool approach:
 
@@ -1361,11 +1409,22 @@ pool:
 For API and web deploys, select these queue-time parameters instead of editing YAML:
 
 ```text
-iisAgentPool = <customer-iis-deployment-pool>
-iisAgentName = <customer-iis-agent-name>
+iisAgentPool = <customer-automation-pool>
+iisAgentName = <customer-automation-agent-name>
+iisDeploymentMode = Remote
+iisHostName = <customer-iis-server-name-or-fqdn>
 ```
 
-`iisAgentName` should be the Azure DevOps agent installed on the Windows server that should act as the IIS host.
+For local IIS-side deployment instead, queue:
+
+```text
+iisAgentPool = <customer-iis-deployment-pool>
+iisAgentName = <customer-iis-agent-name>
+iisDeploymentMode = Local
+iisHostName = localhost
+```
+
+In short: `iisAgentName` is the machine that runs the pipeline job; `iisHostName` is the IIS machine touched by the deploy script when remote mode is selected.
 
 ### Phase 5 - Create Variable Group
 
@@ -1564,11 +1623,13 @@ DBA Capacity - Deploy API
 Queue-time parameters:
 
 ```text
-iisAgentPool = <customer-iis-deployment-pool>
-iisAgentName = <customer-iis-agent-name>
+iisAgentPool = <customer-automation-pool>
+iisAgentName = <customer-automation-agent-name>
+iisDeploymentMode = Remote
+iisHostName = <customer-iis-server-name-or-fqdn>
 ```
 
-The selected agent must run on the IIS VM because the current deploy script uses local IIS commands.
+If an IIS-side agent is installed and the customer does not allow WinRM, use `iisDeploymentMode = Local` and select the IIS-side agent with `iisAgentPool`/`iisAgentName`.
 
 Validate:
 
@@ -1611,11 +1672,13 @@ DBA Capacity - Deploy Web
 Queue-time parameters:
 
 ```text
-iisAgentPool = <customer-iis-deployment-pool>
-iisAgentName = <customer-iis-agent-name>
+iisAgentPool = <customer-automation-pool>
+iisAgentName = <customer-automation-agent-name>
+iisDeploymentMode = Remote
+iisHostName = <customer-iis-server-name-or-fqdn>
 ```
 
-Use the same IIS host agent as the API deployment unless the customer intentionally hosts API and web on different IIS servers.
+Use the same `iisHostName` as the API deployment unless the customer intentionally hosts API and web on different IIS servers. If using an IIS-side agent instead of remoting, use `iisDeploymentMode = Local` and select that IIS-side agent.
 
 Validate:
 

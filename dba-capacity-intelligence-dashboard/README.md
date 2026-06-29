@@ -179,6 +179,9 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_WEB_APP_POOL`
 - `IIS_WEB_PHYSICAL_PATH`
 - `IIS_WEB_PORT`
+- `IIS_REMOTE_USER`
+- `IIS_REMOTE_PASSWORD`
+- `IIS_REMOTE_STAGING_PATH`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
 - `AZDO_ORGANIZATION`
@@ -241,7 +244,11 @@ DBA_API_ALLOWED_ORIGINS = http://dba-capacity-web
 
 Only include a port when the web IIS binding uses a non-standard port, such as `http://dba-capacity-web:8080`.
 
-The Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` when the repository SQL variables are configured.
+The deploy pipelines support two IIS deployment modes. Use `iisDeploymentMode = Local` when the selected Azure DevOps agent is installed on the IIS server. Use `iisDeploymentMode = Remote` when the selected agent is on a separate automation server and should deploy to `iisHostName` over PowerShell remoting.
+
+For local mode, the Azure DevOps agent process must run as a local administrator to create IIS sites and app pools. For remote mode, the remoting identity must be local administrator on the IIS host; set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD` only when you do not want to use the agent service identity. For gMSA/current-identity remoting, leave both remote credential variables empty.
+
+The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` in local mode when the repository SQL variables are configured. Remote mode skips that virtual-account grant because `IIS APPPOOL\...` is local to the remote IIS server; use `DBA_API_CONNECTION_STRING` with a SQL/domain credential or manually grant the remote app pool/domain identity in SQL Server.
 
 Azure SQL Database inventory rows should use `server_type = AzureSQL`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
 
@@ -263,7 +270,7 @@ For SQL auth Azure SQL, use `connection_mode = SqlAuth` and `credential_key = az
 
 `connection_mode` chooses the authentication method. `credential_key` chooses which secret entry to read from `SOURCE_SQL_CREDENTIALS_JSON`; it can be any customer-defined key such as `default`, `prod`, `finance-prod`, `azuresql-sql`, or `azuresql-aad`.
 
-The API and web deploy pipelines expose queue-time `iisAgentPool` and `iisAgentName` parameters. Use them to choose which self-hosted agent/server should act as the IIS host for that deployment.
+The API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` parameters. `iisAgentPool`/`iisAgentName` choose the agent that runs the job. `iisHostName` is only used in remote mode and points to the IIS server.
 
 ## Security Notes
 
