@@ -131,6 +131,44 @@ jobs:
               }
             }
 
+            function Ensure-WebAdministrationModule {
+              param(
+                [string]$Context
+              )
+
+              if (Get-Module -ListAvailable -Name WebAdministration) {
+                Import-Module WebAdministration -ErrorAction Stop
+                return
+              }
+
+              Write-Warning "WebAdministration module was not found on $Context. Attempting to install IIS Management Scripts and Tools."
+
+              if (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue) {
+                Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-Scripting-Tools -IncludeManagementTools -ErrorAction Stop | Out-Null
+              }
+              elseif (Get-Command Enable-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
+                $features = @(
+                  'IIS-WebServerRole',
+                  'IIS-WebServer',
+                  'IIS-WebServerManagementTools',
+                  'IIS-ManagementScriptingTools'
+                )
+
+                foreach ($feature in $features) {
+                  Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart -ErrorAction Stop | Out-Null
+                }
+              }
+              else {
+                throw "WebAdministration is missing on $Context, and this host does not expose Install-WindowsFeature or Enable-WindowsOptionalFeature. Install IIS Management Scripts and Tools manually."
+              }
+
+              if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
+                throw "WebAdministration is still missing on $Context after the install attempt. Install IIS Management Scripts and Tools manually, then rerun the pipeline."
+              }
+
+              Import-Module WebAdministration -ErrorAction Stop
+            }
+
             function Invoke-RobocopyMirror {
               param(
                 [string]$Source,
@@ -411,6 +449,44 @@ jobs:
                 }
               }
 
+              function Ensure-WebAdministrationModule {
+                param(
+                  [string]$Context
+                )
+
+                if (Get-Module -ListAvailable -Name WebAdministration) {
+                  Import-Module WebAdministration -ErrorAction Stop
+                  return
+                }
+
+                Write-Warning "WebAdministration module was not found on $Context. Attempting to install IIS Management Scripts and Tools."
+
+                if (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue) {
+                  Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-Scripting-Tools -IncludeManagementTools -ErrorAction Stop | Out-Null
+                }
+                elseif (Get-Command Enable-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
+                  $features = @(
+                    'IIS-WebServerRole',
+                    'IIS-WebServer',
+                    'IIS-WebServerManagementTools',
+                    'IIS-ManagementScriptingTools'
+                  )
+
+                  foreach ($feature in $features) {
+                    Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart -ErrorAction Stop | Out-Null
+                  }
+                }
+                else {
+                  throw "WebAdministration is missing on $Context, and this host does not expose Install-WindowsFeature or Enable-WindowsOptionalFeature. Install IIS Management Scripts and Tools manually."
+                }
+
+                if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
+                  throw "WebAdministration is still missing on $Context after the install attempt. Install IIS Management Scripts and Tools manually, then rerun the pipeline."
+                }
+
+                Import-Module WebAdministration -ErrorAction Stop
+              }
+
               function Invoke-RobocopyMirror {
                 param(
                   [string]$Source,
@@ -475,7 +551,7 @@ jobs:
               }
 
               Assert-Administrator
-              Import-Module WebAdministration -ErrorAction Stop
+              Ensure-WebAdministrationModule -Context "remote IIS host '$env:COMPUTERNAME'"
               Write-Host "Remote IIS deployment is running on '$env:COMPUTERNAME' as '$([Security.Principal.WindowsIdentity]::GetCurrent().Name)'."
 
               $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1
@@ -584,7 +660,7 @@ jobs:
             }
 
             Assert-Administrator
-            Import-Module WebAdministration -ErrorAction Stop
+            Ensure-WebAdministrationModule -Context "local agent host '$env:COMPUTERNAME'"
             Write-Host "IIS deployment is running locally on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME'."
 
             $aspNetCoreModule = Get-WebGlobalModule | Where-Object { $_.Name -in @('AspNetCoreModuleV2', 'AspNetCoreModule') } | Select-Object -First 1

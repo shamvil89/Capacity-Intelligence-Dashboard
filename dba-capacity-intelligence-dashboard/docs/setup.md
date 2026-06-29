@@ -223,6 +223,12 @@ Use `Local` when the selected Azure DevOps agent is installed on the IIS server.
 
 For local mode, the Azure DevOps agent process must run as a local administrator on the IIS server. For remote mode, the remoting identity must be local administrator on the IIS server. Set `IIS_REMOTE_USER` and secret `IIS_REMOTE_PASSWORD` only when an explicit remoting credential is required; leave both empty for gMSA/current-identity remoting.
 
+The deploy pipelines try to install the IIS PowerShell management module automatically when `WebAdministration` is missing. If customer policy blocks automated feature installation, run this manually on the IIS host from an elevated PowerShell session:
+
+```powershell
+Install-WindowsFeature Web-Server, Web-Mgmt-Tools, Web-Scripting-Tools -IncludeManagementTools
+```
+
 For full Windows-level access requirements and PowerShell commands for agent accounts, IIS features, firewall rules, folder ACLs, and verification, see `docs/customer-lift-and-shift-wiki.md` section **Windows-Level Access And Commands**.
 
 For the API database connection, choose one of these options:
