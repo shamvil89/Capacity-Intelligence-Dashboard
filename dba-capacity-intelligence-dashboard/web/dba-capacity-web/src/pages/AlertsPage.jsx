@@ -442,6 +442,9 @@ function ResolutionStepsSection({ steps }) {
 function EmailBodySection({ body, subject, attachments = [] }) {
   const [copyStatus, setCopyStatus] = useState('');
   const [outlookStatus, setOutlookStatus] = useState('');
+  const outlookPackageLabel = attachments.length > 0
+    ? 'Download Outlook email + evidence'
+    : 'Download Outlook email';
 
   if (!body) {
     return null;
@@ -500,18 +503,22 @@ function EmailBodySection({ body, subject, attachments = [] }) {
             Download all evidence
           </button>
         ) : null}
-        {attachments.length > 0 ? (
-          <button type="button" className="secondary-action" onClick={handleDownloadOutlookEmail}>
-            <Mail aria-hidden="true" size={14} />
-            Download Outlook email
-          </button>
-        ) : null}
+        <button type="button" className="secondary-action" onClick={handleDownloadOutlookEmail}>
+          <Mail aria-hidden="true" size={14} />
+          {outlookPackageLabel}
+        </button>
       </div>
 
       <div className="email-subject-preview">
         <span>Subject</span>
         <strong>{subject}</strong>
       </div>
+
+      <p className="email-helper">
+        {attachments.length > 0
+          ? 'Open Outlook app creates a normal draft but browsers cannot pass attachments through that link. Use Download Outlook email + evidence, then open the .eml file in Outlook to get the body and embedded evidence files together.'
+          : 'Open Outlook app creates a normal draft. Download Outlook email creates an .eml draft file you can open in Outlook.'}
+      </p>
 
       {attachments.length > 0 ? (
         <div className="email-attachments">
@@ -529,7 +536,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
               </button>
             ))}
           </div>
-          <p>Use Download Outlook email to open a draft with these files already embedded, or download files individually and attach them manually.</p>
+          <p>Download the Outlook email package to keep the draft body and these files together, or download files individually and attach them manually.</p>
         </div>
       ) : null}
 
@@ -1315,6 +1322,8 @@ function getResolutionSteps(alert, details) {
       return buildCapacityRiskResolutionSteps(alert, details);
     case 'logfileexhaustionrisk':
       return buildLogFileExhaustionResolutionSteps(alert, details);
+    case 'unusuallylargelogfile':
+      return buildUnusuallyLargeLogFileResolutionSteps(alert, details);
     case 'fullrecoverynologbackup':
       return buildFullRecoveryNoLogBackupResolutionSteps(alert, details);
     case 'longrunningtransaction':
@@ -1386,6 +1395,19 @@ function buildLogFileExhaustionResolutionSteps(alert, details) {
     'If the issue is an open transaction, blocking, Always On, or replication, clear that dependency first. Taking log backups alone will not truncate reusable log until the wait condition clears.',
     'Avoid shrinking as the first response. Add disk or raise file max size only when growth is legitimate or emergency headroom is needed; shrink later only after the root cause is fixed and DBA approval is recorded.',
     'After remediation, rerun file-size collection and alert generation. Confirm log reuse wait changes, used log drops or stabilizes, and projected time to cap is no longer urgent.'
+  ]);
+}
+
+function buildUnusuallyLargeLogFileResolutionSteps(alert, details) {
+  return compactSteps([
+    `Large log evidence for ${describeAlertTarget(alert, details)}: current log ${formatGb(details?.currentLogSizeGb)}, used ${formatGb(details?.usedLogGb)}, free ${formatGb(details?.freeLogGb)}, data size ${formatGb(details?.dataSizeGb)}, log/data ratio ${formatRatio(details?.logToDataRatio)}, ${formatPercent(details?.percentOfEffectiveCap)} of effective cap used, recovery model ${formatDetailValue(details?.recoveryModel)}, log reuse wait ${formatDetailValue(details?.logReuseWait)}.`,
+    `This alert triggers when log size is at least ${formatGb(details?.minimumLogAlertThresholdGb)} and either the log is at least ${formatRatio(details?.logToDataRatioAlertThreshold)} the data size, the log is at least ${formatGb(details?.absoluteLogAlertThresholdGb)}, or it is using at least half of the effective cap.`,
+    details?.logReuseWait ? `Start with the captured log reuse wait: ${getLogReuseWaitAction(details.logReuseWait)}` : null,
+    'Check whether recent bulk load, index maintenance, large delete/update, failed log backup, Always On or replication lag, or an open transaction caused the growth. Cross-check any long-running transaction, blocking, Always On, replication, and backup alerts for the same database.',
+    'If the database is in FULL recovery, confirm the log backup chain is valid and log backups are meeting RPO. If backups are missing or stale, take the correct full/log backup sequence before expecting reusable log space.',
+    'If the root cause has cleared and the log now contains mostly free space, shrink only during an approved window to a realistic target size, then right-size autogrowth and max size. Do not repeatedly shrink/grow the log as a normal operating pattern.',
+    'If the size is legitimate workload growth, keep the log large enough for peak transactions, index maintenance, HA/DR lag, and restore requirements; add disk or adjust max size before the next peak period.',
+    'Rerun file-size and database-size collection after remediation. The active alert retires when the log falls below the unusual-size thresholds or the data/log ratio becomes normal.'
   ]);
 }
 
@@ -1660,6 +1682,17 @@ function formatPercent(value) {
   })}%`;
 }
 
+function formatRatio(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  return `${Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0
+  })}x`;
+}
+
 function formatHours(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
@@ -1922,6 +1955,15 @@ function getEmailEvidenceLines(alert, details) {
   }
   if (details?.currentLogSizeGb) {
     lines.push(`Current log size: ${formatGb(details.currentLogSizeGb)}`);
+  }
+  if (details?.dataSizeGb) {
+    lines.push(`Data size: ${formatGb(details.dataSizeGb)}`);
+  }
+  if (details?.logToDataRatio) {
+    lines.push(`Log/data ratio: ${formatRatio(details.logToDataRatio)}`);
+  }
+  if (details?.percentOfEffectiveCap) {
+    lines.push(`Percent of effective log cap used: ${formatPercent(details.percentOfEffectiveCap)}`);
   }
   if (details?.usedLogGb) {
     lines.push(`Used log: ${formatGb(details.usedLogGb)}`);

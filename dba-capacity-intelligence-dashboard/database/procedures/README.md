@@ -64,6 +64,7 @@ Current alert categories include:
 | --- | --- |
 | `CapacityRisk` | Latest forecast row from `dbo.CapacityForecastResult`. |
 | `LogFileExhaustionRisk` | Current log size, effective cap, disk headroom, recent growth rate, and projected hours to cap. |
+| `UnusuallyLargeLogFile` | Latest log size compared with data size, absolute log size thresholds, effective cap percentage, recovery model, and log reuse wait. |
 | `FullRecoveryNoLogBackup` | FULL recovery model, last observed log backup, and log reuse wait. |
 | `LongRunningTransaction` | Open transaction duration, session, login, wait, blocking session, SQL text, and cached query plan when available. |
 | `BlockingChain` | Lead blocker, blocker SQL/plan, blocked sessions, blocked SQL/plans, wait resources, likely blocked objects, and blocker-held locks. |

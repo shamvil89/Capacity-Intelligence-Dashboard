@@ -79,7 +79,7 @@ flowchart TD
 | `dbo.usp_InsertAlwaysOnHealthHistory` | Inserts Always On replica/database health rows. |
 | `dbo.usp_InsertReplicationHealthHistory` | Inserts replication database flag and agent evidence rows. |
 | `dbo.usp_GenerateCapacityForecast` | Calculates latest growth and risk. |
-| `dbo.usp_GenerateAlerts` | Inserts forecast, log-risk, backup, TempDB, long-transaction, blocking, Always On, replication, disk, and operational alerts. |
+| `dbo.usp_GenerateAlerts` | Inserts forecast, log-risk, unusually-large-log, backup, TempDB, long-transaction, blocking, Always On, replication, disk, and operational alerts. |
 
 ## Alert Evidence Model
 
@@ -101,6 +101,8 @@ The log-risk alert calculation uses:
 - Blocking evidence when `log_reuse_wait_desc = ACTIVE_TRANSACTION`.
 - Always On evidence when `log_reuse_wait_desc = AVAILABILITY_REPLICA`.
 - Replication evidence when `log_reuse_wait_desc = REPLICATION`.
+
+The unusually-large-log alert calculation is separate from exhaustion risk. It uses latest file-size rows plus latest database-size rows to flag logs that are large by absolute size, large relative to data size, or already using a high percentage of effective log cap.
 
 ## Query Plan Evidence
 

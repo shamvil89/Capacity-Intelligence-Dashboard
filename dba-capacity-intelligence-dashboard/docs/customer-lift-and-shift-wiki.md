@@ -276,6 +276,7 @@ Important alert signals:
 | Alert type | What it checks | Main source |
 | --- | --- | --- |
 | `LogFileExhaustionRisk` | Whether the transaction log can hit the lower of configured max size, SQL Server 2 TB log-file cap, or available disk headroom; estimates hours to cap from recent growth. | `Collect-FileSize.ps1`, `dbo.FileSizeHistory`, `dbo.usp_GenerateAlerts`. |
+| `UnusuallyLargeLogFile` | Whether the latest transaction log is unusually large by absolute size, disproportionately large compared with data size, or already using a high percentage of effective cap. | `Collect-FileSize.ps1`, `Collect-DatabaseSize.ps1`, `dbo.usp_GenerateAlerts`. |
 | `FullRecoveryNoLogBackup` | FULL recovery databases with no observed log backup, stale log backup, or `LOG_BACKUP` reuse wait. | `Collect-FileSize.ps1`, `Collect-BackupSize.ps1`. |
 | `LongRunningTransaction` | Open user transactions over the threshold because they can block log truncation. | `Collect-LongRunningTransactions.ps1`. |
 | `BlockingChain` | Lead blockers, blocked sessions, wait resources, blocked objects, and SQL text. | `Collect-BlockingSessions.ps1`. |
