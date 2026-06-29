@@ -41,7 +41,7 @@ jobs:
     pool:
       name: ${{ parameters.iisAgentPool }}
       demands:
-        - Agent.Name -equals ${{ parameters.iisAgentName }}
+        - Agent.Name -equals ${{ parameters.AgentName }}
         - Agent.OS -equals Windows_NT
     steps:
       - checkout: self
