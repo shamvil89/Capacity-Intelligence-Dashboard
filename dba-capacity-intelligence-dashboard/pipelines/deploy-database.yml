@@ -13,7 +13,7 @@ parameters:
     default: eve-vsts
     values:
       - shamvil
-      - eve-test
+      - eve-vsts
 
 pool:
   name: ${{ parameters.agentPool }}

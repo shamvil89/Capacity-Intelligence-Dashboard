@@ -13,7 +13,7 @@ parameters:
     default: shamvil
     values:
       - shamvil
-      - eve-test
+      - eve-vsts
 
 schedules:
   - cron: "*/10 * * * *"

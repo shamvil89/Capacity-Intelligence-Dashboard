@@ -13,7 +13,7 @@ parameters:
     default: eve-vsts
     values:
       - shamvil
-      - eve-test
+      - eve-vsts
 
   - name: iisDeploymentMode
     displayName: IIS deployment mode
