@@ -208,9 +208,11 @@ export default function AlertsPage({ mode = 'active' }) {
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const [cmdbEntry, setCmdbEntry] = useState(null);
   const [isCmdbLoading, setIsCmdbLoading] = useState(false);
+  const [cmdbLookupError, setCmdbLookupError] = useState('');
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
+  const cmdbLookupTarget = useMemo(() => resolveCmdbLookupTarget(alert, displayDetails), [alert, displayDetails]);
   const displayMessage = useMemo(() => formatAlertMessage(alert, displayDetails), [alert, displayDetails]);
   const resolutionSteps = useMemo(() => getResolutionSteps(alert, displayDetails), [alert, displayDetails]);
   const emailAttachments = useMemo(() => collectEmailAttachments(alert, displayDetails), [alert, displayDetails]);
@@ -229,9 +231,10 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   useEffect(() => {
     let isMounted = true;
 
-    if (!alert.serverName || !alert.databaseName) {
+    if (!cmdbLookupTarget.serverName || !cmdbLookupTarget.databaseName) {
       setCmdbEntry(null);
       setIsCmdbLoading(false);
+      setCmdbLookupError('');
       return () => {
         isMounted = false;
       };
@@ -239,15 +242,17 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 
     async function loadCmdbEntry() {
       setIsCmdbLoading(true);
+      setCmdbLookupError('');
 
       try {
-        const row = await api.getCmdbForDatabase(alert.serverName, alert.databaseName);
+        const row = await api.getCmdbForDatabase(cmdbLookupTarget.serverName, cmdbLookupTarget.databaseName);
         if (isMounted) {
           setCmdbEntry(row);
         }
-      } catch {
+      } catch (err) {
         if (isMounted) {
           setCmdbEntry(null);
+          setCmdbLookupError(err.message || 'CMDB lookup failed.');
         }
       } finally {
         if (isMounted) {
@@ -260,7 +265,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
     return () => {
       isMounted = false;
     };
-  }, [alert.databaseName, alert.serverName]);
+  }, [cmdbLookupTarget.databaseName, cmdbLookupTarget.serverName]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -292,7 +297,13 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <p>{displayMessage}</p>
           </section>
 
-          <CmdbContactsSection entry={cmdbEntry} isLoading={isCmdbLoading} ccRecipients={ccRecipients} />
+          <CmdbContactsSection
+            entry={cmdbEntry}
+            isLoading={isCmdbLoading}
+            ccRecipients={ccRecipients}
+            lookupError={cmdbLookupError}
+            lookupTarget={cmdbLookupTarget}
+          />
 
           <BlockingEvidenceSection details={displayDetails} />
 
@@ -324,11 +335,29 @@ function AlertStatusBadge({ isResolved }) {
   );
 }
 
-function CmdbContactsSection({ entry, isLoading, ccRecipients }) {
+function CmdbContactsSection({ entry, isLoading, ccRecipients, lookupError, lookupTarget }) {
   if (isLoading) {
     return (
-      <CollapsibleSection title="Application CMDB" summary="Loading">
-        <div className="query-plan-empty">Looking up application ownership for this database.</div>
+      <CollapsibleSection title="Application CMDB" summary="Loading" defaultOpen>
+        <div className="query-plan-empty">Looking up application ownership for {formatCmdbLookupTarget(lookupTarget)}.</div>
+      </CollapsibleSection>
+    );
+  }
+
+  if (lookupError) {
+    return (
+      <CollapsibleSection title="Application CMDB" summary="Lookup failed" defaultOpen>
+        <div className="query-plan-empty">
+          CMDB lookup failed for {formatCmdbLookupTarget(lookupTarget)}. {lookupError}
+        </div>
+      </CollapsibleSection>
+    );
+  }
+
+  if (!lookupTarget?.serverName || !lookupTarget?.databaseName) {
+    return (
+      <CollapsibleSection title="Application CMDB" summary="No database target">
+        <div className="query-plan-empty">This alert does not include enough server/database context to look up an application mapping.</div>
       </CollapsibleSection>
     );
   }
@@ -336,16 +365,21 @@ function CmdbContactsSection({ entry, isLoading, ccRecipients }) {
   if (!entry) {
     return (
       <CollapsibleSection title="Application CMDB" summary="No mapping">
-        <div className="query-plan-empty">No CMDB application mapping was found for this alert database. Email drafts will still open with a blank CC list.</div>
+        <div className="query-plan-empty">
+          No CMDB application mapping was found for {formatCmdbLookupTarget(lookupTarget)}. Confirm the CMDB page has an active mapping for this database. Email drafts will still open with a blank CC list.
+        </div>
       </CollapsibleSection>
     );
   }
 
   return (
-    <CollapsibleSection title="Application CMDB" summary={entry.applicationName || 'Mapped'}>
+    <CollapsibleSection title="Application CMDB" summary={entry.applicationName || 'Mapped'} defaultOpen>
       <StructuredDetails
         value={{
           applicationName: entry.applicationName,
+          mappedServer: entry.serverName,
+          mappedDatabase: entry.databaseName,
+          lookupTarget: formatCmdbLookupTarget(lookupTarget),
           prodOpsTeamEmail: entry.prodOpsTeamEmail,
           applicationOwnerEmail: entry.applicationOwnerEmail,
           businessOwnerEmail: entry.businessOwnerEmail,
@@ -360,6 +394,80 @@ function CmdbContactsSection({ entry, isLoading, ccRecipients }) {
       />
     </CollapsibleSection>
   );
+}
+
+function resolveCmdbLookupTarget(alert, details) {
+  const serverName = firstNonEmpty(
+    details?.serverName,
+    alert.serverName,
+    details?.sourceServerName,
+    details?.leadBlockerServerName,
+    details?.primaryReplicaServerName,
+    details?.replicaServerName,
+    findFirstNestedDetailValue(details, ['serverName', 'sourceServerName', 'leadBlockerServerName', 'primaryReplicaServerName', 'replicaServerName'])
+  );
+  const databaseName = firstNonEmpty(
+    details?.databaseName,
+    alert.databaseName,
+    details?.sourceDatabaseName,
+    details?.publisherDatabaseName,
+    findFirstNestedDetailValue(details, ['databaseName', 'sourceDatabaseName', 'blockedDatabaseName', 'publisherDatabaseName'])
+  );
+
+  return { serverName, databaseName };
+}
+
+function firstNonEmpty(...values) {
+  const value = values.find((candidate) => String(candidate ?? '').trim());
+  return value === undefined ? '' : String(value).trim();
+}
+
+function findFirstNestedDetailValue(value, keys, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 4) {
+    return '';
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nestedValue = findFirstNestedDetailValue(item, keys, depth + 1);
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+
+    return '';
+  }
+
+  for (const key of keys) {
+    if (String(value[key] ?? '').trim()) {
+      return String(value[key]).trim();
+    }
+  }
+
+  for (const nestedValue of Object.values(value)) {
+    const foundValue = findFirstNestedDetailValue(nestedValue, keys, depth + 1);
+    if (foundValue) {
+      return foundValue;
+    }
+  }
+
+  return '';
+}
+
+function formatCmdbLookupTarget(target) {
+  if (!target?.serverName && !target?.databaseName) {
+    return 'this alert database';
+  }
+
+  if (!target?.serverName) {
+    return formatDetailValue(target.databaseName);
+  }
+
+  if (!target?.databaseName) {
+    return formatDetailValue(target.serverName);
+  }
+
+  return `${formatDetailValue(target.serverName)}/${formatDetailValue(target.databaseName)}`;
 }
 
 function useNowMs(isEnabled) {

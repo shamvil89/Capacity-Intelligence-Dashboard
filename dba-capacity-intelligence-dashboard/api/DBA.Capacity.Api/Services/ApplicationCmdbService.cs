@@ -55,36 +55,42 @@ public sealed class ApplicationCmdbService(IDbConnectionFactory connectionFactor
     public async Task<ApplicationCmdbEntryItem?> GetDatabaseEntryAsync(string serverName, string databaseName, CancellationToken cancellationToken)
     {
         var sql = $"""
-        SELECT TOP (1)
+        SELECT
         {ProjectionSql}
         FROM dbo.ApplicationDatabaseMapping AS map
         INNER JOIN dbo.ApplicationCmdb AS app
             ON app.application_id = map.application_id
         WHERE map.database_name = @DatabaseName
           AND map.is_active = 1
-          AND
-          (
-              map.server_name = @ServerName
-              OR
-              (
-                  CHARINDEX(N'.', map.server_name) > 0
-                  AND LEFT(map.server_name, CHARINDEX(N'.', map.server_name) - 1) = @ServerName
-              )
-              OR
-              (
-                  CHARINDEX(N'.', @ServerName) > 0
-                  AND LEFT(@ServerName, CHARINDEX(N'.', @ServerName) - 1) = map.server_name
-              )
-          )
-        ORDER BY CASE WHEN map.server_name = @ServerName THEN 0 ELSE 1 END, map.updated_at DESC;
+        ORDER BY map.updated_at DESC;
         """;
 
+        var cleanedServerName = Clean(serverName);
+        var cleanedDatabaseName = Clean(databaseName);
+        if (cleanedServerName is null || cleanedDatabaseName is null)
+        {
+            return null;
+        }
+
         using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
-        return await connection.QuerySingleOrDefaultAsync<ApplicationCmdbEntryItem>(
+        var rows = await connection.QueryAsync<ApplicationCmdbEntryItem>(
             new CommandDefinition(
                 sql,
-                new { ServerName = Clean(serverName), DatabaseName = Clean(databaseName) },
+                new { DatabaseName = cleanedDatabaseName },
                 cancellationToken: cancellationToken));
+
+        var candidates = rows.AsList();
+        return candidates
+            .Select(row => new
+            {
+                Row = row,
+                Score = GetServerMatchScore(cleanedServerName, row.ServerName, candidates.Count)
+            })
+            .Where(candidate => candidate.Score < int.MaxValue)
+            .OrderBy(candidate => candidate.Score)
+            .ThenByDescending(candidate => candidate.Row.MappingUpdatedAt ?? candidate.Row.ApplicationUpdatedAt)
+            .Select(candidate => candidate.Row)
+            .FirstOrDefault();
     }
 
     public async Task<ApplicationCmdbEntryItem?> UpsertEntryAsync(UpsertApplicationCmdbRequest request, CancellationToken cancellationToken)
@@ -370,5 +376,76 @@ public sealed class ApplicationCmdbService(IDbConnectionFactory connectionFactor
     {
         var trimmed = value?.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static int GetServerMatchScore(string requestedServerName, string? mappedServerName, int activeDatabaseMappingCount)
+    {
+        var mappedServer = Clean(mappedServerName);
+        if (mappedServer is null)
+        {
+            return int.MaxValue;
+        }
+
+        if (string.Equals(mappedServer, requestedServerName, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        var normalizedMappedServer = NormalizeServerName(mappedServer);
+        var normalizedRequestedServer = NormalizeServerName(requestedServerName);
+        if (normalizedMappedServer.Length > 0
+            && string.Equals(normalizedMappedServer, normalizedRequestedServer, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        var mappedBaseName = GetServerBaseName(mappedServer);
+        var requestedBaseName = GetServerBaseName(requestedServerName);
+        if (mappedBaseName.Length > 0
+            && string.Equals(mappedBaseName, requestedBaseName, StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return activeDatabaseMappingCount == 1 ? 3 : int.MaxValue;
+    }
+
+    private static string NormalizeServerName(string? value)
+    {
+        var serverName = Clean(value)?.ToLowerInvariant() ?? string.Empty;
+        foreach (var prefix in new[] { "tcp:", "np:", "lpc:" })
+        {
+            if (serverName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                serverName = serverName[prefix.Length..];
+                break;
+            }
+        }
+
+        var commaIndex = serverName.IndexOf(',', StringComparison.Ordinal);
+        if (commaIndex >= 0)
+        {
+            serverName = serverName[..commaIndex];
+        }
+
+        return serverName.Trim().TrimEnd('.');
+    }
+
+    private static string GetServerBaseName(string? value)
+    {
+        var serverName = NormalizeServerName(value);
+        var instanceIndex = serverName.IndexOf('\\', StringComparison.Ordinal);
+        if (instanceIndex >= 0)
+        {
+            serverName = serverName[..instanceIndex];
+        }
+
+        var domainIndex = serverName.IndexOf('.', StringComparison.Ordinal);
+        if (domainIndex >= 0)
+        {
+            serverName = serverName[..domainIndex];
+        }
+
+        return serverName;
     }
 }
