@@ -32,6 +32,7 @@ flowchart LR
 | `AlertsController.cs` | `api/alerts` | Returns active repository alerts and deletes selected alert rows. |
 | `ServersController.cs` | `api/servers` | Returns active server inventory. |
 | `SettingsController.cs` | `api/settings` | Returns, updates, and resets alert threshold settings. |
+| `ApplicationCmdbController.cs` | `api/cmdb` | Returns, imports, updates, and deletes application CMDB mappings. |
 | `CollectorRunController.cs` | `api/collector-run` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardController
@@ -127,6 +128,21 @@ POST /api/settings/alert-thresholds/{settingId}/reset
 ```
 
 Returns threshold rows from `dbo.AlertThresholdSetting`. The update action validates the requested value against the row's `minimum_value_decimal` and `maximum_value_decimal`. The reset action restores `setting_value_decimal` from `default_value_decimal`.
+
+## ApplicationCmdbController
+
+Endpoints:
+
+```text
+GET /api/cmdb/applications
+GET /api/cmdb/database?serverName=x&databaseName=y
+PUT /api/cmdb/applications
+POST /api/cmdb/applications/import
+DELETE /api/cmdb/database-mappings/{mappingId}
+DELETE /api/cmdb/applications/{applicationId}
+```
+
+This controller backs the CMDB page, the dashboard database-name right-click editor, and alert email CC lookup. It validates required application names and database mapping pairs before calling `IApplicationCmdbService`.
 
 ## CollectorRunController
 

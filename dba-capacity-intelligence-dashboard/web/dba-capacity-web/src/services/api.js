@@ -60,6 +60,20 @@ export const api = {
     body: JSON.stringify({ settingValueDecimal })
   }),
   resetAlertThreshold: (settingId) => request(`/settings/alert-thresholds/${encodeURIComponent(settingId)}/reset`, { method: 'POST' }),
+  getCmdbEntries: () => request('/cmdb/applications'),
+  getCmdbForDatabase: (serverName, databaseName) => request(`/cmdb/database${toQueryString({ serverName, databaseName })}`),
+  upsertCmdbEntry: (entry) => request('/cmdb/applications', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry)
+  }),
+  importCmdbEntries: (entries) => request('/cmdb/applications/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries })
+  }),
+  deleteCmdbMapping: (mappingId) => request(`/cmdb/database-mappings/${encodeURIComponent(mappingId)}`, { method: 'DELETE' }),
+  deleteCmdbApplication: (applicationId) => request(`/cmdb/applications/${encodeURIComponent(applicationId)}`, { method: 'DELETE' }),
   getServers: () => request('/servers'),
   getCollectorRunStatus: () => request('/collector-run'),
   queueCollectorRun: () => request('/collector-run', { method: 'POST' })

@@ -27,6 +27,7 @@ flowchart LR
 | `IAlertService` | `AlertService` | Active alert queue. |
 | `IServerService` | `ServerService` | Active server inventory. |
 | `ISettingsService` | `SettingsService` | Editable alert threshold settings. |
+| `IApplicationCmdbService` | `ApplicationCmdbService` | Application ownership/contact CMDB and database mappings. |
 | `ICollectorRunService` | `AzureDevOpsCollectorRunService` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardService
@@ -144,6 +145,28 @@ dbo.AlertThresholdSetting
 ```
 
 The service exposes the threshold metadata needed by the Settings page: alert type, setting key, display label, unit, current value, default value, validation range, and last update metadata.
+
+## ApplicationCmdbService
+
+Methods:
+
+```csharp
+Task<IReadOnlyList<ApplicationCmdbEntryItem>> GetEntriesAsync(...);
+Task<ApplicationCmdbEntryItem?> GetDatabaseEntryAsync(...);
+Task<ApplicationCmdbEntryItem?> UpsertEntryAsync(...);
+Task<IReadOnlyList<ApplicationCmdbEntryItem>> BulkUpsertEntriesAsync(...);
+Task<bool> DeleteMappingAsync(...);
+Task<bool> DeleteApplicationAsync(...);
+```
+
+Reads and updates:
+
+```text
+dbo.ApplicationCmdb
+dbo.ApplicationDatabaseMapping
+```
+
+The service keeps ownership application-centered. When an upsert uses an existing application name without an `applicationId`, it reuses that application so multiple server/database mappings can point to one application.
 
 ## AzureDevOpsCollectorRunService
 

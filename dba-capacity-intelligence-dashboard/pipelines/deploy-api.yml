@@ -389,6 +389,16 @@ jobs:
             BEGIN
                 GRANT UPDATE ON dbo.AlertThresholdSetting TO [$principalName];
             END;
+
+            IF OBJECT_ID(N'dbo.ApplicationCmdb', N'U') IS NOT NULL
+            BEGIN
+                GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationCmdb TO [$principalName];
+            END;
+
+            IF OBJECT_ID(N'dbo.ApplicationDatabaseMapping', N'U') IS NOT NULL
+            BEGIN
+                GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationDatabaseMapping TO [$principalName];
+            END;
             "@
 
               $sqlParams = @{
@@ -751,7 +761,7 @@ jobs:
               Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
             } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson, $HostingBundleUrl
 
-            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, and UPDATE on dbo.AlertThresholdSetting in DBAUtility."
+            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, UPDATE on dbo.AlertThresholdSetting, and INSERT/UPDATE/DELETE on dbo.ApplicationCmdb and dbo.ApplicationDatabaseMapping in DBAUtility."
             }
             finally {
             if ($session) {

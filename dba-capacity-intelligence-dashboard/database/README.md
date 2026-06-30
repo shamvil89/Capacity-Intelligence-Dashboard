@@ -63,6 +63,8 @@ flowchart TD
 | `dbo.CapacityForecastResult` | Latest calculated growth and capacity risk results. |
 | `dbo.AlertHistory` | Active and historical alerts, including collector failures, source scripts, and structured evidence JSON. |
 | `dbo.AlertThresholdSetting` | Editable forecast and alert thresholds exposed on the dashboard Settings page. |
+| `dbo.ApplicationCmdb` | Application ownership, contacts, support groups, criticality, URL, and notes. |
+| `dbo.ApplicationDatabaseMapping` | Maps one application to many databases across servers. |
 
 ## Repository Procedures
 
@@ -118,6 +120,20 @@ The log-growth-spike alert calculation is separate again. It compares latest log
 - Blocking, TempDB, disk space, Always On, replication, and backup growth thresholds.
 
 The API Settings endpoints and the web Settings page update this table. Stored procedures read the table each time they run, so changes take effect on the next forecast or collector alert-generation run. If a setting is missing, the procedures fall back to the built-in default value.
+
+## Application CMDB
+
+The CMDB tables are edited from the web CMDB page and the dashboard database-name right-click editor.
+
+Design:
+
+- Ownership is application-centered.
+- `dbo.ApplicationCmdb` stores the application and optional contact fields.
+- `dbo.ApplicationDatabaseMapping` maps each `(server_name, database_name)` to an application.
+- One application can map to many databases across many servers.
+- One database maps to one application at a time.
+
+Alert More info uses the database mapping to find application contacts. Email drafts keep `To` blank and add all configured CMDB email fields to `CC`.
 
 ## Query Plan Evidence
 

@@ -206,6 +206,8 @@ export default function AlertsPage({ mode = 'active' }) {
 }
 
 function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
+  const [cmdbEntry, setCmdbEntry] = useState(null);
+  const [isCmdbLoading, setIsCmdbLoading] = useState(false);
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
@@ -213,15 +215,52 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const resolutionSteps = useMemo(() => getResolutionSteps(alert, displayDetails), [alert, displayDetails]);
   const emailAttachments = useMemo(() => collectEmailAttachments(alert, displayDetails), [alert, displayDetails]);
   const emailSubject = useMemo(() => buildAlertEmailSubject(alert), [alert]);
+  const ccRecipients = useMemo(() => collectCmdbCcEmails(cmdbEntry), [cmdbEntry]);
   const emailBody = useMemo(
-    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone),
-    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone]
+    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry),
+    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry]
   );
   const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
     const cleanedDetails = stripQueryPlanXml(displayDetails);
     return hasDedicatedEvidence ? stripDedicatedEvidence(cleanedDetails) : cleanedDetails;
   }, [displayDetails, hasDedicatedEvidence]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!alert.serverName || !alert.databaseName) {
+      setCmdbEntry(null);
+      setIsCmdbLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function loadCmdbEntry() {
+      setIsCmdbLoading(true);
+
+      try {
+        const row = await api.getCmdbForDatabase(alert.serverName, alert.databaseName);
+        if (isMounted) {
+          setCmdbEntry(row);
+        }
+      } catch {
+        if (isMounted) {
+          setCmdbEntry(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsCmdbLoading(false);
+        }
+      }
+    }
+
+    loadCmdbEntry();
+    return () => {
+      isMounted = false;
+    };
+  }, [alert.databaseName, alert.serverName]);
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -253,6 +292,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <p>{displayMessage}</p>
           </section>
 
+          <CmdbContactsSection entry={cmdbEntry} isLoading={isCmdbLoading} ccRecipients={ccRecipients} />
+
           <BlockingEvidenceSection details={displayDetails} />
 
           <QueryPlanSection alertType={alert.alertType} sourceScript={alert.sourceScript} details={displayDetails} />
@@ -268,7 +309,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 
           <ResolutionStepsSection steps={resolutionSteps} />
 
-          <EmailBodySection body={emailBody} subject={emailSubject} attachments={emailAttachments} />
+          <EmailBodySection body={emailBody} subject={emailSubject} attachments={emailAttachments} ccRecipients={ccRecipients} />
         </div>
       </section>
     </div>
@@ -280,6 +321,44 @@ function AlertStatusBadge({ isResolved }) {
     <span className={isResolved ? 'alert-status-badge resolved' : 'alert-status-badge active'}>
       {isResolved ? 'Resolved' : 'Active'}
     </span>
+  );
+}
+
+function CmdbContactsSection({ entry, isLoading, ccRecipients }) {
+  if (isLoading) {
+    return (
+      <CollapsibleSection title="Application CMDB" summary="Loading">
+        <div className="query-plan-empty">Looking up application ownership for this database.</div>
+      </CollapsibleSection>
+    );
+  }
+
+  if (!entry) {
+    return (
+      <CollapsibleSection title="Application CMDB" summary="No mapping">
+        <div className="query-plan-empty">No CMDB application mapping was found for this alert database. Email drafts will still open with a blank CC list.</div>
+      </CollapsibleSection>
+    );
+  }
+
+  return (
+    <CollapsibleSection title="Application CMDB" summary={entry.applicationName || 'Mapped'}>
+      <StructuredDetails
+        value={{
+          applicationName: entry.applicationName,
+          prodOpsTeamEmail: entry.prodOpsTeamEmail,
+          applicationOwnerEmail: entry.applicationOwnerEmail,
+          businessOwnerEmail: entry.businessOwnerEmail,
+          supportDlEmail: entry.supportDlEmail,
+          escalationDlEmail: entry.escalationDlEmail,
+          serviceNowGroup: entry.serviceNowGroup,
+          criticality: entry.criticality,
+          applicationUrl: entry.applicationUrl,
+          ccRecipients,
+          notes: entry.notes
+        }}
+      />
+    </CollapsibleSection>
   );
 }
 
@@ -439,12 +518,13 @@ function ResolutionStepsSection({ steps }) {
   );
 }
 
-function EmailBodySection({ body, subject, attachments = [] }) {
+function EmailBodySection({ body, subject, attachments = [], ccRecipients = [] }) {
   const [copyStatus, setCopyStatus] = useState('');
   const [outlookStatus, setOutlookStatus] = useState('');
   const outlookPackageLabel = attachments.length > 0
     ? 'Download Outlook email + evidence'
     : 'Download Outlook email';
+  const ccLine = ccRecipients.join('; ');
 
   if (!body) {
     return null;
@@ -452,7 +532,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
 
   async function handleCopyBody() {
     try {
-      await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+      await navigator.clipboard.writeText(`Subject: ${subject}\nCc: ${ccLine || '-'}\n\n${body}`);
       setCopyStatus('Copied');
       window.setTimeout(() => setCopyStatus(''), 2200);
     } catch {
@@ -463,11 +543,11 @@ function EmailBodySection({ body, subject, attachments = [] }) {
 
   function handleOpenOutlookDraft() {
     const outlookBody = body;
-    const draftUrl = buildMailDraftUrl(subject, outlookBody);
+    const draftUrl = buildMailDraftUrl(subject, outlookBody, ccRecipients);
 
     if (draftUrl.length > 7500) {
-      navigator.clipboard.writeText(`Subject: ${subject}\n\n${outlookBody}`).catch(() => {});
-      window.location.href = buildMailDraftUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it into this draft before sending.');
+      navigator.clipboard.writeText(`Subject: ${subject}\nCc: ${ccLine || '-'}\n\n${outlookBody}`).catch(() => {});
+      window.location.href = buildMailDraftUrl(subject, 'The DBA Capacity alert email body was copied to your clipboard. Paste it into this draft before sending.', ccRecipients);
       setOutlookStatus('Copied for Outlook');
       window.setTimeout(() => setOutlookStatus(''), 2600);
       return;
@@ -483,7 +563,7 @@ function EmailBodySection({ body, subject, attachments = [] }) {
   }
 
   function handleDownloadOutlookEmail() {
-    downloadOutlookEmailFile(subject, body, attachments);
+    downloadOutlookEmailFile(subject, body, attachments, ccRecipients);
   }
 
   return (
@@ -512,6 +592,11 @@ function EmailBodySection({ body, subject, attachments = [] }) {
       <div className="email-subject-preview">
         <span>Subject</span>
         <strong>{subject}</strong>
+      </div>
+
+      <div className="email-subject-preview">
+        <span>CC</span>
+        <strong>{ccLine || 'No CMDB contacts configured'}</strong>
       </div>
 
       <p className="email-helper">
@@ -545,12 +630,18 @@ function EmailBodySection({ body, subject, attachments = [] }) {
   );
 }
 
-function buildMailDraftUrl(subject, body) {
-  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function buildMailDraftUrl(subject, body, ccRecipients = []) {
+  const params = new URLSearchParams();
+  if (ccRecipients.length > 0) {
+    params.set('cc', ccRecipients.join(';'));
+  }
+  params.set('subject', subject);
+  params.set('body', body);
+  return `mailto:?${params.toString()}`;
 }
 
-function downloadOutlookEmailFile(subject, body, attachments) {
-  const emlContent = buildOutlookEmailContent(subject, body, attachments);
+function downloadOutlookEmailFile(subject, body, attachments, ccRecipients = []) {
+  const emlContent = buildOutlookEmailContent(subject, body, attachments, ccRecipients);
   const fileName = `${sanitizeFileName(subject)}.eml`;
   downloadTextAttachment({
     fileName,
@@ -559,12 +650,13 @@ function downloadOutlookEmailFile(subject, body, attachments) {
   });
 }
 
-function buildOutlookEmailContent(subject, body, attachments) {
+function buildOutlookEmailContent(subject, body, attachments, ccRecipients = []) {
   const boundary = `----DBACapacityBoundary${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
   const headerLines = [
     'X-Unsent: 1',
     `Date: ${new Date().toUTCString()}`,
     'To:',
+    ...(ccRecipients.length > 0 ? [`Cc: ${ccRecipients.join(', ')}`] : []),
     `Subject: ${encodeMimeHeader(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`
@@ -1898,11 +1990,50 @@ function getEmailSafetyNote(alertType) {
   return 'Please confirm application ownership and business impact before making production-impacting changes.';
 }
 
-function buildAlertEmailBody(alert, details, message, steps, attachments = [], timeZone) {
+function collectCmdbCcEmails(entry) {
+  if (!entry) {
+    return [];
+  }
+
+  const rawValues = [
+    entry.prodOpsTeamEmail,
+    entry.applicationOwnerEmail,
+    entry.businessOwnerEmail,
+    entry.supportDlEmail,
+    entry.escalationDlEmail
+  ];
+  const seen = new Set();
+
+  return rawValues
+    .flatMap((value) => String(value ?? '').split(/[;,]/))
+    .map((value) => value.trim())
+    .filter((value) => value.includes('@'))
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+}
+
+function buildAlertEmailBody(alert, details, message, steps, attachments = [], timeZone, cmdbEntry = null) {
   const evidenceLines = getEmailEvidenceLines(alert, details);
   const actionLines = selectEmailActionSteps(alert, details, steps).map((step, index) => `${index + 1}. ${step}`);
   const hasSqlAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sql'));
   const hasPlanAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sqlplan'));
+  const cmdbLines = cmdbEntry
+    ? [
+        `- Application: ${formatDetailValue(cmdbEntry.applicationName)}`,
+        `- ProdOps: ${formatDetailValue(cmdbEntry.prodOpsTeamEmail)}`,
+        `- Application owner: ${formatDetailValue(cmdbEntry.applicationOwnerEmail)}`,
+        `- Business owner: ${formatDetailValue(cmdbEntry.businessOwnerEmail)}`,
+        `- Support DL: ${formatDetailValue(cmdbEntry.supportDlEmail)}`,
+        `- Escalation DL: ${formatDetailValue(cmdbEntry.escalationDlEmail)}`
+      ]
+    : ['- No CMDB application mapping is configured for this database.'];
   const attachmentSection = attachments.length > 0
     ? [
         '',
@@ -1932,6 +2063,9 @@ function buildAlertEmailBody(alert, details, message, steps, attachments = [], t
     `- Message: ${message}`,
     ...(hasSqlAttachment ? ['- SQL text captured: Yes, prepared as .sql evidence'] : []),
     ...(hasPlanAttachment ? ['- Query plan captured: Yes, prepared as .sqlplan evidence'] : []),
+    '',
+    'Application CMDB:',
+    ...cmdbLines,
     '',
     'Relevant evidence:',
     ...evidenceLines.map((line) => `- ${line}`),

@@ -19,7 +19,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -777,6 +778,146 @@ td {
   color: #027a48;
 }
 
+.database-name-cell {
+  color: #2563eb;
+  font-weight: 800;
+  cursor: context-menu;
+}
+
+.database-name-cell:hover {
+  text-decoration: underline;
+}
+
+.cmdb-modal {
+  max-width: min(980px, 96vw);
+}
+
+.cmdb-form {
+  display: grid;
+  gap: 16px;
+}
+
+.cmdb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cmdb-field {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-weight: 700;
+}
+
+.cmdb-field input,
+.cmdb-field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  color: #17202a;
+  padding: 0 10px;
+}
+
+.cmdb-field input {
+  height: 38px;
+}
+
+.cmdb-field textarea {
+  min-height: 96px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.cmdb-field input:disabled {
+  color: #667085;
+  background: #f8fafc;
+}
+
+.cmdb-field-wide {
+  min-width: 0;
+}
+
+.cmdb-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #475467;
+  font-weight: 800;
+}
+
+.cmdb-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.cmdb-status {
+  border-style: solid;
+  font-weight: 800;
+}
+
+.cmdb-status.success {
+  color: #027a48;
+  border-color: #abefc6;
+  background: #ecfdf3;
+}
+
+.cmdb-table {
+  min-width: 1960px;
+  table-layout: fixed;
+}
+
+.cmdb-table th:nth-child(1),
+.cmdb-table td:nth-child(1) {
+  width: 220px;
+}
+
+.cmdb-table th:nth-child(2),
+.cmdb-table td:nth-child(2) {
+  width: 130px;
+}
+
+.cmdb-table th:nth-child(3),
+.cmdb-table td:nth-child(3) {
+  width: 210px;
+}
+
+.cmdb-table th:nth-child(4),
+.cmdb-table td:nth-child(4) {
+  width: 180px;
+}
+
+.cmdb-table th:nth-child(5),
+.cmdb-table td:nth-child(5),
+.cmdb-table th:nth-child(6),
+.cmdb-table td:nth-child(6),
+.cmdb-table th:nth-child(7),
+.cmdb-table td:nth-child(7),
+.cmdb-table th:nth-child(8),
+.cmdb-table td:nth-child(8),
+.cmdb-table th:nth-child(9),
+.cmdb-table td:nth-child(9) {
+  width: 220px;
+}
+
+.cmdb-table th:nth-child(12),
+.cmdb-table td:nth-child(12) {
+  width: 300px;
+}
+
 .icon-action {
   width: 38px;
   height: 38px;
@@ -1483,7 +1624,8 @@ body > .qp-tt td {
 
   .detail-summary-grid,
   .detail-row,
-  .query-plan-header {
+  .query-plan-header,
+  .cmdb-form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -25,6 +25,7 @@ The files are numbered so deployment order is predictable.
 | `013_AlwaysOnHealthHistory.sql` | `dbo.AlwaysOnHealthHistory` | Stores Always On replica/database synchronization and health evidence. |
 | `014_ReplicationHealthHistory.sql` | `dbo.ReplicationHealthHistory` | Stores replication database flags and replication agent status/error evidence. |
 | `015_AlertThresholdSetting.sql` | `dbo.AlertThresholdSetting` | Stores editable alert and forecast threshold settings used by `dbo.usp_GenerateCapacityForecast` and `dbo.usp_GenerateAlerts`. |
+| `016_ApplicationCmdb.sql` | `dbo.ApplicationCmdb`, `dbo.ApplicationDatabaseMapping` | Stores application ownership/contact details and maps applications to databases across servers. |
 
 ## ServerInventory Details
 
@@ -121,6 +122,25 @@ Important columns:
 | `minimum_value_decimal` / `maximum_value_decimal` | Optional validation range enforced by SQL and the API. |
 
 Deployment reruns the seed script with `MERGE`. Existing customized `setting_value_decimal` values are preserved; metadata, descriptions, defaults, and ranges are refreshed from source control.
+
+## Application CMDB Details
+
+`dbo.ApplicationCmdb` stores one row per application. `dbo.ApplicationDatabaseMapping` maps that application to one or more databases across one or more SQL Server instances.
+
+Important `dbo.ApplicationCmdb` fields:
+
+| Column | Meaning |
+| --- | --- |
+| `application_name` | Required application name. This is unique and reused when another database maps to the same application. |
+| `prodops_team_email` | Optional ProdOps team email or distribution list. |
+| `application_owner_email` | Optional application owner email. |
+| `business_owner_email` | Optional business owner email. |
+| `support_dl_email` | Optional support distribution list. |
+| `escalation_dl_email` | Optional escalation distribution list. |
+| `servicenow_group` | Optional ServiceNow assignment group. |
+| `criticality`, `application_url`, `notes` | Optional operational metadata. |
+
+`dbo.ApplicationDatabaseMapping` has a unique `(server_name, database_name)` constraint so one database maps to one owning application. One application can have many mapped databases.
 
 ## CapacityForecastResult Details
 

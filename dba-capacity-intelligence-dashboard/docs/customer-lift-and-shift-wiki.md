@@ -350,6 +350,78 @@ ORDER BY alert_type, setting_key;
 
 Apply values in the target by matching on `alert_type` and `setting_key`, not `setting_id`, because identity values can differ between environments.
 
+## 7.3 Application CMDB
+
+The dashboard includes an application CMDB page:
+
+```text
+http://<customer-web-host>/#/cmdb
+```
+
+CMDB ownership is application-centered:
+
+- One application can map to many databases.
+- Those databases can be on different servers.
+- One database maps to one application at a time.
+
+Tables:
+
+```text
+dbo.ApplicationCmdb
+dbo.ApplicationDatabaseMapping
+```
+
+Table script:
+
+```text
+database/tables/016_ApplicationCmdb.sql
+```
+
+API endpoints:
+
+```text
+GET    /api/cmdb/applications
+GET    /api/cmdb/database?serverName=x&databaseName=y
+PUT    /api/cmdb/applications
+POST   /api/cmdb/applications/import
+DELETE /api/cmdb/database-mappings/{mappingId}
+DELETE /api/cmdb/applications/{applicationId}
+```
+
+Dashboard behavior:
+
+- Right-click a database name on the Dashboard page to open the CMDB editor for that database.
+- Use the CMDB page to add, edit, delete, import, and export mappings.
+- If the same application name is reused, the API maps the new database to the existing application.
+- Alert More info looks up the alert database in CMDB.
+- Outlook drafts keep `To` blank and add all configured CMDB email fields to `CC`.
+- If no CMDB mapping exists, the email still opens with a blank CC list.
+
+Optional CMDB fields:
+
+```text
+Application name
+ProdOps team email
+Application owner email
+Business owner email
+Support DL email
+Escalation DL email
+ServiceNow group
+Criticality
+Application URL
+Notes
+```
+
+CSV import/export columns:
+
+```text
+application_name,environment,server_name,database_name,prodops_team_email,application_owner_email,business_owner_email,support_dl_email,escalation_dl_email,servicenow_group,criticality,application_url,notes,is_active
+```
+
+Migration tip:
+
+Export CMDB from the source environment using the CMDB page, deploy the target database/API/web, then import the CSV on the target CMDB page. If scripting the migration, match database mappings by `(server_name, database_name)` and applications by `application_name`.
+
 ## 8. Source Credential Model
 
 Different source servers can use different SQL usernames and passwords.
@@ -488,6 +560,11 @@ The API uses:
 | `GET /api/capacity/top-growing-tables?limit=20` | Top growing tables. |
 | `GET /api/alerts/active` | Active unresolved alerts. |
 | `GET /api/servers` | Active server inventory. |
+| `GET /api/settings/alert-thresholds` | Editable alert threshold settings. |
+| `GET /api/cmdb/applications` | Application CMDB rows and database mappings. |
+| `GET /api/cmdb/database?serverName=x&databaseName=y` | CMDB lookup for alert email CC recipients. |
+| `PUT /api/cmdb/applications` | Create/update application CMDB mapping. |
+| `POST /api/cmdb/applications/import` | Bulk import parsed CMDB CSV rows. |
 
 Dashboard and capacity endpoints support environment filtering with the same labels used by `pipelines/onboard-server.yml`:
 
@@ -1309,10 +1386,11 @@ For MVP deployment, the same repository credential can be used for database depl
 
 ### API Repository User
 
-The API is mostly read-oriented, but dashboard operations need two narrow write permissions:
+The API is mostly read-oriented, but dashboard operations need narrow write permissions:
 
 - The Alerts page can delete selected alert rows.
 - The Settings page can update alert threshold values.
+- The CMDB page can add, edit, import, and delete application ownership mappings.
 
 The deploy API pipeline can grant:
 
@@ -1320,6 +1398,8 @@ The deploy API pipeline can grant:
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
 IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
 IIS APPPOOL\DBACapacityApi -> UPDATE on dbo.AlertThresholdSetting
+IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationCmdb
+IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationDatabaseMapping
 ```
 
 Alternative: provide a SQL connection string in `DBA_API_CONNECTION_STRING` that uses a SQL login with equivalent permissions.
@@ -1912,6 +1992,8 @@ CREATE USER [IIS APPPOOL\DBACapacityApi] FOR LOGIN [IIS APPPOOL\DBACapacityApi];
 ALTER ROLE db_datareader ADD MEMBER [IIS APPPOOL\DBACapacityApi];
 GRANT DELETE ON dbo.AlertHistory TO [IIS APPPOOL\DBACapacityApi];
 GRANT UPDATE ON dbo.AlertThresholdSetting TO [IIS APPPOOL\DBACapacityApi];
+GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationCmdb TO [IIS APPPOOL\DBACapacityApi];
+GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationDatabaseMapping TO [IIS APPPOOL\DBACapacityApi];
 ```
 
 ### Web page loads but API calls fail

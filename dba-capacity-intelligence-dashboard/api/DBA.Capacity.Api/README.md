@@ -68,6 +68,12 @@ Program.cs
 | `GET /api/settings/alert-thresholds` | `SettingsController` | Returns editable forecast and alert threshold settings. |
 | `PUT /api/settings/alert-thresholds/{settingId}` | `SettingsController` | Updates one threshold value after min/max validation. |
 | `POST /api/settings/alert-thresholds/{settingId}/reset` | `SettingsController` | Resets one threshold to its repository default value. |
+| `GET /api/cmdb/applications` | `ApplicationCmdbController` | Returns application CMDB rows and database mappings. |
+| `GET /api/cmdb/database?serverName=x&databaseName=y` | `ApplicationCmdbController` | Returns the mapped application/contact row for one database. |
+| `PUT /api/cmdb/applications` | `ApplicationCmdbController` | Creates or updates an application and optionally maps it to a database. |
+| `POST /api/cmdb/applications/import` | `ApplicationCmdbController` | Bulk imports CMDB rows from parsed CSV data. |
+| `DELETE /api/cmdb/database-mappings/{mappingId}` | `ApplicationCmdbController` | Removes one database-to-application mapping. |
+| `DELETE /api/cmdb/applications/{applicationId}` | `ApplicationCmdbController` | Deletes one application and its database mappings. |
 | `GET /api/collector-run` | `CollectorRunController` | Latest Azure DevOps collector pipeline run status tracked by this API instance. |
 | `POST /api/collector-run` | `CollectorRunController` | Queues `DBA Capacity - Collect Metrics` through Azure DevOps. |
 
@@ -105,6 +111,19 @@ Settings endpoints read and update `dbo.AlertThresholdSetting`. They are used by
 ```
 
 The API checks the row's configured minimum and maximum values before saving. Reset uses `default_value_decimal`. Stored procedures pick up the saved values during the next collector/forecast run.
+
+## Application CMDB
+
+CMDB endpoints read and update:
+
+```text
+dbo.ApplicationCmdb
+dbo.ApplicationDatabaseMapping
+```
+
+Ownership is application-centered. `PUT /api/cmdb/applications` can create/update an application and map it to a database in one call. If the request uses an existing `applicationName` without `applicationId`, the API reuses that application so multiple databases can map to the same application.
+
+Alert More info calls `GET /api/cmdb/database` for the alert database. The web app keeps `To` blank and places configured CMDB email fields in `CC`.
 
 ## Configuration
 
@@ -203,6 +222,8 @@ The API should have read repository access plus narrow permissions for dashboard
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
 IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
 IIS APPPOOL\DBACapacityApi -> UPDATE on dbo.AlertThresholdSetting
+IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationCmdb
+IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationDatabaseMapping
 ```
 
 If using SQL authentication instead, set `DBA_API_CONNECTION_STRING` to a SQL login with equivalent permissions.

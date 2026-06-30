@@ -18,6 +18,9 @@ Models should be simple data containers. They should not contain database access
 | `ServerInventoryItem` | `GET /api/servers` | One active monitored server row. |
 | `AlertThresholdSettingItem` | `GET /api/settings/alert-thresholds` | One editable alert threshold row. |
 | `UpdateAlertThresholdSettingRequest` | `PUT /api/settings/alert-thresholds/{settingId}` | Request body for updating one threshold value. |
+| `ApplicationCmdbEntryItem` | `GET /api/cmdb/applications` | One application CMDB row with optional database mapping. |
+| `UpsertApplicationCmdbRequest` | `PUT /api/cmdb/applications` | Request body for creating/updating application CMDB rows. |
+| `BulkUpsertApplicationCmdbRequest` | `POST /api/cmdb/applications/import` | Bulk wrapper for CSV import rows. |
 
 ## DashboardSummary
 
@@ -124,6 +127,19 @@ Fields include:
 - Sort order and last update metadata.
 
 The frontend groups these rows by alert type on the Settings page.
+
+## ApplicationCmdbEntryItem
+
+Represents one application CMDB row. If the application has multiple database mappings, the API returns one row per mapping.
+
+Fields include:
+
+- Application id and optional mapping id.
+- Application name.
+- Optional environment, server, and database mapping fields.
+- Optional contact fields: ProdOps, application owner, business owner, support DL, and escalation DL.
+- Optional ServiceNow group, criticality, application URL, and notes.
+- Last update metadata.
 
 ## Dapper Mapping
 

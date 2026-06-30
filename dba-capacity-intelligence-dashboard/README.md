@@ -298,6 +298,18 @@ The Settings page exposes forecast risk levels, log growth and log exhaustion th
 
 Changes are stored in the repository and take effect the next time the collector/forecast alert generation runs. Redeploying the database refreshes metadata and defaults but preserves customized current values.
 
+## Application CMDB
+
+Application ownership is stored in `dbo.ApplicationCmdb` and database mappings are stored in `dbo.ApplicationDatabaseMapping`.
+
+```text
+http://<web-host>/#/cmdb
+```
+
+The CMDB page can add/edit/delete application mappings and import/export CSV. On the dashboard, right-click a database name to open the CMDB editor for that database.
+
+Alert More info uses the CMDB mapping to add ProdOps, application owner, business owner, support DL, and escalation DL emails to the email draft `CC` list. The `To` field remains blank so the engineer sending the message chooses the primary recipient.
+
 ## MVP Limitations
 
 - SQL authentication is used for the MVP collector path.

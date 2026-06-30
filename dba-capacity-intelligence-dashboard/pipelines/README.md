@@ -191,7 +191,7 @@ What it does:
 5. Publishes API artifact.
 6. Deploys to IIS.
 7. Writes production appsettings if configured.
-8. Grants API app pool read access, alert delete access, and alert-threshold update access to `DBAUtility` where possible.
+8. Grants API app pool read access, alert delete access, alert-threshold update access, and CMDB table write access to `DBAUtility` where possible.
 
 Collector trigger settings written by this pipeline:
 

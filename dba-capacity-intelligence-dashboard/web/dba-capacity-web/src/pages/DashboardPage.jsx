@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, LoaderCircle, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import CmdbEntryModal from '../components/CmdbEntryModal.jsx';
 import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const [isQueueingCollector, setIsQueueingCollector] = useState(false);
   const [timerNow, setTimerNow] = useState(Date.now());
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [cmdbEditor, setCmdbEditor] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -161,6 +163,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleDatabaseContextMenu(event, item) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const defaults = {
+      environment: item.environment || '',
+      serverName: item.serverName,
+      databaseName: item.databaseName
+    };
+
+    setCmdbEditor({ defaults, entry: null, isLoading: true, error: '' });
+
+    try {
+      const entry = await api.getCmdbForDatabase(item.serverName, item.databaseName);
+      setCmdbEditor({ defaults, entry, isLoading: false, error: '' });
+    } catch (err) {
+      setCmdbEditor({ defaults, entry: null, isLoading: false, error: err.message });
+    }
+  }
+
   const collectorIsRunning = collectorRun?.isRunning || activeCollectorStates.has(collectorRun?.state);
   const collectorCanRun = collectorRun?.isConfigured !== false && !collectorIsRunning && !isQueueingCollector;
   const collectorDuration = formatCollectorRunDuration(collectorRun, timerNow);
@@ -266,7 +288,9 @@ export default function DashboardPage() {
                     >
                       <td>{item.environment || '-'}</td>
                       <td>{item.serverName}</td>
-                      <td>{item.databaseName}</td>
+                      <td onContextMenu={(event) => handleDatabaseContextMenu(event, item)}>
+                        <span className="database-name-cell" title="Right-click to edit CMDB ownership">{item.databaseName}</span>
+                      </td>
                       <td>{formatStorageFromGb(item.currentSizeGb)}</td>
                       <td>{formatStorageFromGb(item.growth7DaysGb)}</td>
                       <td>{formatStorageFromGb(item.growth30DaysGb)}</td>
@@ -282,6 +306,27 @@ export default function DashboardPage() {
           </DataState>
         </div>
       </DataState>
+
+      {cmdbEditor?.isLoading ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCmdbEditor(null)}>
+          <section className="modal-panel cmdb-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-body">
+              <div className="state-box">Loading CMDB details...</div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {cmdbEditor && !cmdbEditor.isLoading ? (
+        <CmdbEntryModal
+          entry={cmdbEditor.entry}
+          defaults={cmdbEditor.defaults}
+          lockDatabaseFields
+          title={`CMDB for ${cmdbEditor.defaults.serverName}/${cmdbEditor.defaults.databaseName}`}
+          onClose={() => setCmdbEditor(null)}
+          onSaved={() => setCmdbEditor(null)}
+        />
+      ) : null}
     </section>
   );
 }

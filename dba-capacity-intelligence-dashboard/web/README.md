@@ -33,6 +33,7 @@ web/dba-capacity-web
 | Database Detail | `#/databases/:serverName/:databaseName` | Size trend chart and forecast details for one database. |
 | Top Tables | `#/top-growing-tables` | Table growth ranking with environment, server, database, schema, sorting, and contains filters. |
 | Alerts | `#/alerts` | Active alert queue with environment, server, severity, type, sorting, contains search, and More info evidence popup. |
+| CMDB | `#/cmdb` | Application ownership/contact mapping across databases and servers, including CSV import/export. |
 | Settings | `#/settings` | Alert threshold tuning for forecasts and collector-generated alerts. |
 
 The environment filter uses values populated by `pipelines/onboard-server.yml`: `Development`, `Test`, `QA`, `UAT`, `Production`, and `DR`.
@@ -51,7 +52,9 @@ The environment filter uses values populated by `pipelines/onboard-server.yml`: 
 | `src/pages/DatabaseDetailPage.jsx` | Detail chart page. |
 | `src/pages/TopGrowingTablesPage.jsx` | Top tables page. |
 | `src/pages/AlertsPage.jsx` | Alert queue page and More info popup, including graphical query plan rendering for plan-aware alerts. |
+| `src/pages/CmdbPage.jsx` | Application CMDB page with add/edit/delete and CSV import/export. |
 | `src/pages/SettingsPage.jsx` | Editable alert threshold table with search, save, and reset actions. |
+| `src/components/CmdbEntryModal.jsx` | Shared CMDB editor used by the CMDB page and dashboard right-click action. |
 | `src/styles.css` | Global layout, table, dashboard, alert, and responsive styles. |
 
 ## Alert More Info Popup
@@ -65,6 +68,7 @@ The More info button opens a popup with:
 - Source script or procedure chain.
 - Original alert message.
 - Structured evidence from `detailsJson`.
+- Application CMDB contacts when the alert database has a CMDB mapping.
 
 For log and TempDB alerts, this can include projected hours to log cap, effective cap calculation inputs, recovery model, log reuse wait, last log backup time, long-running transaction details, or top TempDB-consuming sessions.
 
@@ -79,6 +83,29 @@ When any of these fields are present, the popup renders a graphical SQL Server e
 Execution plans are best-effort. If SQL Server did not expose a cached plan during collection, the alert still shows SQL text and session evidence but no plan viewer.
 
 Older active alerts may show a legacy evidence note until the next collector run creates fresh structured evidence.
+
+## CMDB Page
+
+The CMDB page calls:
+
+```text
+GET /api/cmdb/applications
+GET /api/cmdb/database?serverName=x&databaseName=y
+PUT /api/cmdb/applications
+POST /api/cmdb/applications/import
+DELETE /api/cmdb/database-mappings/{mappingId}
+DELETE /api/cmdb/applications/{applicationId}
+```
+
+Dashboard database names support right-click. Right-click opens the CMDB editor for that server/database so an application mapping can be created quickly from the dashboard.
+
+Ownership is application-centered: one application can map to many databases across many servers. CSV import/export uses one row per application/database mapping. Supported columns:
+
+```text
+application_name,environment,server_name,database_name,prodops_team_email,application_owner_email,business_owner_email,support_dl_email,escalation_dl_email,servicenow_group,criticality,application_url,notes,is_active
+```
+
+Alert More info looks up the CMDB row for the alert database. Outlook drafts keep `To` blank and place configured email fields in `CC`.
 
 ## Settings Page
 
