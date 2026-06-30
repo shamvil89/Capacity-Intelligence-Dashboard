@@ -1,36 +1,17 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5088/api';
-let accessTokenProvider = null;
-
-export function configureApiAuth(provider) {
-  accessTokenProvider = typeof provider === 'function' ? provider : null;
-}
 
 async function request(path, options = {}) {
   const { headers, ...fetchOptions } = options;
-  const authHeaders = {};
-
-  if (accessTokenProvider) {
-    const accessToken = await accessTokenProvider();
-    if (accessToken) {
-      authHeaders.Authorization = `Bearer ${accessToken}`;
-    }
-  }
-
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...fetchOptions,
     headers: {
       Accept: 'application/json',
-      ...authHeaders,
       ...(headers ?? {})
     }
   });
 
   if (!response.ok) {
-    let message = response.status === 401
-      ? 'Your dashboard sign-in has expired or is missing. Sign in again and retry.'
-      : response.status === 403
-        ? 'You are signed in, but your role does not allow this action.'
-        : 'The dashboard service could not complete the request.';
+    let message = 'The dashboard service could not complete the request.';
 
     try {
       const body = await response.json();

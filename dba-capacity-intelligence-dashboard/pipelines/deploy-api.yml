@@ -416,47 +416,6 @@ jobs:
             Invoke-Sqlcmd @sqlParams -Query $grantScript | Out-Null
             }
 
-            function ConvertTo-BoolSetting {
-            param(
-            [string]$Value,
-            [bool]$DefaultValue
-            )
-
-            if ([string]::IsNullOrWhiteSpace($Value)) {
-            return $DefaultValue
-            }
-
-            switch ($Value.Trim().ToLowerInvariant()) {
-            '1' { return $true }
-            'true' { return $true }
-            'yes' { return $true }
-            'on' { return $true }
-            '0' { return $false }
-            'false' { return $false }
-            'no' { return $false }
-            'off' { return $false }
-            default { return $DefaultValue }
-            }
-            }
-
-            function Split-ListSetting {
-            param(
-            [string]$Value,
-            [string[]]$DefaultValue
-            )
-
-            if ([string]::IsNullOrWhiteSpace($Value)) {
-            return $DefaultValue
-            }
-
-            $items = @($Value -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-            if ($items.Count -eq 0) {
-            return $DefaultValue
-            }
-
-            return $items
-            }
-
             function New-ApiProductionSettingsJson {
             param(
             [string]$ConnectionString,
@@ -465,15 +424,7 @@ jobs:
             [string]$AzdoProject,
             [string]$AzdoCollectorPipelineId,
             [string]$AzdoCollectorPipelineName,
-            [string]$AzdoPat,
-            [string]$AuthEnabled,
-            [string]$AuthAuthority,
-            [string]$AuthTenantId,
-            [string]$AuthAudience,
-            [string]$AuthRequireHttpsMetadata,
-            [string]$RbacAdminRoles,
-            [string]$RbacEditorRoles,
-            [string]$RbacReaderRoles
+            [string]$AzdoPat
             )
 
             $hasAzureDevOpsSettings =
@@ -482,20 +433,10 @@ jobs:
             -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineId) -or
             -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineName) -or
             -not [string]::IsNullOrWhiteSpace($AzdoPat)
-            $authEnabledValue = ConvertTo-BoolSetting -Value $AuthEnabled -DefaultValue $false
-            $hasAuthSettings =
-            $authEnabledValue -or
-            -not [string]::IsNullOrWhiteSpace($AuthAuthority) -or
-            -not [string]::IsNullOrWhiteSpace($AuthTenantId) -or
-            -not [string]::IsNullOrWhiteSpace($AuthAudience) -or
-            -not [string]::IsNullOrWhiteSpace($RbacAdminRoles) -or
-            -not [string]::IsNullOrWhiteSpace($RbacEditorRoles) -or
-            -not [string]::IsNullOrWhiteSpace($RbacReaderRoles)
 
             if ([string]::IsNullOrWhiteSpace($ConnectionString) -and
               [string]::IsNullOrWhiteSpace($AllowedOrigins) -and
-              -not $hasAzureDevOpsSettings -and
-              -not $hasAuthSettings) {
+              -not $hasAzureDevOpsSettings) {
             return ''
             }
 
@@ -510,26 +451,6 @@ jobs:
             if (-not [string]::IsNullOrWhiteSpace($AllowedOrigins)) {
             $productionSettings.Cors = @{
               AllowedOrigins = @($AllowedOrigins -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-            }
-            }
-
-            if ($hasAuthSettings) {
-            $authority = $AuthAuthority
-            if ([string]::IsNullOrWhiteSpace($authority) -and -not [string]::IsNullOrWhiteSpace($AuthTenantId)) {
-              $authority = "https://login.microsoftonline.com/$AuthTenantId/v2.0"
-            }
-
-            $productionSettings.Authentication = @{
-              Enabled = $authEnabledValue
-              Authority = $authority
-              Audience = $AuthAudience
-              RequireHttpsMetadata = ConvertTo-BoolSetting -Value $AuthRequireHttpsMetadata -DefaultValue $true
-            }
-
-            $productionSettings.Authorization = @{
-              AdminRoles = @(Split-ListSetting -Value $RbacAdminRoles -DefaultValue @('DBA.Capacity.Admin'))
-              EditorRoles = @(Split-ListSetting -Value $RbacEditorRoles -DefaultValue @('DBA.Capacity.Editor'))
-              ReaderRoles = @(Split-ListSetting -Value $RbacReaderRoles -DefaultValue @('DBA.Capacity.Reader'))
             }
             }
 
@@ -864,14 +785,6 @@ jobs:
             $azdoCollectorPipelineId = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_ID ''
             $azdoCollectorPipelineName = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_NAME ''
             $azdoPat = Get-Setting $env:AZDO_PAT ''
-            $authEnabled = Get-Setting $env:AUTH_ENABLED 'false'
-            $authAuthority = Get-Setting $env:ENTRA_API_AUTHORITY ''
-            $authTenantId = Get-Setting $env:ENTRA_TENANT_ID ''
-            $authAudience = Get-Setting $env:ENTRA_API_AUDIENCE ''
-            $authRequireHttpsMetadata = Get-Setting $env:AUTH_REQUIRE_HTTPS_METADATA 'true'
-            $rbacAdminRoles = Get-Setting $env:RBAC_ADMIN_ROLES ''
-            $rbacEditorRoles = Get-Setting $env:RBAC_EDITOR_ROLES ''
-            $rbacReaderRoles = Get-Setting $env:RBAC_READER_ROLES ''
 
             $publishRoot = '$(Build.ArtifactStagingDirectory)\api'
             $apiDll = Get-ChildItem -Path $publishRoot -Recurse -Filter 'DBA.Capacity.Api.dll' | Select-Object -First 1
@@ -887,15 +800,7 @@ jobs:
             -AzdoProject $azdoProject `
             -AzdoCollectorPipelineId $azdoCollectorPipelineId `
             -AzdoCollectorPipelineName $azdoCollectorPipelineName `
-            -AzdoPat $azdoPat `
-            -AuthEnabled $authEnabled `
-            -AuthAuthority $authAuthority `
-            -AuthTenantId $authTenantId `
-            -AuthAudience $authAudience `
-            -AuthRequireHttpsMetadata $authRequireHttpsMetadata `
-            -RbacAdminRoles $rbacAdminRoles `
-            -RbacEditorRoles $rbacEditorRoles `
-            -RbacReaderRoles $rbacReaderRoles
+            -AzdoPat $azdoPat
 
             if ($deploymentMode -eq 'Remote') {
             Write-Host "IIS deployment is running on Azure DevOps agent '$env:AGENT_NAME' on Windows host '$env:COMPUTERNAME' and targeting remote IIS host '$remoteHost'."
@@ -985,11 +890,3 @@ jobs:
           AZDO_COLLECTOR_PIPELINE_ID: $(AZDO_COLLECTOR_PIPELINE_ID)
           AZDO_COLLECTOR_PIPELINE_NAME: $(AZDO_COLLECTOR_PIPELINE_NAME)
           AZDO_PAT: $(AZDO_PAT)
-          AUTH_ENABLED: $(AUTH_ENABLED)
-          ENTRA_API_AUTHORITY: $(ENTRA_API_AUTHORITY)
-          ENTRA_TENANT_ID: $(ENTRA_TENANT_ID)
-          ENTRA_API_AUDIENCE: $(ENTRA_API_AUDIENCE)
-          AUTH_REQUIRE_HTTPS_METADATA: $(AUTH_REQUIRE_HTTPS_METADATA)
-          RBAC_ADMIN_ROLES: $(RBAC_ADMIN_ROLES)
-          RBAC_EDITOR_ROLES: $(RBAC_EDITOR_ROLES)
-          RBAC_READER_ROLES: $(RBAC_READER_ROLES)

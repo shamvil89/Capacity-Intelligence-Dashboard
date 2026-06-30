@@ -1,6 +1,5 @@
-import { Activity, AlertTriangle, Building2, Database, Gauge, History, LogOut, SlidersHorizontal, TableProperties, UserCircle } from 'lucide-react';
+import { Activity, AlertTriangle, Building2, Database, Gauge, History, SlidersHorizontal, TableProperties } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { useAppAuth } from '../auth/AuthProvider.jsx';
 import { useTimezone } from './TimezoneContext.jsx';
 
 const navItems = [
@@ -14,7 +13,6 @@ const navItems = [
 
 export default function Layout() {
   const { setTimeZone, timeZone, timeZoneOptions } = useTimezone();
-  const { authEnabled, canAdmin, canEdit, signOut, userName } = useAppAuth();
 
   return (
     <div className="app-shell">
@@ -47,16 +45,6 @@ export default function Layout() {
             <h1>Capacity Intelligence Dashboard</h1>
           </div>
           <div className="header-actions">
-            {authEnabled ? (
-              <div className="signed-in-user" title={`Signed in as ${userName}`}>
-                <UserCircle aria-hidden="true" size={18} />
-                <span>{userName}</span>
-                <small>{canAdmin ? 'Admin' : canEdit ? 'Editor' : 'Reader'}</small>
-                <button type="button" className="icon-action" aria-label="Sign out" onClick={signOut}>
-                  <LogOut aria-hidden="true" size={15} />
-                </button>
-              </div>
-            ) : null}
             <label className="timezone-control">
               <span>Time zone</span>
               <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>

@@ -7,7 +7,6 @@ import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
 import SummaryCard from '../components/SummaryCard.jsx';
-import { useAppAuth } from '../auth/AuthProvider.jsx';
 import { formatInteger, formatRemainingTimeFromDays, formatStorageFromGb } from '../components/formatters.js';
 import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
@@ -25,7 +24,6 @@ const databaseFilterColumns = [
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { canEdit } = useAppAuth();
   const [riskLevel, setRiskLevel] = useState('All');
   const [environmentFilter, setEnvironmentFilter] = useState('All');
   const [containsFilter, setContainsFilter] = useState('');
@@ -151,11 +149,6 @@ export default function DashboardPage() {
   }
 
   async function handleQueueCollectorRun() {
-    if (!canEdit) {
-      setCollectorError('Editor role is required to run the collector pipeline.');
-      return;
-    }
-
     setIsQueueingCollector(true);
     setCollectorError('');
 
@@ -174,11 +167,6 @@ export default function DashboardPage() {
     event.preventDefault();
     event.stopPropagation();
 
-    if (!canEdit) {
-      setCollectorError('Editor role is required to edit CMDB ownership.');
-      return;
-    }
-
     const defaults = {
       environment: item.environment || '',
       serverName: item.serverName,
@@ -196,7 +184,7 @@ export default function DashboardPage() {
   }
 
   const collectorIsRunning = collectorRun?.isRunning || activeCollectorStates.has(collectorRun?.state);
-  const collectorCanRun = canEdit && collectorRun?.isConfigured !== false && !collectorIsRunning && !isQueueingCollector;
+  const collectorCanRun = collectorRun?.isConfigured !== false && !collectorIsRunning && !isQueueingCollector;
   const collectorDuration = formatCollectorRunDuration(collectorRun, timerNow);
   const collectorStatus = formatCollectorRunStatus(collectorRun, collectorError);
 
@@ -214,7 +202,7 @@ export default function DashboardPage() {
               className="secondary-action collector-action"
               onClick={handleQueueCollectorRun}
               disabled={!collectorCanRun}
-              title={!canEdit ? 'Editor role required to run the collector' : collectorRun?.message || 'Run DBA Capacity - Collect Metrics'}
+              title={collectorRun?.message || 'Run DBA Capacity - Collect Metrics'}
             >
               {collectorIsRunning || isQueueingCollector ? <LoaderCircle size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
               <span>{formatCollectorButtonLabel(collectorRun, isQueueingCollector, collectorDuration)}</span>
@@ -301,7 +289,7 @@ export default function DashboardPage() {
                       <td>{item.environment || '-'}</td>
                       <td>{item.serverName}</td>
                       <td onContextMenu={(event) => handleDatabaseContextMenu(event, item)}>
-                        <span className="database-name-cell" title={canEdit ? 'Right-click to edit CMDB ownership' : 'Editor role required to edit CMDB ownership'}>{item.databaseName}</span>
+                        <span className="database-name-cell" title="Right-click to edit CMDB ownership">{item.databaseName}</span>
                       </td>
                       <td>{formatStorageFromGb(item.currentSizeGb)}</td>
                       <td>{formatStorageFromGb(item.growth7DaysGb)}</td>

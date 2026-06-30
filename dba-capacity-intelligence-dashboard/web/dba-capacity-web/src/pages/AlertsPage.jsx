@@ -6,7 +6,6 @@ import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import RiskBadge from '../components/RiskBadge.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
-import { useAppAuth } from '../auth/AuthProvider.jsx';
 import { useTimezone } from '../components/TimezoneContext.jsx';
 import { formatDateTime, formatRemainingTimeFromDays, formatStorageFromGb } from '../components/formatters.js';
 import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
@@ -27,7 +26,6 @@ let queryPlanRendererPromise;
 
 export default function AlertsPage({ mode = 'active' }) {
   const { effectiveTimeZone } = useTimezone();
-  const { canEdit } = useAppAuth();
   const [alerts, setAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [containsFilter, setContainsFilter] = useState('');
@@ -86,11 +84,6 @@ export default function AlertsPage({ mode = 'active' }) {
   }
 
   async function handleDeleteAlert(alert) {
-    if (!canEdit) {
-      setError('Editor role is required to delete alerts.');
-      return;
-    }
-
     if (!alert.alertId) {
       setError('This alert cannot be deleted because it does not have an alert id.');
       return;
@@ -185,8 +178,7 @@ export default function AlertsPage({ mode = 'active' }) {
                             type="button"
                             className="secondary-action danger-action"
                             onClick={() => handleDeleteAlert(item)}
-                            disabled={!canEdit || !item.alertId}
-                            title={canEdit ? 'Delete alert' : 'Editor role required to delete alerts'}
+                            disabled={!item.alertId}
                           >
                             <Trash2 aria-hidden="true" size={14} />
                             Delete

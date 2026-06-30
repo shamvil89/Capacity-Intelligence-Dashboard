@@ -4,7 +4,6 @@ import CmdbEntryModal from '../components/CmdbEntryModal.jsx';
 import ColumnFilter from '../components/ColumnFilter.jsx';
 import DataState from '../components/DataState.jsx';
 import SortableHeader from '../components/SortableHeader.jsx';
-import { useAppAuth } from '../auth/AuthProvider.jsx';
 import { containsText, getSelectedFilterFields, nextSortState, sortRows } from '../components/tableUtils.js';
 import { api } from '../services/api.js';
 
@@ -41,7 +40,6 @@ const csvHeaders = [
 ];
 
 export default function CmdbPage() {
-  const { canEdit } = useAppAuth();
   const fileInputRef = useRef(null);
   const [entries, setEntries] = useState([]);
   const [containsFilter, setContainsFilter] = useState('');
@@ -90,11 +88,6 @@ export default function CmdbPage() {
   }
 
   async function handleDeleteMapping(entry) {
-    if (!canEdit) {
-      setStatus('Editor role is required to delete CMDB mappings.');
-      return;
-    }
-
     if (!entry.mappingId) {
       return;
     }
@@ -114,11 +107,6 @@ export default function CmdbPage() {
   }
 
   async function handleDeleteApplication(entry) {
-    if (!canEdit) {
-      setStatus('Editor role is required to delete CMDB applications.');
-      return;
-    }
-
     const confirmed = window.confirm(`Delete application '${entry.applicationName}' and all of its database mappings?`);
     if (!confirmed) {
       return;
@@ -154,11 +142,6 @@ export default function CmdbPage() {
       return;
     }
 
-    if (!canEdit) {
-      setStatus('Editor role is required to import CMDB rows.');
-      return;
-    }
-
     try {
       setStatus('Importing...');
       const text = await file.text();
@@ -180,7 +163,7 @@ export default function CmdbPage() {
           <p className="subtle">Application ownership and contact mapping for monitored databases.</p>
         </div>
         <div className="dashboard-toolbar-actions">
-          <button type="button" className="secondary-action" onClick={() => setEditor({ entry: null })} disabled={!canEdit} title={canEdit ? 'New CMDB entry' : 'Editor role required'}>
+          <button type="button" className="secondary-action" onClick={() => setEditor({ entry: null })}>
             <Plus aria-hidden="true" size={14} />
             New entry
           </button>
@@ -188,7 +171,7 @@ export default function CmdbPage() {
             <Download aria-hidden="true" size={14} />
             Export CSV
           </button>
-          <button type="button" className="secondary-action" onClick={() => fileInputRef.current?.click()} disabled={!canEdit} title={canEdit ? 'Import CMDB CSV' : 'Editor role required'}>
+          <button type="button" className="secondary-action" onClick={() => fileInputRef.current?.click()}>
             <Upload aria-hidden="true" size={14} />
             Import CSV
           </button>
@@ -254,17 +237,17 @@ export default function CmdbPage() {
                       <td>{entry.serviceNowGroup || '-'}</td>
                       <td>
                         <div className="row-actions">
-                          <button type="button" className="secondary-action" onClick={() => setEditor({ entry })} disabled={!canEdit} title={canEdit ? 'Edit CMDB row' : 'Editor role required'}>
+                          <button type="button" className="secondary-action" onClick={() => setEditor({ entry })}>
                             <Pencil aria-hidden="true" size={14} />
                             Edit
                           </button>
                           {entry.mappingId ? (
-                            <button type="button" className="secondary-action danger-action" onClick={() => handleDeleteMapping(entry)} disabled={!canEdit}>
+                            <button type="button" className="secondary-action danger-action" onClick={() => handleDeleteMapping(entry)}>
                               <Trash2 aria-hidden="true" size={14} />
                               Mapping
                             </button>
                           ) : null}
-                          <button type="button" className="secondary-action danger-action" onClick={() => handleDeleteApplication(entry)} disabled={!canEdit}>
+                          <button type="button" className="secondary-action danger-action" onClick={() => handleDeleteApplication(entry)}>
                             <Trash2 aria-hidden="true" size={14} />
                             App
                           </button>

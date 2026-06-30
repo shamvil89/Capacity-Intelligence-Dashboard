@@ -1,13 +1,10 @@
 using DBA.Capacity.Api.Models;
-using DBA.Capacity.Api.Security;
 using DBA.Capacity.Api.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DBA.Capacity.Api.Controllers;
 
 [ApiController]
-[Authorize(Policy = AuthorizationPolicies.Reader)]
 [Route("api/collector-run")]
 public sealed class CollectorRunController(ICollectorRunService collectorRunService) : ControllerBase
 {
@@ -20,7 +17,6 @@ public sealed class CollectorRunController(ICollectorRunService collectorRunServ
     }
 
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(typeof(CollectorRunStatus), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(CollectorRunStatus), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<CollectorRunStatus>> QueueRun(CancellationToken cancellationToken)

@@ -1,13 +1,10 @@
 using DBA.Capacity.Api.Models;
-using DBA.Capacity.Api.Security;
 using DBA.Capacity.Api.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DBA.Capacity.Api.Controllers;
 
 [ApiController]
-[Authorize(Policy = AuthorizationPolicies.Reader)]
 [Route("api/alerts")]
 public sealed class AlertsController(IAlertService alertService) : ControllerBase
 {
@@ -28,7 +25,6 @@ public sealed class AlertsController(IAlertService alertService) : ControllerBas
     }
 
     [HttpDelete("{alertId:long}")]
-    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteAlert(long alertId, CancellationToken cancellationToken = default)
