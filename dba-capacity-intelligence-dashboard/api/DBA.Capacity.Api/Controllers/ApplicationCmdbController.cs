@@ -1,10 +1,13 @@
 using DBA.Capacity.Api.Models;
+using DBA.Capacity.Api.Security;
 using DBA.Capacity.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DBA.Capacity.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = AuthorizationPolicies.Reader)]
 [Route("api/cmdb")]
 public sealed class ApplicationCmdbController(IApplicationCmdbService cmdbService) : ControllerBase
 {
@@ -37,6 +40,7 @@ public sealed class ApplicationCmdbController(IApplicationCmdbService cmdbServic
     }
 
     [HttpPut("applications")]
+    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(typeof(ApplicationCmdbEntryItem), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApplicationCmdbEntryItem>> UpsertApplication(
@@ -58,6 +62,7 @@ public sealed class ApplicationCmdbController(IApplicationCmdbService cmdbServic
     }
 
     [HttpPost("applications/import")]
+    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(typeof(IReadOnlyList<ApplicationCmdbEntryItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<ApplicationCmdbEntryItem>>> ImportApplications(
@@ -100,6 +105,7 @@ public sealed class ApplicationCmdbController(IApplicationCmdbService cmdbServic
     }
 
     [HttpDelete("database-mappings/{mappingId:int}")]
+    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteMapping(int mappingId, CancellationToken cancellationToken)
@@ -109,6 +115,7 @@ public sealed class ApplicationCmdbController(IApplicationCmdbService cmdbServic
     }
 
     [HttpDelete("applications/{applicationId:int}")]
+    [Authorize(Policy = AuthorizationPolicies.Editor)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteApplication(int applicationId, CancellationToken cancellationToken)

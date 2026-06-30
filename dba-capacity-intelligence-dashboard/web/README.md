@@ -22,6 +22,7 @@ web/dba-capacity-web
 | Charts | Recharts |
 | Icons | Lucide React |
 | Query plans | `html-query-plan` |
+| SSO | Microsoft Authentication Library for React/MSAL Browser |
 | Hosting | IIS static site |
 | Pipeline | `pipelines/deploy-web.yml` |
 
@@ -44,6 +45,8 @@ The environment filter uses values populated by `pipelines/onboard-server.yml`: 
 | --- | --- |
 | `src/main.jsx` | Starts React, HashRouter, and timezone provider. |
 | `src/App.jsx` | Defines route structure. |
+| `src/auth/AuthProvider.jsx` | Optional Entra SSO gate, token acquisition, and UI role helpers. |
+| `src/auth/authConfig.js` | Vite-driven MSAL and RBAC role configuration. |
 | `src/components/Layout.jsx` | App shell, navigation, header, and timezone selector. |
 | `src/components/TimezoneContext.jsx` | Stores selected UI time zone in local storage. |
 | `src/components/formatters.js` | Number and date formatting. Treats repository timestamps as UTC. |
@@ -136,6 +139,32 @@ VITE_API_BASE_URL = http://localhost:5088/api
 ```
 
 This is a build-time value. If it changes, rebuild and redeploy the web app.
+
+## SSO And RBAC
+
+Set `VITE_AUTH_ENABLED=true` to require Microsoft Entra ID sign-in. The web app uses MSAL to get an access token for `VITE_ENTRA_API_SCOPE` and sends it to the API as a bearer token.
+
+Required web build variables when SSO is enabled:
+
+```text
+VITE_AUTH_ENABLED=true
+VITE_ENTRA_CLIENT_ID=<web-spa-app-client-id>
+VITE_ENTRA_TENANT_ID=<tenant-id>
+VITE_ENTRA_API_SCOPE=api://<api-app-client-id>/Dashboard.Access
+VITE_RBAC_ADMIN_ROLES=DBA.Capacity.Admin
+VITE_RBAC_EDITOR_ROLES=DBA.Capacity.Editor
+VITE_RBAC_READER_ROLES=DBA.Capacity.Reader
+```
+
+UI role behavior:
+
+| Role | UI behavior |
+| --- | --- |
+| Reader | Can view pages; privileged action buttons are disabled. |
+| Editor | Can run collector, delete alerts, and edit/import/delete CMDB. |
+| Admin | Can also save and reset alert thresholds. |
+
+The API is the source of enforcement. The web role checks only prevent confusing buttons from appearing or being clickable.
 
 ## Time Zone Behavior
 

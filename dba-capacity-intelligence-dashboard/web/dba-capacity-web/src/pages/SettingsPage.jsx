@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RotateCcw, Save } from 'lucide-react';
+import { useAppAuth } from '../auth/AuthProvider.jsx';
 import DataState from '../components/DataState.jsx';
 import { api } from '../services/api.js';
 
 export default function SettingsPage() {
+  const { canAdmin } = useAppAuth();
   const [thresholds, setThresholds] = useState([]);
   const [draftValues, setDraftValues] = useState({});
   const [rowStatus, setRowStatus] = useState({});
@@ -73,6 +75,11 @@ export default function SettingsPage() {
   }
 
   async function saveThreshold(row) {
+    if (!canAdmin) {
+      setRowStatus((current) => ({ ...current, [row.settingId]: 'Admin role is required to change thresholds.' }));
+      return;
+    }
+
     const draftValue = draftValues[row.settingId] ?? '';
     const validationError = validateThresholdValue(row, draftValue);
 
@@ -95,6 +102,11 @@ export default function SettingsPage() {
   }
 
   async function resetThreshold(row) {
+    if (!canAdmin) {
+      setRowStatus((current) => ({ ...current, [row.settingId]: 'Admin role is required to reset thresholds.' }));
+      return;
+    }
+
     setRowStatus((current) => ({ ...current, [row.settingId]: 'Resetting...' }));
 
     try {
@@ -128,6 +140,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="table-panel">
+        {!canAdmin ? (
+          <div className="state-box role-warning">Admin role is required to save or reset alert thresholds.</div>
+        ) : null}
         <div className="table-controls">
           <label className="search-control">
             <span>Contains</span>
@@ -182,6 +197,7 @@ export default function SettingsPage() {
                                   min={row.minimumValueDecimal ?? undefined}
                                   max={row.maximumValueDecimal ?? undefined}
                                   value={draftValue}
+                                  disabled={!canAdmin}
                                   onChange={(event) => updateDraft(row.settingId, event.target.value)}
                                 />
                                 <span>{row.unit || '-'}</span>
@@ -196,7 +212,7 @@ export default function SettingsPage() {
                                 <button
                                   type="button"
                                   className="secondary-action"
-                                  disabled={!hasChange || Boolean(validationError) || isBusy}
+                                  disabled={!canAdmin || !hasChange || Boolean(validationError) || isBusy}
                                   onClick={() => saveThreshold(row)}
                                 >
                                   <Save aria-hidden="true" size={14} />
@@ -205,7 +221,7 @@ export default function SettingsPage() {
                                 <button
                                   type="button"
                                   className="secondary-action"
-                                  disabled={isBusy || Number(row.settingValueDecimal) === Number(row.defaultValueDecimal)}
+                                  disabled={!canAdmin || isBusy || Number(row.settingValueDecimal) === Number(row.defaultValueDecimal)}
                                   onClick={() => resetThreshold(row)}
                                 >
                                   <RotateCcw aria-hidden="true" size={14} />

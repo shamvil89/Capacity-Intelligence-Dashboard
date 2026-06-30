@@ -60,6 +60,14 @@ jobs:
         workingDirectory: $(webDirectory)
         env:
           VITE_API_BASE_URL: $(VITE_API_BASE_URL)
+          VITE_AUTH_ENABLED: $(VITE_AUTH_ENABLED)
+          VITE_ENTRA_CLIENT_ID: $(VITE_ENTRA_CLIENT_ID)
+          VITE_ENTRA_TENANT_ID: $(VITE_ENTRA_TENANT_ID)
+          VITE_ENTRA_AUTHORITY: $(VITE_ENTRA_AUTHORITY)
+          VITE_ENTRA_API_SCOPE: $(VITE_ENTRA_API_SCOPE)
+          VITE_RBAC_ADMIN_ROLES: $(VITE_RBAC_ADMIN_ROLES)
+          VITE_RBAC_EDITOR_ROLES: $(VITE_RBAC_EDITOR_ROLES)
+          VITE_RBAC_READER_ROLES: $(VITE_RBAC_READER_ROLES)
 
       - task: PublishPipelineArtifact@1
         displayName: Publish web artifact

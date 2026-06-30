@@ -1,10 +1,13 @@
 using DBA.Capacity.Api.Models;
+using DBA.Capacity.Api.Security;
 using DBA.Capacity.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DBA.Capacity.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = AuthorizationPolicies.Reader)]
 [Route("api/settings")]
 public sealed class SettingsController(ISettingsService settingsService) : ControllerBase
 {
@@ -17,6 +20,7 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     }
 
     [HttpPut("alert-thresholds/{settingId:int}")]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
     [ProducesResponseType(typeof(AlertThresholdSettingItem), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -46,6 +50,7 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     }
 
     [HttpPost("alert-thresholds/{settingId:int}/reset")]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
     [ProducesResponseType(typeof(AlertThresholdSettingItem), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<AlertThresholdSettingItem>> ResetAlertThreshold(int settingId, CancellationToken cancellationToken)

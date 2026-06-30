@@ -22,8 +22,8 @@ React Dashboard Web App
 
 - SQL Server repository scripts for tables, procedures, forecast logic, alerts, views, and seed data.
 - PowerShell collectors for database size, file size, disk space, table size, backup size, and TempDB usage.
-- ASP.NET Core Web API with Dapper, Swagger, CORS, and error handling middleware.
-- React Vite admin dashboard with summary cards, filtering, detail chart, top tables, and alerts.
+- ASP.NET Core Web API with Dapper, Swagger, CORS, Entra JWT validation, RBAC policies, and error handling middleware.
+- React Vite admin dashboard with MSAL SSO, role-aware controls, summary cards, filtering, detail chart, top tables, and alerts.
 - Azure DevOps YAMLs for collection and build/deployment workflows.
 - Setup and architecture documentation.
 
@@ -171,6 +171,13 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `SQL_PASSWORD`
 - `SOURCE_SQL_CREDENTIALS_JSON`
 - `VITE_API_BASE_URL`
+- `VITE_AUTH_ENABLED`
+- `VITE_ENTRA_CLIENT_ID`
+- `VITE_ENTRA_TENANT_ID`
+- `VITE_ENTRA_API_SCOPE`
+- `VITE_RBAC_ADMIN_ROLES`
+- `VITE_RBAC_EDITOR_ROLES`
+- `VITE_RBAC_READER_ROLES`
 - `IIS_API_SITE_NAME`
 - `IIS_API_APP_POOL`
 - `IIS_API_PHYSICAL_PATH`
@@ -185,6 +192,12 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `IIS_ASPNETCORE_HOSTING_BUNDLE_URL`
 - `DBA_API_CONNECTION_STRING`
 - `DBA_API_ALLOWED_ORIGINS`
+- `AUTH_ENABLED`
+- `ENTRA_TENANT_ID`
+- `ENTRA_API_AUDIENCE`
+- `RBAC_ADMIN_ROLES`
+- `RBAC_EDITOR_ROLES`
+- `RBAC_READER_ROLES`
 - `AZDO_ORGANIZATION`
 - `AZDO_PROJECT`
 - `AZDO_COLLECTOR_PIPELINE_ID`
@@ -281,8 +294,9 @@ The API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName
 - The API reads only from the central DBAUtility database.
 - SQL credentials are not committed to Git.
 - Use pipeline secret variables for collector credentials.
-- TODO: Add Azure AD / Entra ID authentication.
-- TODO: Add role-based access.
+- Set `AUTH_ENABLED=true` and `VITE_AUTH_ENABLED=true` to require Microsoft Entra ID SSO.
+- The API enforces Reader, Editor, and Admin RBAC policies. The web mirrors those roles for button visibility and disabled states.
+- Use Entra app roles or Entra group object ids in `RBAC_*` and `VITE_RBAC_*`.
 - TODO: Use Managed Identity.
 - TODO: Store secrets in Key Vault.
 
@@ -315,11 +329,11 @@ Alert More info uses the CMDB mapping to add ProdOps, application owner, busines
 - SQL authentication is used for the MVP collector path.
 - Disk-space-to-database mapping is conservative and server-level.
 - Forecasting uses simple historical deltas rather than seasonal modeling.
-- No authentication is enforced yet in the API or frontend.
+- Entra SSO requires customer app registrations and role/group assignment before production enablement.
 
 ## Future Enhancements
 
-- Azure AD login
+- Managed Identity support for API, collector, and Azure SQL token acquisition
 - Teams alerts
 - Email alerts
 - ServiceNow/Jira ticket creation

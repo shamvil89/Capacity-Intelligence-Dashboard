@@ -140,7 +140,38 @@ Important security points:
 - The API stores the Azure DevOps PAT server-side in production configuration written by the deploy pipeline.
 - The dashboard user does not need Azure DevOps pipeline permission to use the Run collector button.
 - The web app receives dashboard JSON only.
-- The current MVP does not enforce user login or role-based authorization.
+- Microsoft Entra ID SSO can protect the web app and API.
+- Role-based authorization is enforced in the API and mirrored in the UI.
+
+### SSO And RBAC Model
+
+The app supports Microsoft Entra ID SSO with JWT bearer validation in the ASP.NET Core API and MSAL sign-in in the React web app.
+
+Authorization is intentionally role-name configurable so customer environments can use either Entra app roles or Entra group object ids in token claims.
+
+Default roles:
+
+| Role | Default claim value | Allowed actions |
+| --- | --- | --- |
+| Reader | `DBA.Capacity.Reader` | View dashboard, database details, top tables, alerts, alert history, CMDB, settings, servers, and collector status. |
+| Editor | `DBA.Capacity.Editor` | Reader actions plus run collector, delete/retire alerts, and add/edit/delete/import CMDB mappings. |
+| Admin | `DBA.Capacity.Admin` | Editor actions plus save/reset alert threshold settings. |
+
+The API accepts matching values from `roles`, `role`, `groups`, `wids`, or standard role claims. If a customer prefers group-based access, put the Entra group object ids into `RBAC_READER_ROLES`, `RBAC_EDITOR_ROLES`, and `RBAC_ADMIN_ROLES`, and into the matching `VITE_RBAC_*` variables for the web build.
+
+SSO is disabled by default for local development. Enable it for customer deployment with:
+
+```text
+AUTH_ENABLED = true
+VITE_AUTH_ENABLED = true
+```
+
+When enabled:
+
+- `GET` endpoints require Reader, Editor, or Admin.
+- Operational write endpoints require Editor or Admin.
+- Threshold write endpoints require Admin.
+- `/health`, `/swagger`, and `/` remain reachable so deployment validation still works.
 
 ## 6. Repository Database
 
@@ -612,6 +643,14 @@ Important API variables:
 | `IIS_REMOTE_PASSWORD` | Secret password for `IIS_REMOTE_USER`. Leave empty for gMSA/current-identity remoting. |
 | `IIS_REMOTE_STAGING_PATH` | Optional remote staging folder. Default is `C:\Windows\Temp\dba-capacity-deploy`. |
 | `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` | Optional .NET 9 Windows Hosting Bundle URL. Defaults to `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe`. |
+| `AUTH_ENABLED` | Set `true` to enforce Entra ID JWT validation and role policies in the API. |
+| `ENTRA_TENANT_ID` | Customer tenant id. Used to build the API authority when `ENTRA_API_AUTHORITY` is empty. |
+| `ENTRA_API_AUTHORITY` | Optional full authority, for example `https://login.microsoftonline.com/<tenant-id>/v2.0`. |
+| `ENTRA_API_AUDIENCE` | API application id URI or client id expected in the access token audience, for example `api://<api-app-client-id>`. |
+| `AUTH_REQUIRE_HTTPS_METADATA` | Keep `true` for production. Use `false` only for isolated non-production identity lab testing. |
+| `RBAC_ADMIN_ROLES` | Comma- or semicolon-separated app role names or group object ids accepted as Admin. |
+| `RBAC_EDITOR_ROLES` | Comma- or semicolon-separated app role names or group object ids accepted as Editor. |
+| `RBAC_READER_ROLES` | Comma- or semicolon-separated app role names or group object ids accepted as Reader. |
 
 Example:
 
@@ -619,6 +658,12 @@ Example:
 DBA_API_CONNECTION_STRING = Server=.;Database=DBAUtility;Trusted_Connection=True;TrustServerCertificate=True;
 DBA_API_ALLOWED_ORIGINS = https://dba-capacity.contoso.local
 IIS_API_PORT = 5088
+AUTH_ENABLED = true
+ENTRA_TENANT_ID = 11111111-2222-3333-4444-555555555555
+ENTRA_API_AUDIENCE = api://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+RBAC_ADMIN_ROLES = DBA.Capacity.Admin
+RBAC_EDITOR_ROLES = DBA.Capacity.Editor
+RBAC_READER_ROLES = DBA.Capacity.Reader
 ```
 
 Remote IIS deployment is controlled by queue-time parameters, not by editing the YAML:
@@ -680,6 +725,56 @@ VITE_API_BASE_URL = http://localhost:5088/api
 ```
 
 This value is compiled into the static web build. If the API URL changes, rebuild and redeploy the web app.
+
+When SSO is enabled, the web app also needs these build-time values:
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_AUTH_ENABLED` | Set `true` to show Entra sign-in and send API bearer tokens. |
+| `VITE_ENTRA_CLIENT_ID` | SPA/web app registration client id. |
+| `VITE_ENTRA_TENANT_ID` | Customer tenant id. |
+| `VITE_ENTRA_AUTHORITY` | Optional full authority override. Leave empty when `VITE_ENTRA_TENANT_ID` is set. |
+| `VITE_ENTRA_API_SCOPE` | Delegated API scope exposed by the API app registration, for example `api://<api-app-client-id>/Dashboard.Access`. |
+| `VITE_RBAC_ADMIN_ROLES` | Comma- or semicolon-separated Admin role names/group ids used for UI controls. Match `RBAC_ADMIN_ROLES`. |
+| `VITE_RBAC_EDITOR_ROLES` | Comma- or semicolon-separated Editor role names/group ids used for UI controls. Match `RBAC_EDITOR_ROLES`. |
+| `VITE_RBAC_READER_ROLES` | Comma- or semicolon-separated Reader role names/group ids used for UI controls. Match `RBAC_READER_ROLES`. |
+
+Example:
+
+```text
+VITE_AUTH_ENABLED = true
+VITE_ENTRA_CLIENT_ID = ffffffff-1111-2222-3333-444444444444
+VITE_ENTRA_TENANT_ID = 11111111-2222-3333-4444-555555555555
+VITE_ENTRA_API_SCOPE = api://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/Dashboard.Access
+VITE_RBAC_ADMIN_ROLES = DBA.Capacity.Admin
+VITE_RBAC_EDITOR_ROLES = DBA.Capacity.Editor
+VITE_RBAC_READER_ROLES = DBA.Capacity.Reader
+```
+
+Because Vite variables are compiled into the static files, changing any `VITE_*` value requires rerunning `DBA Capacity - Deploy Web`.
+
+### Entra App Registration Setup
+
+Use two app registrations:
+
+| App registration | Platform/API role |
+| --- | --- |
+| DBA Capacity API | Exposes the delegated API scope and app roles. The API validates access tokens issued for this app. |
+| DBA Capacity Web | Single-page application registration used by MSAL in the browser. It requests the API scope. |
+
+Recommended setup:
+
+1. Create `DBA Capacity API` app registration.
+2. Set an application id URI, for example `api://<api-app-client-id>`.
+3. Expose a delegated scope named `Dashboard.Access`.
+4. Add app roles named `DBA.Capacity.Reader`, `DBA.Capacity.Editor`, and `DBA.Capacity.Admin` for users/groups.
+5. Assign users or groups to those app roles through Enterprise Applications.
+6. Create `DBA Capacity Web` app registration.
+7. Add a Single-page application redirect URI for the dashboard URL, for example `https://dba-capacity.contoso.local/`.
+8. Add API permission for `DBA Capacity API` -> `Dashboard.Access`.
+9. Grant admin consent if the customer tenant requires it.
+10. Put the API app id URI in `ENTRA_API_AUDIENCE`.
+11. Put the delegated scope in `VITE_ENTRA_API_SCOPE`.
 
 ### IIS Routing
 
@@ -810,6 +905,14 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `SQL_PASSWORD` | Yes | `********` | Password for `SQL_USER`. |
 | `SOURCE_SQL_CREDENTIALS_JSON` | Yes | JSON map | Source SQL credential map. |
 | `VITE_API_BASE_URL` | No | `http://localhost:5088/api` | API URL compiled into web app. |
+| `VITE_AUTH_ENABLED` | No | `true` | Enables browser SSO in the web build. |
+| `VITE_ENTRA_CLIENT_ID` | No | SPA app client id | Entra app registration client id for the web app. |
+| `VITE_ENTRA_TENANT_ID` | No | Tenant id | Customer tenant id for browser sign-in. |
+| `VITE_ENTRA_AUTHORITY` | No | Full authority URL | Optional authority override. Leave empty when tenant id is set. |
+| `VITE_ENTRA_API_SCOPE` | No | `api://<api-app-id>/Dashboard.Access` | Delegated API scope requested by MSAL. |
+| `VITE_RBAC_ADMIN_ROLES` | No | `DBA.Capacity.Admin` | Admin role/group claims used by the UI. |
+| `VITE_RBAC_EDITOR_ROLES` | No | `DBA.Capacity.Editor` | Editor role/group claims used by the UI. |
+| `VITE_RBAC_READER_ROLES` | No | `DBA.Capacity.Reader` | Reader role/group claims used by the UI. |
 | `IIS_API_SITE_NAME` | No | `DBA Capacity API` | API IIS site name. |
 | `IIS_API_APP_POOL` | No | `DBACapacityApi` | API app pool. |
 | `IIS_API_PHYSICAL_PATH` | No | `C:\inetpub\dba-capacity-api` | API deploy path. |
@@ -824,6 +927,14 @@ Pipelines -> Library -> Variable groups -> New variable group
 | `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` | No | `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe` | Optional override for the API pipeline's hosting bundle download. Use an internal mirror when IIS servers cannot reach Microsoft download endpoints. |
 | `DBA_API_CONNECTION_STRING` | Yes | SQL connection string | API connection to `DBAUtility`. |
 | `DBA_API_ALLOWED_ORIGINS` | No | `https://dba-capacity.contoso.local` | Dashboard browser origin allowed by API CORS. Use the dashboard server name or DNS alias. |
+| `AUTH_ENABLED` | No | `true` | Enables API-side Entra JWT validation and RBAC policies. |
+| `ENTRA_TENANT_ID` | No | Tenant id | Customer tenant id used by the API authority if no full authority is supplied. |
+| `ENTRA_API_AUTHORITY` | No | Full authority URL | Optional API authority override. |
+| `ENTRA_API_AUDIENCE` | No | `api://<api-app-id>` | Expected access token audience for the API. |
+| `AUTH_REQUIRE_HTTPS_METADATA` | No | `true` | Requires HTTPS OpenID metadata. Keep true in production. |
+| `RBAC_ADMIN_ROLES` | No | `DBA.Capacity.Admin` | Admin app role names or group object ids enforced by the API. |
+| `RBAC_EDITOR_ROLES` | No | `DBA.Capacity.Editor` | Editor app role names or group object ids enforced by the API. |
+| `RBAC_READER_ROLES` | No | `DBA.Capacity.Reader` | Reader app role names or group object ids enforced by the API. |
 | `AZDO_ORGANIZATION` | No | `customer-org` | Azure DevOps organization used by the API to trigger the collector pipeline. |
 | `AZDO_PROJECT` | No | `CustomerProject` | Azure DevOps project containing the collector pipeline. |
 | `AZDO_COLLECTOR_PIPELINE_NAME` | No | `DBA Capacity - Collect Metrics` | Pipeline name used when the numeric pipeline id is not set. |
@@ -1599,6 +1710,42 @@ Mark these variables secret:
 - `DBA_API_CONNECTION_STRING`
 - `AZDO_PAT`
 
+Create SSO/RBAC app registrations before filling the SSO values:
+
+1. Create the API app registration and expose `Dashboard.Access`.
+2. Add app roles or choose Entra group object ids for Reader, Editor, and Admin.
+3. Create the web SPA app registration and add the dashboard URL as a redirect URI.
+4. Grant the web app permission to the API scope.
+5. Assign customer users/groups to the API app roles or selected groups.
+
+Add the API SSO values:
+
+```text
+AUTH_ENABLED = true
+ENTRA_TENANT_ID = <customer-tenant-id>
+ENTRA_API_AUDIENCE = api://<api-app-client-id-or-app-id-uri>
+AUTH_REQUIRE_HTTPS_METADATA = true
+RBAC_ADMIN_ROLES = DBA.Capacity.Admin
+RBAC_EDITOR_ROLES = DBA.Capacity.Editor
+RBAC_READER_ROLES = DBA.Capacity.Reader
+```
+
+If using Entra group object ids instead of app role names, put the group object ids in the three `RBAC_*` variables.
+
+Add the web SSO values:
+
+```text
+VITE_AUTH_ENABLED = true
+VITE_ENTRA_CLIENT_ID = <web-spa-app-client-id>
+VITE_ENTRA_TENANT_ID = <customer-tenant-id>
+VITE_ENTRA_API_SCOPE = api://<api-app-client-id-or-app-id-uri>/Dashboard.Access
+VITE_RBAC_ADMIN_ROLES = DBA.Capacity.Admin
+VITE_RBAC_EDITOR_ROLES = DBA.Capacity.Editor
+VITE_RBAC_READER_ROLES = DBA.Capacity.Reader
+```
+
+Keep `VITE_RBAC_*` aligned with `RBAC_*`. The API enforces access; the web variables only show or hide UI controls.
+
 Add the dashboard-trigger variables:
 
 ```text
@@ -1791,9 +1938,9 @@ Validate:
 ```text
 http://<iis-host>:<api-port>/health
 http://<iis-host>:<api-port>/swagger
-http://<iis-host>:<api-port>/api/dashboard/summary
-http://<iis-host>:<api-port>/api/collector-run
 ```
+
+When `AUTH_ENABLED=true`, direct browser calls to `/api/dashboard/summary` and `/api/collector-run` return `401` unless you supply a valid bearer token. Validate protected API data through the signed-in dashboard or use Swagger with an Entra access token.
 
 For local default values:
 
@@ -1919,16 +2066,21 @@ Provide the customer:
 - App pool exists and is running.
 - `/health` returns healthy.
 - `/swagger` loads.
-- `/api/dashboard/summary` returns JSON.
-- `/api/collector-run` returns JSON.
+- If `AUTH_ENABLED=false`, `/api/dashboard/summary` and `/api/collector-run` return JSON directly.
+- If `AUTH_ENABLED=true`, protected API endpoints return `401` without a bearer token and return JSON through signed-in web or Swagger bearer authorization.
 - `/api/collector-run` shows `isConfigured = true` after Azure DevOps variables are configured.
 - API can read `DBAUtility`.
+- API `appsettings.Production.json` contains `Authentication` and `Authorization` sections when SSO is enabled.
 
 ### Web
 
 - IIS site exists.
 - Static files exist in web physical path.
 - Dashboard loads.
+- SSO redirects to Microsoft Entra ID when `VITE_AUTH_ENABLED=true`.
+- Reader users can view pages but cannot run collector, delete alerts, edit CMDB, or save settings.
+- Editor users can run collector, delete alerts, and edit/import CMDB.
+- Admin users can save and reset alert threshold settings.
 - API calls succeed from browser.
 - Environment filter can isolate `Production`, `Development`, `Test`, `QA`, `UAT`, and `DR` inventory.
 - Time zone selector changes displayed times.
@@ -1948,6 +2100,38 @@ Provide the customer:
 - API deploy was rerun after changing Azure DevOps trigger variables.
 
 ## 17. Troubleshooting
+
+### SSO sign-in succeeds but API returns 401
+
+Common causes:
+
+- `VITE_ENTRA_API_SCOPE` points to the wrong API scope.
+- `ENTRA_API_AUDIENCE` does not match the token `aud` value.
+- API was not redeployed after changing `AUTH_ENABLED`, `ENTRA_*`, or `RBAC_*` variables.
+- Web was not rebuilt after changing `VITE_*` variables.
+
+Fix:
+
+1. Confirm the API app registration exposes the scope used by `VITE_ENTRA_API_SCOPE`.
+2. Confirm `ENTRA_API_AUDIENCE` matches the API application id URI or API client id configured in Entra.
+3. Run `DBA Capacity - Deploy API`.
+4. Run `DBA Capacity - Deploy Web`.
+5. Sign out and sign in again.
+
+### SSO sign-in succeeds but page says access is not assigned
+
+Common causes:
+
+- User or group is not assigned to a configured app role.
+- The app uses Entra groups, but the `RBAC_*` and `VITE_RBAC_*` variables do not contain the group object ids.
+- Role names in `RBAC_*` do not match role claim values in the token.
+
+Fix:
+
+1. Assign the user or group to `DBA.Capacity.Reader`, `DBA.Capacity.Editor`, or `DBA.Capacity.Admin`.
+2. If using groups, copy the group object ids into both API and web role variables.
+3. Redeploy API and web.
+4. Sign out and sign in again so the browser receives a fresh token.
 
 ### IIS deployment requires local Administrator
 
@@ -2253,8 +2437,9 @@ Do not drop history tables unless the customer confirms data loss is acceptable.
 
 Before using this as a production customer service, review these items:
 
-- Add Entra ID or Windows authentication to the API and frontend.
-- Add role-based authorization.
+- Require Entra ID SSO for production by setting `AUTH_ENABLED=true` and `VITE_AUTH_ENABLED=true`.
+- Use Entra app roles or tightly scoped Entra groups, and document Reader, Editor, and Admin ownership.
+- Schedule access reviews for the configured Reader, Editor, and Admin assignments.
 - Move secrets to Azure Key Vault or customer-approved vault.
 - Use dedicated SQL logins or domain service accounts for each responsibility.
 - Split deployment, collector, and API identities.

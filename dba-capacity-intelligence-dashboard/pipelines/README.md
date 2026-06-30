@@ -75,8 +75,18 @@ Important variables:
 | `SQL_PASSWORD` | Yes | Password for `SQL_USER`. |
 | `SOURCE_SQL_CREDENTIALS_JSON` | Yes | Source credential key map. |
 | `VITE_API_BASE_URL` | No | API URL compiled into React app. |
+| `VITE_AUTH_ENABLED` | No | Enables Entra SSO in the web build. |
+| `VITE_ENTRA_CLIENT_ID` | No | Web SPA app registration client id. |
+| `VITE_ENTRA_TENANT_ID` | No | Customer tenant id for browser sign-in. |
+| `VITE_ENTRA_API_SCOPE` | No | Delegated API scope requested by the web app. |
+| `VITE_RBAC_*` | No | Web-side Reader/Editor/Admin role or group claim values. |
 | `DBA_API_CONNECTION_STRING` | Yes | API connection string. |
 | `DBA_API_ALLOWED_ORIGINS` | No | Semicolon-separated dashboard browser origins, for example `https://dba-capacity.contoso.local` or `http://dba-capacity-web`. |
+| `AUTH_ENABLED` | No | Enables API-side Entra JWT validation and RBAC. |
+| `ENTRA_TENANT_ID` | No | Customer tenant id used for API authority when `ENTRA_API_AUTHORITY` is empty. |
+| `ENTRA_API_AUTHORITY` | No | Optional full authority URL. |
+| `ENTRA_API_AUDIENCE` | No | API audience expected in access tokens. |
+| `RBAC_*` | No | API-enforced Reader/Editor/Admin app role names or group object ids. |
 | `AZDO_ORGANIZATION` | No | Azure DevOps organization used by the dashboard Run collector button. |
 | `AZDO_PROJECT` | No | Azure DevOps project containing the collector pipeline. |
 | `AZDO_COLLECTOR_PIPELINE_ID` | No | Numeric id of `DBA Capacity - Collect Metrics`; preferred when known. |
@@ -203,6 +213,19 @@ AZDO_COLLECTOR_PIPELINE_NAME
 AZDO_PAT
 ```
 
+SSO/RBAC settings written by this pipeline:
+
+```text
+AUTH_ENABLED
+ENTRA_TENANT_ID
+ENTRA_API_AUTHORITY
+ENTRA_API_AUDIENCE
+AUTH_REQUIRE_HTTPS_METADATA
+RBAC_ADMIN_ROLES
+RBAC_EDITOR_ROLES
+RBAC_READER_ROLES
+```
+
 Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, and grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics`.
 
 In `Local` mode, the selected agent service must run as local administrator on the IIS server. In `Remote` mode, the remoting identity must be local administrator on `iisHostName`.
@@ -232,7 +255,7 @@ What it does:
 4. Publishes the `dist` artifact.
 5. Deploys static files to IIS.
 
-The web app is static. The API URL is compiled at build time using `VITE_API_BASE_URL`.
+The web app is static. The API URL and SSO settings are compiled at build time using `VITE_API_BASE_URL`, `VITE_AUTH_ENABLED`, `VITE_ENTRA_*`, and `VITE_RBAC_*`. Rerun Deploy Web after changing any `VITE_*` value.
 
 Queue-time deployment selection:
 

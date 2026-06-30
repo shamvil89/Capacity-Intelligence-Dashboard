@@ -20,6 +20,7 @@ api/DBA.Capacity.Api/
 | Language | C# |
 | SQL access | Dapper |
 | Database driver | Microsoft.Data.SqlClient |
+| Authentication | Microsoft Entra ID JWT bearer, optional by config |
 | Documentation | Swagger |
 | Hosting target | IIS with ASP.NET Core Hosting Bundle |
 | Pipeline | `pipelines/deploy-api.yml` |
@@ -48,6 +49,7 @@ flowchart LR
 | `Models/` | Response DTOs returned to the frontend. |
 | `Data/SqlConnectionFactory.cs` | Creates SQL Server connections from configuration. |
 | `Middleware/ErrorHandlingMiddleware.cs` | Converts unexpected exceptions into friendly API errors. |
+| `Security/AuthorizationPolicies.cs` | Shared Reader, Editor, and Admin policy names. |
 
 ## Controllers And Endpoints
 
@@ -62,6 +64,20 @@ flowchart LR
 | `ServersController` | `GET /api/servers` | Active server inventory. |
 | `Program.cs` | `GET /health` | Health endpoint used after deployment. |
 | `Program.cs` | `GET /swagger` | Swagger UI. |
+
+## SSO And RBAC
+
+SSO is disabled by default for local development. In customer deployments, set `AUTH_ENABLED=true` through the API deploy pipeline variable group.
+
+Default role claim values:
+
+| Policy | Accepted default claim | Purpose |
+| --- | --- | --- |
+| Reader | `DBA.Capacity.Reader` | View dashboard, capacity, alerts, CMDB, settings, servers, and collector status. |
+| Editor | `DBA.Capacity.Editor` | Reader plus run collector, delete alerts, and edit/import/delete CMDB. |
+| Admin | `DBA.Capacity.Admin` | Editor plus save/reset alert thresholds. |
+
+The API checks `roles`, `role`, `groups`, `wids`, and standard role claims. For group-based RBAC, set the `RBAC_*` variables to Entra group object ids.
 
 ## Configuration
 
@@ -78,6 +94,17 @@ Key configuration values:
     "AllowedOrigins": [
       "http://localhost:8080"
     ]
+  },
+  "Authentication": {
+    "Enabled": true,
+    "Authority": "https://login.microsoftonline.com/<tenant-id>/v2.0",
+    "Audience": "api://<api-app-client-id>",
+    "RequireHttpsMetadata": true
+  },
+  "Authorization": {
+    "AdminRoles": [ "DBA.Capacity.Admin" ],
+    "EditorRoles": [ "DBA.Capacity.Editor" ],
+    "ReaderRoles": [ "DBA.Capacity.Reader" ]
   }
 }
 ```
@@ -88,6 +115,13 @@ In pipeline deployments, `deploy-api.yml` can create `appsettings.Production.jso
 | --- | --- |
 | `DBA_API_CONNECTION_STRING` | SQL connection string used by the API. |
 | `DBA_API_ALLOWED_ORIGINS` | Semicolon-separated list of frontend origins allowed by CORS. |
+| `AUTH_ENABLED` | Enables API-side Entra JWT validation and RBAC. |
+| `ENTRA_TENANT_ID` | Tenant id used to build authority when `ENTRA_API_AUTHORITY` is empty. |
+| `ENTRA_API_AUTHORITY` | Optional full authority URL. |
+| `ENTRA_API_AUDIENCE` | API app id URI or client id expected in the token audience. |
+| `RBAC_ADMIN_ROLES` | Comma/semicolon-separated Admin role names or group ids. |
+| `RBAC_EDITOR_ROLES` | Comma/semicolon-separated Editor role names or group ids. |
+| `RBAC_READER_ROLES` | Comma/semicolon-separated Reader role names or group ids. |
 | `IIS_API_SITE_NAME` | IIS site name. |
 | `IIS_API_APP_POOL` | IIS app pool name. |
 | `IIS_API_PHYSICAL_PATH` | API deployment folder. |
