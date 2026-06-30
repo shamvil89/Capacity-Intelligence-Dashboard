@@ -53,6 +53,13 @@ export const api = {
   getActiveAlerts: () => request('/alerts/active'),
   getAlertHistory: (limit = 250) => request(`/alerts/history${toQueryString({ limit })}`),
   deleteAlert: (alertId) => request(`/alerts/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
+  getAlertThresholds: () => request('/settings/alert-thresholds'),
+  updateAlertThreshold: (settingId, settingValueDecimal) => request(`/settings/alert-thresholds/${encodeURIComponent(settingId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settingValueDecimal })
+  }),
+  resetAlertThreshold: (settingId) => request(`/settings/alert-thresholds/${encodeURIComponent(settingId)}/reset`, { method: 'POST' }),
   getServers: () => request('/servers'),
   getCollectorRunStatus: () => request('/collector-run'),
   queueCollectorRun: () => request('/collector-run', { method: 'POST' })

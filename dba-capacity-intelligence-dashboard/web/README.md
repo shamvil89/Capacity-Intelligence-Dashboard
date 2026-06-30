@@ -33,6 +33,7 @@ web/dba-capacity-web
 | Database Detail | `#/databases/:serverName/:databaseName` | Size trend chart and forecast details for one database. |
 | Top Tables | `#/top-growing-tables` | Table growth ranking with environment, server, database, schema, sorting, and contains filters. |
 | Alerts | `#/alerts` | Active alert queue with environment, server, severity, type, sorting, contains search, and More info evidence popup. |
+| Settings | `#/settings` | Alert threshold tuning for forecasts and collector-generated alerts. |
 
 The environment filter uses values populated by `pipelines/onboard-server.yml`: `Development`, `Test`, `QA`, `UAT`, `Production`, and `DR`.
 
@@ -50,6 +51,7 @@ The environment filter uses values populated by `pipelines/onboard-server.yml`: 
 | `src/pages/DatabaseDetailPage.jsx` | Detail chart page. |
 | `src/pages/TopGrowingTablesPage.jsx` | Top tables page. |
 | `src/pages/AlertsPage.jsx` | Alert queue page and More info popup, including graphical query plan rendering for plan-aware alerts. |
+| `src/pages/SettingsPage.jsx` | Editable alert threshold table with search, save, and reset actions. |
 | `src/styles.css` | Global layout, table, dashboard, alert, and responsive styles. |
 
 ## Alert More Info Popup
@@ -77,6 +79,20 @@ When any of these fields are present, the popup renders a graphical SQL Server e
 Execution plans are best-effort. If SQL Server did not expose a cached plan during collection, the alert still shows SQL text and session evidence but no plan viewer.
 
 Older active alerts may show a legacy evidence note until the next collector run creates fresh structured evidence.
+
+## Settings Page
+
+The Settings page calls:
+
+```text
+GET /api/settings/alert-thresholds
+PUT /api/settings/alert-thresholds/{settingId}
+POST /api/settings/alert-thresholds/{settingId}/reset
+```
+
+Users can search by comma-separated text across alert type, setting key, label, description, and unit. Saving a row updates `dbo.AlertThresholdSetting.setting_value_decimal`. Reset restores that row to `default_value_decimal`.
+
+Threshold changes do not rewrite historical alerts. They affect the next run of `dbo.usp_GenerateCapacityForecast` and `dbo.usp_GenerateAlerts`, normally through the next collector pipeline run.
 
 ## API URL Configuration
 

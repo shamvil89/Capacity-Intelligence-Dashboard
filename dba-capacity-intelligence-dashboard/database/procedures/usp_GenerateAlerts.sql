@@ -9,6 +9,80 @@ BEGIN
 
     DECLARE @runStartedAt DATETIME2(7) = SYSUTCDATETIME();
     DECLARE @maxLogFileMb DECIMAL(18,2) = 2097152.00; -- 2 TB SQL Server log file practical cap.
+    DECLARE @logExhaustionCriticalRemainingToCapGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'CriticalRemainingToCapGb'), 10);
+    DECLARE @logExhaustionCriticalPercentOfCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'CriticalPercentOfCap'), 95);
+    DECLARE @logExhaustionCriticalProjectedHoursToCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'CriticalProjectedHoursToCap'), 24);
+    DECLARE @logExhaustionAlertRemainingToCapGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'AlertRemainingToCapGb'), 20);
+    DECLARE @logExhaustionAlertPercentOfCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'AlertPercentOfCap'), 85);
+    DECLARE @logExhaustionAlertProjectedHoursToCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'AlertProjectedHoursToCap'), 72);
+    DECLARE @logExhaustionAlertGrowth24HoursGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'AlertGrowth24HoursGb'), 10);
+    DECLARE @logExhaustionAlertGrowthHeadroomMultiplier DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'AlertGrowthHeadroomMultiplier'), 3);
+    DECLARE @logExhaustionGrowth24hWindowHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'Growth24hWindowHours'), 24);
+    DECLARE @logExhaustionGrowth7dWindowDays DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileExhaustionRisk' AND setting_key = 'Growth7dWindowDays'), 7);
+    DECLARE @largeLogAlertMinimumLogSizeGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'AlertMinimumLogSizeGb'), 16);
+    DECLARE @largeLogAlertLogToDataRatio DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'AlertLogToDataRatio'), 2);
+    DECLARE @largeLogAlertAbsoluteLogSizeGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'AlertAbsoluteLogSizeGb'), 128);
+    DECLARE @largeLogAlertPercentOfCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'AlertPercentOfCap'), 50);
+    DECLARE @largeLogHighLogToDataRatio DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'HighLogToDataRatio'), 4);
+    DECLARE @largeLogHighAbsoluteLogSizeGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'HighAbsoluteLogSizeGb'), 128);
+    DECLARE @largeLogHighPercentOfCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'HighPercentOfCap'), 50);
+    DECLARE @largeLogCriticalLogToDataRatio DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'CriticalLogToDataRatio'), 8);
+    DECLARE @largeLogCriticalAbsoluteLogSizeGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'CriticalAbsoluteLogSizeGb'), 512);
+    DECLARE @largeLogCriticalPercentOfCap DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'UnusuallyLargeLogFile' AND setting_key = 'CriticalPercentOfCap'), 75);
+    DECLARE @logGrowthAlertPreviousGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'AlertPreviousGrowthGb'), 1);
+    DECLARE @logGrowthAlertPreviousGrowthModerateGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'AlertPreviousGrowthModerateGb'), 0.25);
+    DECLARE @logGrowthAlertPreviousGrowthModeratePercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'AlertPreviousGrowthModeratePercent'), 100);
+    DECLARE @logGrowthAlertPreviousGrowthSmallGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'AlertPreviousGrowthSmallGb'), 0.0625);
+    DECLARE @logGrowthAlertPreviousGrowthSmallPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'AlertPreviousGrowthSmallPercent'), 500);
+    DECLARE @logGrowthBaseline24hWindowHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Baseline24hWindowHours'), 24);
+    DECLARE @logGrowthAlert24hGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert24hGrowthGb'), 2);
+    DECLARE @logGrowthAlert24hGrowthModerateGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert24hGrowthModerateGb'), 0.5);
+    DECLARE @logGrowthAlert24hGrowthModeratePercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert24hGrowthModeratePercent'), 100);
+    DECLARE @logGrowthAlert24hGrowthSmallGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert24hGrowthSmallGb'), 0.0625);
+    DECLARE @logGrowthAlert24hGrowthSmallPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert24hGrowthSmallPercent'), 500);
+    DECLARE @logGrowthBaseline7dWindowDays DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Baseline7dWindowDays'), 7);
+    DECLARE @logGrowthAlert7dGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert7dGrowthGb'), 5);
+    DECLARE @logGrowthAlert7dGrowthModerateGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert7dGrowthModerateGb'), 1);
+    DECLARE @logGrowthAlert7dGrowthModeratePercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert7dGrowthModeratePercent'), 100);
+    DECLARE @logGrowthAlert7dGrowthSmallGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert7dGrowthSmallGb'), 0.0625);
+    DECLARE @logGrowthAlert7dGrowthSmallPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Alert7dGrowthSmallPercent'), 500);
+    DECLARE @logGrowthHighPreviousGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'HighPreviousGrowthGb'), 1);
+    DECLARE @logGrowthHigh24hGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'High24hGrowthGb'), 2);
+    DECLARE @logGrowthHigh7dGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'High7dGrowthGb'), 5);
+    DECLARE @logGrowthHighPercentGrowthMinimumLogGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'HighPercentGrowthMinimumLogGb'), 1);
+    DECLARE @logGrowthHighGrowthPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'HighGrowthPercent'), 500);
+    DECLARE @logGrowthCriticalPreviousGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'CriticalPreviousGrowthGb'), 5);
+    DECLARE @logGrowthCritical24hGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Critical24hGrowthGb'), 10);
+    DECLARE @logGrowthCritical7dGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'Critical7dGrowthGb'), 20);
+    DECLARE @logGrowthCriticalBlockedPreviousGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'CriticalBlockedPreviousGrowthGb'), 1);
+    DECLARE @logGrowthCriticalBlocked24hGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'CriticalBlocked24hGrowthGb'), 2);
+    DECLARE @logGrowthCriticalBlocked7dGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LogFileGrowthSpike' AND setting_key = 'CriticalBlocked7dGrowthGb'), 5);
+    DECLARE @fullRecoveryCriticalStaleHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'FullRecoveryNoLogBackup' AND setting_key = 'CriticalStaleHours'), 72);
+    DECLARE @fullRecoveryAlertStaleHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'FullRecoveryNoLogBackup' AND setting_key = 'AlertStaleHours'), 24);
+    DECLARE @longTransactionLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LongRunningTransaction' AND setting_key = 'LookbackHours'), 2);
+    DECLARE @longTransactionAlertDurationMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LongRunningTransaction' AND setting_key = 'AlertDurationMinutes'), 60);
+    DECLARE @longTransactionCriticalDurationMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'LongRunningTransaction' AND setting_key = 'CriticalDurationMinutes'), 240);
+    DECLARE @blockingLookbackMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BlockingChain' AND setting_key = 'LookbackMinutes'), 30);
+    DECLARE @blockingCriticalBlockedSessionCount DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BlockingChain' AND setting_key = 'CriticalBlockedSessionCount'), 5);
+    DECLARE @blockingCriticalMaxBlockedWaitMs DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BlockingChain' AND setting_key = 'CriticalMaxBlockedWaitMs'), 600000);
+    DECLARE @blockingCriticalLeadBlockerDurationMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BlockingChain' AND setting_key = 'CriticalLeadBlockerDurationMinutes'), 30);
+    DECLARE @activeTransactionBlockingLookbackMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'ActiveTransactionLogReuseWait' AND setting_key = 'BlockingLookbackMinutes'), 30);
+    DECLARE @activeTransactionLongTransactionLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'ActiveTransactionLogReuseWait' AND setting_key = 'LongTransactionLookbackHours'), 2);
+    DECLARE @alwaysOnHealthLookbackMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'AlwaysOnHealthIssue' AND setting_key = 'LookbackMinutes'), 30);
+    DECLARE @alwaysOnLogReuseEvidenceLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'AlwaysOnLogReuseWait' AND setting_key = 'EvidenceLookbackHours'), 2);
+    DECLARE @replicationAgentIssueLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'ReplicationAgentIssue' AND setting_key = 'LookbackHours'), 2);
+    DECLARE @replicationLogReuseCriticalEvidenceLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'ReplicationLogReuseWait' AND setting_key = 'CriticalEvidenceLookbackHours'), 2);
+    DECLARE @replicationLogReuseDetailsLookbackHours DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'ReplicationLogReuseWait' AND setting_key = 'EvidenceDetailsLookbackHours'), 4);
+    DECLARE @tempDbCriticalUsedPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'TempDBUsage' AND setting_key = 'CriticalUsedPercent'), 95);
+    DECLARE @tempDbAlertUsedPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'TempDBUsage' AND setting_key = 'AlertUsedPercent'), 80);
+    DECLARE @tempDbSessionLookbackMinutes DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'TempDBUsage' AND setting_key = 'SessionLookbackMinutes'), 30);
+    DECLARE @diskSpaceCriticalAvailableGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'DiskSpaceLow' AND setting_key = 'CriticalAvailableGb'), 10);
+    DECLARE @diskSpaceCriticalUsedPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'DiskSpaceLow' AND setting_key = 'CriticalUsedPercent'), 95);
+    DECLARE @diskSpaceAlertAvailableGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'DiskSpaceLow' AND setting_key = 'AlertAvailableGb'), 20);
+    DECLARE @diskSpaceAlertUsedPercent DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'DiskSpaceLow' AND setting_key = 'AlertUsedPercent'), 90);
+    DECLARE @backupGrowthBaselineDays DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BackupGrowth' AND setting_key = 'BaselineDays'), 30);
+    DECLARE @backupGrowthSizeMultiplier DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BackupGrowth' AND setting_key = 'SizeMultiplier'), 1.5);
+    DECLARE @backupGrowthMinimumGrowthGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'BackupGrowth' AND setting_key = 'MinimumGrowthGb'), 5);
 
     BEGIN TRY
         BEGIN TRANSACTION;
@@ -173,7 +247,7 @@ BEGIN
                 FROM HourlyLog AS p
                 WHERE p.server_name = h.server_name
                   AND p.database_name = h.database_name
-                  AND p.capture_hour <= DATEADD(HOUR, -24, h.capture_hour)
+                  AND p.capture_hour <= DATEADD(HOUR, -CONVERT(INT, @logExhaustionGrowth24hWindowHours), h.capture_hour)
                 ORDER BY p.capture_hour DESC
             ) AS p24
             OUTER APPLY
@@ -182,7 +256,7 @@ BEGIN
                 FROM HourlyLog AS p
                 WHERE p.server_name = h.server_name
                   AND p.database_name = h.database_name
-                  AND p.capture_hour <= DATEADD(DAY, -7, h.capture_hour)
+                  AND p.capture_hour <= DATEADD(DAY, -CONVERT(INT, @logExhaustionGrowth7dWindowDays), h.capture_hour)
                 ORDER BY p.capture_hour DESC
             ) AS p7
             WHERE h.rn = 1
@@ -249,9 +323,9 @@ BEGIN
             r.database_name,
             'LogFileExhaustionRisk',
             CASE
-                WHEN r.remaining_to_cap_gb <= 10
-                  OR r.percent_of_effective_cap >= 95
-                  OR r.projected_hours_to_cap <= 24
+                WHEN r.remaining_to_cap_gb <= @logExhaustionCriticalRemainingToCapGb
+                  OR r.percent_of_effective_cap >= @logExhaustionCriticalPercentOfCap
+                  OR r.projected_hours_to_cap <= @logExhaustionCriticalProjectedHoursToCap
                 THEN 'Critical'
                 ELSE 'High'
             END,
@@ -292,10 +366,10 @@ BEGIN
         FROM LogRiskWithProjection AS r
         WHERE
         (
-            r.remaining_to_cap_gb <= 20
-            OR r.percent_of_effective_cap >= 85
-            OR r.projected_hours_to_cap <= 72
-            OR (r.growth_24h_gb >= 10 AND r.remaining_to_cap_gb <= r.growth_24h_gb * 3)
+            r.remaining_to_cap_gb <= @logExhaustionAlertRemainingToCapGb
+            OR r.percent_of_effective_cap >= @logExhaustionAlertPercentOfCap
+            OR r.projected_hours_to_cap <= @logExhaustionAlertProjectedHoursToCap
+            OR (r.growth_24h_gb >= @logExhaustionAlertGrowth24HoursGb AND r.remaining_to_cap_gb <= r.growth_24h_gb * @logExhaustionAlertGrowthHeadroomMultiplier)
         );
 
         ;WITH LatestDatabaseSizeRows AS
@@ -432,13 +506,13 @@ BEGIN
             r.database_name,
             'UnusuallyLargeLogFile',
             CASE
-                WHEN r.current_log_size_gb >= 512
-                  OR r.log_to_data_ratio >= 8
-                  OR r.percent_of_effective_cap >= 75
+                WHEN r.current_log_size_gb >= @largeLogCriticalAbsoluteLogSizeGb
+                  OR r.log_to_data_ratio >= @largeLogCriticalLogToDataRatio
+                  OR r.percent_of_effective_cap >= @largeLogCriticalPercentOfCap
                 THEN 'Critical'
-                WHEN r.current_log_size_gb >= 128
-                  OR r.log_to_data_ratio >= 4
-                  OR r.percent_of_effective_cap >= 50
+                WHEN r.current_log_size_gb >= @largeLogHighAbsoluteLogSizeGb
+                  OR r.log_to_data_ratio >= @largeLogHighLogToDataRatio
+                  OR r.percent_of_effective_cap >= @largeLogHighPercentOfCap
                 THEN 'High'
                 ELSE 'Medium'
             END,
@@ -488,10 +562,10 @@ BEGIN
                     r.log_reuse_wait_desc AS logReuseWait,
                     r.sample_volume_mount_point AS sampleVolumeMountPoint,
                     r.observed_volume_available_gb AS observedVolumeAvailableGb,
-                    16.0 AS minimumLogAlertThresholdGb,
-                    2.0 AS logToDataRatioAlertThreshold,
-                    128.0 AS absoluteLogAlertThresholdGb,
-                    512.0 AS criticalLogAlertThresholdGb,
+                    @largeLogAlertMinimumLogSizeGb AS minimumLogAlertThresholdGb,
+                    @largeLogAlertLogToDataRatio AS logToDataRatioAlertThreshold,
+                    @largeLogAlertAbsoluteLogSizeGb AS absoluteLogAlertThresholdGb,
+                    @largeLogCriticalAbsoluteLogSizeGb AS criticalLogAlertThresholdGb,
                     @maxLogFileMb / 1024.0 AS sqlServerLogFileCapGb,
                     'Flags log files that are large by absolute size or disproportionately large compared with data size. This is separate from exhaustion risk because an oversized reusable log may not be close to disk/full cap but still needs review.' AS calculationNote,
                     'Collect-FileSize.ps1; Collect-DatabaseSize.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
@@ -499,12 +573,12 @@ BEGIN
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             )
         FROM LargeLogRisk AS r
-        WHERE r.current_log_size_gb >= 16
+        WHERE r.current_log_size_gb >= @largeLogAlertMinimumLogSizeGb
           AND
           (
-              r.log_to_data_ratio >= 2
-              OR r.current_log_size_gb >= 128
-              OR r.percent_of_effective_cap >= 50
+              r.log_to_data_ratio >= @largeLogAlertLogToDataRatio
+              OR r.current_log_size_gb >= @largeLogAlertAbsoluteLogSizeGb
+              OR r.percent_of_effective_cap >= @largeLogAlertPercentOfCap
           );
 
         ;WITH RankedLogFileRows AS
@@ -561,7 +635,7 @@ BEGIN
                   AND p.server_name = l.server_name
                   AND p.database_name = l.database_name
                   AND p.logical_file_name = l.logical_file_name
-                  AND p.collection_time >= DATEADD(HOUR, -24, l.collection_time)
+                  AND p.collection_time >= DATEADD(HOUR, -CONVERT(INT, @logGrowthBaseline24hWindowHours), l.collection_time)
                   AND p.collection_time < l.collection_time
                 ORDER BY p.file_size_mb ASC, p.collection_time DESC, p.id DESC
             ) AS b24
@@ -575,7 +649,7 @@ BEGIN
                   AND p.server_name = l.server_name
                   AND p.database_name = l.database_name
                   AND p.logical_file_name = l.logical_file_name
-                  AND p.collection_time >= DATEADD(DAY, -7, l.collection_time)
+                  AND p.collection_time >= DATEADD(DAY, -CONVERT(INT, @logGrowthBaseline7dWindowDays), l.collection_time)
                   AND p.collection_time < l.collection_time
                 ORDER BY p.file_size_mb ASC, p.collection_time DESC, p.id DESC
             ) AS b7
@@ -700,31 +774,31 @@ BEGIN
             r.database_name,
             'LogFileGrowthSpike',
             CASE
-                WHEN r.growth_since_previous_gb >= 5
-                  OR r.growth_24h_gb >= 10
-                  OR r.growth_7d_gb >= 20
+                WHEN r.growth_since_previous_gb >= @logGrowthCriticalPreviousGrowthGb
+                  OR r.growth_24h_gb >= @logGrowthCritical24hGrowthGb
+                  OR r.growth_7d_gb >= @logGrowthCritical7dGrowthGb
                   OR
                   (
                       r.log_reuse_wait_desc IN ('LOG_BACKUP', 'ACTIVE_TRANSACTION', 'AVAILABILITY_REPLICA', 'REPLICATION')
                       AND
                       (
-                          r.growth_since_previous_gb >= 1
-                          OR r.growth_24h_gb >= 2
-                          OR r.growth_7d_gb >= 5
+                          r.growth_since_previous_gb >= @logGrowthCriticalBlockedPreviousGrowthGb
+                          OR r.growth_24h_gb >= @logGrowthCriticalBlocked24hGrowthGb
+                          OR r.growth_7d_gb >= @logGrowthCriticalBlocked7dGrowthGb
                       )
                   )
                 THEN 'Critical'
-                WHEN r.growth_since_previous_gb >= 1
-                  OR r.growth_24h_gb >= 2
-                  OR r.growth_7d_gb >= 5
+                WHEN r.growth_since_previous_gb >= @logGrowthHighPreviousGrowthGb
+                  OR r.growth_24h_gb >= @logGrowthHigh24hGrowthGb
+                  OR r.growth_7d_gb >= @logGrowthHigh7dGrowthGb
                   OR
                   (
-                      r.current_log_size_gb >= 1
+                      r.current_log_size_gb >= @logGrowthHighPercentGrowthMinimumLogGb
                       AND
                       (
-                          r.growth_since_previous_percent >= 500
-                          OR r.growth_24h_percent >= 500
-                          OR r.growth_7d_percent >= 500
+                          r.growth_since_previous_percent >= @logGrowthHighGrowthPercent
+                          OR r.growth_24h_percent >= @logGrowthHighGrowthPercent
+                          OR r.growth_7d_percent >= @logGrowthHighGrowthPercent
                       )
                   )
                 THEN 'High'
@@ -769,11 +843,11 @@ BEGIN
                     r.log_reuse_wait_desc AS logReuseWait,
                     r.sample_volume_mount_point AS sampleVolumeMountPoint,
                     r.observed_volume_available_gb AS observedVolumeAvailableGb,
-                    0.0625 AS minimumRelativeGrowthThresholdGb,
-                    500.0 AS relativeGrowthPercentThreshold,
-                    0.25 AS mediumGrowthThresholdGb,
-                    1.0 AS highGrowthThresholdGb,
-                    5.0 AS criticalGrowthThresholdGb,
+                    @logGrowthAlertPreviousGrowthSmallGb AS minimumRelativeGrowthThresholdGb,
+                    @logGrowthAlertPreviousGrowthSmallPercent AS relativeGrowthPercentThreshold,
+                    @logGrowthAlertPreviousGrowthModerateGb AS mediumGrowthThresholdGb,
+                    @logGrowthHighPreviousGrowthGb AS highGrowthThresholdGb,
+                    @logGrowthCriticalPreviousGrowthGb AS criticalGrowthThresholdGb,
                     'Flags transaction log file-size growth spikes by comparing latest log file size with the previous sample, the lowest 24-hour baseline, and the lowest 7-day baseline. This catches unexpected autogrowth before the log becomes large enough for UnusuallyLargeLogFile.' AS calculationNote,
                     'Collect-FileSize.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
                     'dbo.FileSizeHistory' AS evidenceTable
@@ -788,15 +862,15 @@ BEGIN
         )
         AND
         (
-            r.growth_since_previous_gb >= 1
-            OR (r.growth_since_previous_gb >= 0.25 AND r.growth_since_previous_percent >= 100)
-            OR (r.growth_since_previous_gb >= 0.0625 AND r.growth_since_previous_percent >= 500)
-            OR r.growth_24h_gb >= 2
-            OR (r.growth_24h_gb >= 0.5 AND r.growth_24h_percent >= 100)
-            OR (r.growth_24h_gb >= 0.0625 AND r.growth_24h_percent >= 500)
-            OR r.growth_7d_gb >= 5
-            OR (r.growth_7d_gb >= 1 AND r.growth_7d_percent >= 100)
-            OR (r.growth_7d_gb >= 0.0625 AND r.growth_7d_percent >= 500)
+            r.growth_since_previous_gb >= @logGrowthAlertPreviousGrowthGb
+            OR (r.growth_since_previous_gb >= @logGrowthAlertPreviousGrowthModerateGb AND r.growth_since_previous_percent >= @logGrowthAlertPreviousGrowthModeratePercent)
+            OR (r.growth_since_previous_gb >= @logGrowthAlertPreviousGrowthSmallGb AND r.growth_since_previous_percent >= @logGrowthAlertPreviousGrowthSmallPercent)
+            OR r.growth_24h_gb >= @logGrowthAlert24hGrowthGb
+            OR (r.growth_24h_gb >= @logGrowthAlert24hGrowthModerateGb AND r.growth_24h_percent >= @logGrowthAlert24hGrowthModeratePercent)
+            OR (r.growth_24h_gb >= @logGrowthAlert24hGrowthSmallGb AND r.growth_24h_percent >= @logGrowthAlert24hGrowthSmallPercent)
+            OR r.growth_7d_gb >= @logGrowthAlert7dGrowthGb
+            OR (r.growth_7d_gb >= @logGrowthAlert7dGrowthModerateGb AND r.growth_7d_percent >= @logGrowthAlert7dGrowthModeratePercent)
+            OR (r.growth_7d_gb >= @logGrowthAlert7dGrowthSmallGb AND r.growth_7d_percent >= @logGrowthAlert7dGrowthSmallPercent)
         );
 
         ;WITH LatestLogState AS
@@ -839,7 +913,7 @@ BEGIN
             'FullRecoveryNoLogBackup',
             CASE
                 WHEN b.last_log_backup_finish_date IS NULL
-                  OR b.last_log_backup_finish_date < DATEADD(HOUR, -72, SYSUTCDATETIME())
+                  OR b.last_log_backup_finish_date < DATEADD(HOUR, -CONVERT(INT, @fullRecoveryCriticalStaleHours), SYSUTCDATETIME())
                   OR l.log_reuse_wait_desc = 'LOG_BACKUP'
                 THEN 'Critical'
                 ELSE 'High'
@@ -876,7 +950,7 @@ BEGIN
           AND
           (
               b.last_log_backup_finish_date IS NULL
-              OR b.last_log_backup_finish_date < DATEADD(HOUR, -24, SYSUTCDATETIME())
+              OR b.last_log_backup_finish_date < DATEADD(HOUR, -CONVERT(INT, @fullRecoveryAlertStaleHours), SYSUTCDATETIME())
               OR l.log_reuse_wait_desc = 'LOG_BACKUP'
           );
 
@@ -890,14 +964,14 @@ BEGIN
                     ORDER BY t.collection_time DESC, t.id DESC
                 ) AS rn
             FROM dbo.LongRunningTransactionHistory AS t
-            WHERE t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+            WHERE t.collection_time >= DATEADD(HOUR, -CONVERT(INT, @longTransactionLookbackHours), SYSUTCDATETIME())
         ),
         LatestLongTransactions AS
         (
             SELECT *
             FROM RecentLongTransactions
             WHERE rn = 1
-              AND duration_minutes >= 60
+              AND duration_minutes >= @longTransactionAlertDurationMinutes
         )
         INSERT INTO #GeneratedAlerts
         (
@@ -915,7 +989,7 @@ BEGIN
             t.server_name,
             t.database_name,
             'LongRunningTransaction',
-            CASE WHEN t.duration_minutes >= 240 THEN 'Critical' ELSE 'High' END,
+            CASE WHEN t.duration_minutes >= @longTransactionCriticalDurationMinutes THEN 'Critical' ELSE 'High' END,
             CONCAT
             (
                 'Session ', t.session_id, ' has an open transaction for ',
@@ -962,7 +1036,7 @@ BEGIN
                     ORDER BY b.collection_time DESC, b.id DESC
                 ) AS rn
             FROM dbo.BlockingSessionHistory AS b
-            WHERE b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+            WHERE b.collection_time >= DATEADD(MINUTE, -CONVERT(INT, @blockingLookbackMinutes), SYSUTCDATETIME())
         ),
         CurrentBlocked AS
         (
@@ -998,9 +1072,9 @@ BEGIN
             latest_blocker.database_name,
             'BlockingChain',
             CASE
-                WHEN s.blocked_session_count >= 5
-                  OR s.max_blocked_wait_ms >= 600000
-                  OR s.lead_blocker_duration_minutes >= 30
+                WHEN s.blocked_session_count >= @blockingCriticalBlockedSessionCount
+                  OR s.max_blocked_wait_ms >= @blockingCriticalMaxBlockedWaitMs
+                  OR s.lead_blocker_duration_minutes >= @blockingCriticalLeadBlockerDurationMinutes
                 THEN 'Critical'
                 ELSE 'High'
             END,
@@ -1110,7 +1184,7 @@ BEGIN
                     FROM dbo.BlockingSessionHistory AS b
                     WHERE b.server_name = l.server_name
                       AND ISNULL(b.database_name, N'') = ISNULL(l.database_name, N'')
-                      AND b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+                      AND b.collection_time >= DATEADD(MINUTE, -CONVERT(INT, @activeTransactionBlockingLookbackMinutes), SYSUTCDATETIME())
                 )
                 THEN 'Critical'
                 ELSE 'High'
@@ -1144,7 +1218,7 @@ BEGIN
                                 FROM dbo.BlockingSessionHistory AS b
                                 WHERE b.server_name = l.server_name
                                   AND ISNULL(b.database_name, N'') = ISNULL(l.database_name, N'')
-                                  AND b.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+                                  AND b.collection_time >= DATEADD(MINUTE, -CONVERT(INT, @activeTransactionBlockingLookbackMinutes), SYSUTCDATETIME())
                                 ORDER BY ISNULL(b.blocked_wait_duration_ms, 0) DESC
                                 FOR JSON PATH
                             ),
@@ -1169,7 +1243,7 @@ BEGIN
                                 FROM dbo.LongRunningTransactionHistory AS t
                                 WHERE t.server_name = l.server_name
                                   AND ISNULL(t.database_name, N'') = ISNULL(l.database_name, N'')
-                                  AND t.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                                  AND t.collection_time >= DATEADD(HOUR, -CONVERT(INT, @activeTransactionLongTransactionLookbackHours), SYSUTCDATETIME())
                                 ORDER BY ISNULL(t.duration_minutes, 0) DESC
                                 FOR JSON PATH
                             ),
@@ -1195,7 +1269,7 @@ BEGIN
                     ORDER BY aoh.collection_time DESC, aoh.id DESC
                 ) AS rn
             FROM dbo.AlwaysOnHealthHistory AS aoh
-            WHERE aoh.collection_time >= DATEADD(MINUTE, -30, SYSUTCDATETIME())
+            WHERE aoh.collection_time >= DATEADD(MINUTE, -CONVERT(INT, @alwaysOnHealthLookbackMinutes), SYSUTCDATETIME())
         ),
         CurrentAlwaysOn AS
         (
@@ -1380,7 +1454,7 @@ BEGIN
                                 FROM dbo.AlwaysOnHealthHistory AS aoh
                                 WHERE aoh.server_name = l.server_name
                                   AND ISNULL(aoh.database_name, N'') = ISNULL(l.database_name, N'')
-                                  AND aoh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                                  AND aoh.collection_time >= DATEADD(HOUR, -CONVERT(INT, @alwaysOnLogReuseEvidenceLookbackHours), SYSUTCDATETIME())
                                 ORDER BY aoh.collection_time DESC
                                 FOR JSON PATH
                             ),
@@ -1406,7 +1480,7 @@ BEGIN
                     ORDER BY rh.collection_time DESC, rh.id DESC
                 ) AS rn
             FROM dbo.ReplicationHealthHistory AS rh
-            WHERE rh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+            WHERE rh.collection_time >= DATEADD(HOUR, -CONVERT(INT, @replicationAgentIssueLookbackHours), SYSUTCDATETIME())
         ),
         CurrentReplication AS
         (
@@ -1509,7 +1583,7 @@ BEGIN
                     FROM dbo.ReplicationHealthHistory AS rh
                     WHERE rh.server_name = l.server_name
                       AND ISNULL(rh.database_name, N'') = ISNULL(l.database_name, N'')
-                      AND rh.collection_time >= DATEADD(HOUR, -2, SYSUTCDATETIME())
+                      AND rh.collection_time >= DATEADD(HOUR, -CONVERT(INT, @replicationLogReuseCriticalEvidenceLookbackHours), SYSUTCDATETIME())
                       AND (rh.run_status IN (5, 6) OR rh.error_id IS NOT NULL OR rh.error_code IS NOT NULL)
                 )
                 THEN 'Critical'
@@ -1546,7 +1620,7 @@ BEGIN
                                 FROM dbo.ReplicationHealthHistory AS rh
                                 WHERE rh.server_name = l.server_name
                                   AND ISNULL(rh.database_name, N'') = ISNULL(l.database_name, N'')
-                                  AND rh.collection_time >= DATEADD(HOUR, -4, SYSUTCDATETIME())
+                                  AND rh.collection_time >= DATEADD(HOUR, -CONVERT(INT, @replicationLogReuseDetailsLookbackHours), SYSUTCDATETIME())
                                 ORDER BY rh.collection_time DESC
                                 FOR JSON PATH
                             ),
@@ -1590,7 +1664,7 @@ BEGIN
             'tempdb',
             'TempDBUsage',
             CASE
-                WHEN ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / NULLIF(t.tempdb_size_mb, 0)) >= 95
+                WHEN ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / NULLIF(t.tempdb_size_mb, 0)) >= @tempDbCriticalUsedPercent
                 THEN 'Critical'
                 ELSE 'High'
             END,
@@ -1629,7 +1703,7 @@ BEGIN
                                     c.sql_text AS sqlText
                                 FROM dbo.TempDBSessionUsageHistory AS c
                                 WHERE c.server_name = t.server_name
-                                  AND c.collection_time >= DATEADD(MINUTE, -30, t.collection_time)
+                                  AND c.collection_time >= DATEADD(MINUTE, -CONVERT(INT, @tempDbSessionLookbackMinutes), t.collection_time)
                                 ORDER BY c.total_allocated_mb DESC
                                 FOR JSON PATH
                             ),
@@ -1644,7 +1718,7 @@ BEGIN
         FROM LatestTempDb AS t
         WHERE t.rn = 1
           AND t.tempdb_size_mb > 0
-          AND ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / t.tempdb_size_mb) >= 80;
+          AND ((t.tempdb_size_mb - ISNULL(t.free_space_mb, 0)) * 100.0 / t.tempdb_size_mb) >= @tempDbAlertUsedPercent;
 
         ;WITH LatestDisk AS
         (
@@ -1673,7 +1747,7 @@ BEGIN
             d.server_name,
             NULL,
             'DiskSpaceLow',
-            CASE WHEN d.available_gb <= 10 OR d.used_percent >= 95 THEN 'Critical' ELSE 'High' END,
+            CASE WHEN d.available_gb <= @diskSpaceCriticalAvailableGb OR d.used_percent >= @diskSpaceCriticalUsedPercent THEN 'Critical' ELSE 'High' END,
             CONCAT('Volume ', d.volume_mount_point, ' has ', d.available_gb, ' GB available and is ', d.used_percent, ' percent used.'),
             N'Collect-DiskSpace.ps1; usp_GenerateAlerts.sql',
             (
@@ -1693,7 +1767,7 @@ BEGIN
             )
         FROM LatestDisk AS d
         WHERE d.rn = 1
-          AND (d.available_gb <= 20 OR d.used_percent >= 90);
+          AND (d.available_gb <= @diskSpaceAlertAvailableGb OR d.used_percent >= @diskSpaceAlertUsedPercent);
 
         ;WITH RankedBackup AS
         (
@@ -1726,7 +1800,7 @@ BEGIN
                   AND p.database_name = b.database_name
                   AND ISNULL(p.backup_type, '') = ISNULL(b.backup_type, '')
                   AND p.backup_finish_date < b.backup_finish_date
-                  AND p.backup_finish_date >= DATEADD(DAY, -30, b.backup_finish_date)
+                  AND p.backup_finish_date >= DATEADD(DAY, -CONVERT(INT, @backupGrowthBaselineDays), b.backup_finish_date)
             ) AS p
             WHERE b.rn = 1
         )
@@ -1764,8 +1838,8 @@ BEGIN
             )
         FROM BackupGrowth AS bg
         WHERE bg.avg_backup_size_gb IS NOT NULL
-          AND bg.backup_size_gb >= bg.avg_backup_size_gb * 1.5
-          AND bg.backup_size_gb - bg.avg_backup_size_gb >= 5;
+          AND bg.backup_size_gb >= bg.avg_backup_size_gb * @backupGrowthSizeMultiplier
+          AND bg.backup_size_gb - bg.avg_backup_size_gb >= @backupGrowthMinimumGrowthGb;
 
         ;WITH RankedGeneratedAlerts AS
         (

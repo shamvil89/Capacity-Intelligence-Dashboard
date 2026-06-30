@@ -286,12 +286,23 @@ The API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName
 - TODO: Use Managed Identity.
 - TODO: Store secrets in Key Vault.
 
+## Alert Threshold Tuning
+
+Alert thresholds are stored in `dbo.AlertThresholdSetting` and can be edited from the dashboard Settings page:
+
+```text
+http://<web-host>/#/settings
+```
+
+The Settings page exposes forecast risk levels, log growth and log exhaustion thresholds, stale log backup hours, blocking and long-running transaction thresholds, TempDB, disk, Always On, replication, and backup growth settings.
+
+Changes are stored in the repository and take effect the next time the collector/forecast alert generation runs. Redeploying the database refreshes metadata and defaults but preserves customized current values.
+
 ## MVP Limitations
 
 - SQL authentication is used for the MVP collector path.
 - Disk-space-to-database mapping is conservative and server-level.
 - Forecasting uses simple historical deltas rather than seasonal modeling.
-- Alert thresholds are intentionally simple and should be tuned per estate.
 - No authentication is enforced yet in the API or frontend.
 
 ## Future Enhancements

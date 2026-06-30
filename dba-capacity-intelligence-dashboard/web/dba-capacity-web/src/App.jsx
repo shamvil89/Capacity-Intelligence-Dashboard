@@ -6,6 +6,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const DatabaseDetailPage = lazy(() => import('./pages/DatabaseDetailPage.jsx'));
 const TopGrowingTablesPage = lazy(() => import('./pages/TopGrowingTablesPage.jsx'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage.jsx'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'));
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/top-growing-tables" element={<TopGrowingTablesPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/alerts/history" element={<AlertsPage mode="history" />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

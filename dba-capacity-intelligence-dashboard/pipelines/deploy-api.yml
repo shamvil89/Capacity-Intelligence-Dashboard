@@ -373,6 +373,22 @@ jobs:
             BEGIN
                 GRANT DELETE ON dbo.AlertHistory TO [$principalName];
             END;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM sys.database_permissions AS permission
+                INNER JOIN sys.database_principals AS principal
+                    ON principal.principal_id = permission.grantee_principal_id
+                WHERE principal.name = N'$escapedPrincipalName'
+                  AND permission.class = 1
+                  AND permission.major_id = OBJECT_ID(N'dbo.AlertThresholdSetting')
+                  AND permission.permission_name = N'UPDATE'
+                  AND permission.state_desc IN (N'GRANT', N'GRANT_WITH_GRANT_OPTION')
+            )
+            BEGIN
+                GRANT UPDATE ON dbo.AlertThresholdSetting TO [$principalName];
+            END;
             "@
 
               $sqlParams = @{
@@ -735,7 +751,7 @@ jobs:
               Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
             } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson, $HostingBundleUrl
 
-            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity to DBAUtility."
+            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, and UPDATE on dbo.AlertThresholdSetting in DBAUtility."
             }
             finally {
             if ($session) {

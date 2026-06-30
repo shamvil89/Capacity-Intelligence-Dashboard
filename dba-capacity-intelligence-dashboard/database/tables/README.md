@@ -24,6 +24,7 @@ The files are numbered so deployment order is predictable.
 | `012_BlockingSessionHistory.sql` | `dbo.BlockingSessionHistory` | Stores lead blocker, blocked request, wait, object, SQL text, lock, and cached query plan evidence. |
 | `013_AlwaysOnHealthHistory.sql` | `dbo.AlwaysOnHealthHistory` | Stores Always On replica/database synchronization and health evidence. |
 | `014_ReplicationHealthHistory.sql` | `dbo.ReplicationHealthHistory` | Stores replication database flags and replication agent status/error evidence. |
+| `015_AlertThresholdSetting.sql` | `dbo.AlertThresholdSetting` | Stores editable alert and forecast threshold settings used by `dbo.usp_GenerateCapacityForecast` and `dbo.usp_GenerateAlerts`. |
 
 ## ServerInventory Details
 
@@ -103,6 +104,23 @@ CapacityRisk
 ```
 
 The dashboard reads active unresolved rows from `dbo.vw_ActiveAlerts`.
+
+## AlertThresholdSetting Details
+
+`dbo.AlertThresholdSetting` is the source of truth for alert tuning. The Settings page reads this table through the API and updates `setting_value_decimal`.
+
+Important columns:
+
+| Column | Meaning |
+| --- | --- |
+| `alert_type` | Logical alert family, such as `LogFileGrowthSpike`, `BlockingChain`, or `DiskSpaceLow`. |
+| `setting_key` | Stable machine-readable setting name used by stored procedures. |
+| `display_name` | Human-readable label shown in the Settings page. |
+| `setting_value_decimal` | Current active threshold value. |
+| `default_value_decimal` | Product default used by the Reset action. |
+| `minimum_value_decimal` / `maximum_value_decimal` | Optional validation range enforced by SQL and the API. |
+
+Deployment reruns the seed script with `MERGE`. Existing customized `setting_value_decimal` values are preserved; metadata, descriptions, defaults, and ranges are refreshed from source control.
 
 ## CapacityForecastResult Details
 

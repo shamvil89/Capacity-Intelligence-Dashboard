@@ -62,6 +62,7 @@ flowchart TD
 | `dbo.ReplicationHealthHistory` | Replication database flags and agent status/error evidence. |
 | `dbo.CapacityForecastResult` | Latest calculated growth and capacity risk results. |
 | `dbo.AlertHistory` | Active and historical alerts, including collector failures, source scripts, and structured evidence JSON. |
+| `dbo.AlertThresholdSetting` | Editable forecast and alert thresholds exposed on the dashboard Settings page. |
 
 ## Repository Procedures
 
@@ -105,6 +106,18 @@ The log-risk alert calculation uses:
 The unusually-large-log alert calculation is separate from exhaustion risk. It uses latest file-size rows plus latest database-size rows to flag logs that are large by absolute size, large relative to data size, or already using a high percentage of effective log cap.
 
 The log-growth-spike alert calculation is separate again. It compares latest log file size with the previous sample, the lowest 24-hour baseline, and the lowest 7-day baseline so sudden autogrowth is visible before the log becomes huge.
+
+## Alert Threshold Settings
+
+`dbo.AlertThresholdSetting` stores configurable thresholds for alert generation and forecast risk. Examples include:
+
+- Forecast days remaining and daily growth risk levels.
+- Transaction log exhaustion, unusually large log file, and log growth spike thresholds.
+- FULL recovery stale log backup hours.
+- Long-running transaction duration and lookback windows.
+- Blocking, TempDB, disk space, Always On, replication, and backup growth thresholds.
+
+The API Settings endpoints and the web Settings page update this table. Stored procedures read the table each time they run, so changes take effect on the next forecast or collector alert-generation run. If a setting is missing, the procedures fall back to the built-in default value.
 
 ## Query Plan Evidence
 

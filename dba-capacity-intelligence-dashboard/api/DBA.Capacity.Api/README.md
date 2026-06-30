@@ -65,6 +65,9 @@ Program.cs
 | `GET /api/alerts/active` | `AlertsController` | Active alerts page. |
 | `DELETE /api/alerts/{alertId}` | `AlertsController` | Deletes one alert row from `dbo.AlertHistory`. |
 | `GET /api/servers` | `ServersController` | Active server inventory. |
+| `GET /api/settings/alert-thresholds` | `SettingsController` | Returns editable forecast and alert threshold settings. |
+| `PUT /api/settings/alert-thresholds/{settingId}` | `SettingsController` | Updates one threshold value after min/max validation. |
+| `POST /api/settings/alert-thresholds/{settingId}/reset` | `SettingsController` | Resets one threshold to its repository default value. |
 | `GET /api/collector-run` | `CollectorRunController` | Latest Azure DevOps collector pipeline run status tracked by this API instance. |
 | `POST /api/collector-run` | `CollectorRunController` | Queues `DBA Capacity - Collect Metrics` through Azure DevOps. |
 
@@ -88,6 +91,20 @@ The active alerts response includes drill-through fields used by the web popup:
 | `detailsJson` | Structured evidence stored by the collector or `dbo.usp_GenerateAlerts`. |
 
 For alerts created before evidence fields existed, the API returns a legacy fallback JSON object so the web popup can still show the likely source script and a note to rerun collection for full metric-specific evidence.
+
+## Alert Threshold Settings
+
+Settings endpoints read and update `dbo.AlertThresholdSetting`. They are used by the dashboard Settings page at `#/settings`.
+
+`PUT /api/settings/alert-thresholds/{settingId}` accepts:
+
+```json
+{
+  "settingValueDecimal": 30
+}
+```
+
+The API checks the row's configured minimum and maximum values before saving. Reset uses `default_value_decimal`. Stored procedures pick up the saved values during the next collector/forecast run.
 
 ## Configuration
 
@@ -180,11 +197,12 @@ The IIS host must have the ASP.NET Core Hosting Bundle installed.
 
 ## Database Access
 
-The API should have read repository access plus the narrow alert-cleanup permission. The default IIS deployment grants:
+The API should have read repository access plus narrow permissions for dashboard actions. The default IIS deployment grants:
 
 ```text
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
 IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
+IIS APPPOOL\DBACapacityApi -> UPDATE on dbo.AlertThresholdSetting
 ```
 
 If using SQL authentication instead, set `DBA_API_CONNECTION_STRING` to a SQL login with equivalent permissions.

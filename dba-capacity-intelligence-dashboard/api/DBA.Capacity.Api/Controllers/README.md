@@ -31,6 +31,7 @@ flowchart LR
 | `CapacityController.cs` | `api/capacity` | Returns database capacity rows, trend rows, and top growing tables. |
 | `AlertsController.cs` | `api/alerts` | Returns active repository alerts and deletes selected alert rows. |
 | `ServersController.cs` | `api/servers` | Returns active server inventory. |
+| `SettingsController.cs` | `api/settings` | Returns, updates, and resets alert threshold settings. |
 | `CollectorRunController.cs` | `api/collector-run` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardController
@@ -114,6 +115,18 @@ GET /api/servers
 ```
 
 Returns active inventory rows from `dbo.ServerInventory`. Useful for future filters and operational views.
+
+## SettingsController
+
+Endpoints:
+
+```text
+GET /api/settings/alert-thresholds
+PUT /api/settings/alert-thresholds/{settingId}
+POST /api/settings/alert-thresholds/{settingId}/reset
+```
+
+Returns threshold rows from `dbo.AlertThresholdSetting`. The update action validates the requested value against the row's `minimum_value_decimal` and `maximum_value_decimal`. The reset action restores `setting_value_decimal` from `default_value_decimal`.
 
 ## CollectorRunController
 

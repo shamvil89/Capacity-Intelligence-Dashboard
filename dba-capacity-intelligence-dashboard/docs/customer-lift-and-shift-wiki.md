@@ -291,6 +291,65 @@ Important alert signals:
 
 After deploying this version, existing alerts will not have evidence JSON. Run a new collection so newly generated alerts populate the popup.
 
+## 7.2 Alert Threshold Settings
+
+The dashboard includes a Settings page for customer-specific alert tuning:
+
+```text
+http://<customer-web-host>/#/settings
+```
+
+Settings are stored in:
+
+```text
+dbo.AlertThresholdSetting
+```
+
+The table is seeded by:
+
+```text
+database/tables/015_AlertThresholdSetting.sql
+```
+
+The Settings page calls the API to read, update, and reset rows:
+
+```text
+GET  /api/settings/alert-thresholds
+PUT  /api/settings/alert-thresholds/{settingId}
+POST /api/settings/alert-thresholds/{settingId}/reset
+```
+
+What can be tuned:
+
+| Area | Examples |
+| --- | --- |
+| Capacity forecast | Days remaining and average daily growth thresholds for Low, Medium, High, and Critical risk. |
+| Transaction logs | Log exhaustion headroom, effective-cap percent, projected hours to cap, unusually large log size, log/data ratio, and log growth spike thresholds. |
+| Backup hygiene | Stale log backup hours for FULL recovery databases. |
+| Blocking and transactions | Long-running transaction duration, blocking lookback window, blocked session count, wait duration, and lead blocker duration. |
+| Platform health | TempDB usage, disk free space, Always On evidence windows, replication evidence windows, and backup growth thresholds. |
+
+Operational behavior:
+
+- Changing a threshold updates `setting_value_decimal`.
+- Reset restores the value from `default_value_decimal`.
+- SQL constraints and the API enforce optional minimum and maximum values.
+- Stored procedures read the table each time they run, so changes affect the next collector or forecast generation run.
+- Existing historical alerts are not rewritten; new active/resolved state is decided on the next alert-generation pass.
+- Redeploying the database preserves customized current values and refreshes labels, descriptions, default values, and validation ranges.
+
+Migration tip:
+
+If a customer already tuned thresholds in a previous environment, export and import only the current values:
+
+```sql
+SELECT alert_type, setting_key, setting_value_decimal
+FROM dbo.AlertThresholdSetting
+ORDER BY alert_type, setting_key;
+```
+
+Apply values in the target by matching on `alert_type` and `setting_key`, not `setting_id`, because identity values can differ between environments.
+
 ## 8. Source Credential Model
 
 Different source servers can use different SQL usernames and passwords.
@@ -1250,13 +1309,17 @@ For MVP deployment, the same repository credential can be used for database depl
 
 ### API Repository User
 
-The API is mostly read-oriented, but the Alerts page can delete selected alert rows.
+The API is mostly read-oriented, but dashboard operations need two narrow write permissions:
+
+- The Alerts page can delete selected alert rows.
+- The Settings page can update alert threshold values.
 
 The deploy API pipeline can grant:
 
 ```text
 IIS APPPOOL\DBACapacityApi -> db_datareader on DBAUtility
 IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
+IIS APPPOOL\DBACapacityApi -> UPDATE on dbo.AlertThresholdSetting
 ```
 
 Alternative: provide a SQL connection string in `DBA_API_CONNECTION_STRING` that uses a SQL login with equivalent permissions.
@@ -1848,6 +1911,7 @@ USE [DBAUtility];
 CREATE USER [IIS APPPOOL\DBACapacityApi] FOR LOGIN [IIS APPPOOL\DBACapacityApi];
 ALTER ROLE db_datareader ADD MEMBER [IIS APPPOOL\DBACapacityApi];
 GRANT DELETE ON dbo.AlertHistory TO [IIS APPPOOL\DBACapacityApi];
+GRANT UPDATE ON dbo.AlertThresholdSetting TO [IIS APPPOOL\DBACapacityApi];
 ```
 
 ### Web page loads but API calls fail

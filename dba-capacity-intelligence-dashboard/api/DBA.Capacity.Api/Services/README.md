@@ -26,6 +26,7 @@ flowchart LR
 | `ICapacityService` | `CapacityService` | Database dashboard rows, trend rows, and top growing tables. |
 | `IAlertService` | `AlertService` | Active alert queue. |
 | `IServerService` | `ServerService` | Active server inventory. |
+| `ISettingsService` | `SettingsService` | Editable alert threshold settings. |
 | `ICollectorRunService` | `AzureDevOpsCollectorRunService` | Queues and polls the Azure DevOps collector pipeline. |
 
 ## DashboardService
@@ -124,6 +125,25 @@ Sorts by:
 ```text
 environment, server_name
 ```
+
+## SettingsService
+
+Methods:
+
+```csharp
+Task<IReadOnlyList<AlertThresholdSettingItem>> GetAlertThresholdsAsync(...);
+Task<AlertThresholdSettingItem?> GetAlertThresholdAsync(...);
+Task<AlertThresholdSettingItem?> UpdateAlertThresholdAsync(...);
+Task<AlertThresholdSettingItem?> ResetAlertThresholdAsync(...);
+```
+
+Reads and updates:
+
+```text
+dbo.AlertThresholdSetting
+```
+
+The service exposes the threshold metadata needed by the Settings page: alert type, setting key, display label, unit, current value, default value, validation range, and last update metadata.
 
 ## AzureDevOpsCollectorRunService
 

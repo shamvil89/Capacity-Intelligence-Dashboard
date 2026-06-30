@@ -16,6 +16,8 @@ Models should be simple data containers. They should not contain database access
 | `TopGrowingTableItem` | `GET /api/capacity/top-growing-tables` | One top growing table row. |
 | `AlertItem` | `GET /api/alerts/active` | One active alert row. |
 | `ServerInventoryItem` | `GET /api/servers` | One active monitored server row. |
+| `AlertThresholdSettingItem` | `GET /api/settings/alert-thresholds` | One editable alert threshold row. |
+| `UpdateAlertThresholdSettingRequest` | `PUT /api/settings/alert-thresholds/{settingId}` | Request body for updating one threshold value. |
 
 ## DashboardSummary
 
@@ -108,6 +110,20 @@ Fields:
 - Connection mode
 
 The API intentionally does not expose source passwords or `SOURCE_SQL_CREDENTIALS_JSON`.
+
+## AlertThresholdSettingItem
+
+Represents one row from `dbo.AlertThresholdSetting`.
+
+Fields include:
+
+- Alert type and setting key.
+- Display name, description, and unit.
+- Current value and default value.
+- Optional minimum and maximum values.
+- Sort order and last update metadata.
+
+The frontend groups these rows by alert type on the Settings page.
 
 ## Dapper Mapping
 

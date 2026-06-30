@@ -6,6 +6,15 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    DECLARE @criticalDaysRemaining DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'CriticalDaysRemaining'), 7);
+    DECLARE @highDaysRemaining DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'HighDaysRemaining'), 15);
+    DECLARE @mediumDaysRemaining DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'MediumDaysRemaining'), 30);
+    DECLARE @lowDaysRemaining DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'LowDaysRemaining'), 60);
+    DECLARE @criticalGrowthPerDayGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'CriticalGrowthPerDayGb'), 20);
+    DECLARE @highGrowthPerDayGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'HighGrowthPerDayGb'), 10);
+    DECLARE @mediumGrowthPerDayGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'MediumGrowthPerDayGb'), 5);
+    DECLARE @lowGrowthPerDayGb DECIMAL(18,4) = COALESCE((SELECT TOP (1) setting_value_decimal FROM dbo.AlertThresholdSetting WHERE alert_type = 'CapacityRisk' AND setting_key = 'LowGrowthPerDayGb'), 1);
+
     BEGIN TRY
         ;WITH LatestDb AS
         (
@@ -108,10 +117,10 @@ BEGIN
             SELECT
                 s.*,
                 CASE
-                    WHEN s.estimated_days_remaining <= 7 OR s.avg_growth_per_day_30d_gb >= 20 THEN 'Critical'
-                    WHEN s.estimated_days_remaining <= 15 OR s.avg_growth_per_day_30d_gb >= 10 THEN 'High'
-                    WHEN s.estimated_days_remaining <= 30 OR s.avg_growth_per_day_30d_gb >= 5 THEN 'Medium'
-                    WHEN s.estimated_days_remaining <= 60 OR s.avg_growth_per_day_30d_gb >= 1 THEN 'Low'
+                    WHEN s.estimated_days_remaining <= @criticalDaysRemaining OR s.avg_growth_per_day_30d_gb >= @criticalGrowthPerDayGb THEN 'Critical'
+                    WHEN s.estimated_days_remaining <= @highDaysRemaining OR s.avg_growth_per_day_30d_gb >= @highGrowthPerDayGb THEN 'High'
+                    WHEN s.estimated_days_remaining <= @mediumDaysRemaining OR s.avg_growth_per_day_30d_gb >= @mediumGrowthPerDayGb THEN 'Medium'
+                    WHEN s.estimated_days_remaining <= @lowDaysRemaining OR s.avg_growth_per_day_30d_gb >= @lowGrowthPerDayGb THEN 'Low'
                     ELSE 'Healthy'
                 END AS risk_level
             FROM Scored AS s
