@@ -1324,6 +1324,8 @@ function getResolutionSteps(alert, details) {
       return buildLogFileExhaustionResolutionSteps(alert, details);
     case 'unusuallylargelogfile':
       return buildUnusuallyLargeLogFileResolutionSteps(alert, details);
+    case 'logfilegrowthspike':
+      return buildLogFileGrowthSpikeResolutionSteps(alert, details);
     case 'fullrecoverynologbackup':
       return buildFullRecoveryNoLogBackupResolutionSteps(alert, details);
     case 'longrunningtransaction':
@@ -1408,6 +1410,19 @@ function buildUnusuallyLargeLogFileResolutionSteps(alert, details) {
     'If the root cause has cleared and the log now contains mostly free space, shrink only during an approved window to a realistic target size, then right-size autogrowth and max size. Do not repeatedly shrink/grow the log as a normal operating pattern.',
     'If the size is legitimate workload growth, keep the log large enough for peak transactions, index maintenance, HA/DR lag, and restore requirements; add disk or adjust max size before the next peak period.',
     'Rerun file-size and database-size collection after remediation. The active alert retires when the log falls below the unusual-size thresholds or the data/log ratio becomes normal.'
+  ]);
+}
+
+function buildLogFileGrowthSpikeResolutionSteps(alert, details) {
+  return compactSteps([
+    `Log growth evidence for ${describeAlertTarget(alert, details)}: current log ${formatGb(details?.currentLogSizeGb)}, previous sample ${formatGb(details?.previousLogSizeGb)}, growth since previous sample ${formatGb(details?.growthSincePreviousGb)} (${formatPercent(details?.growthSincePreviousPercent)}), 24-hour baseline ${formatGb(details?.baseline24hLogSizeGb)}, 7-day baseline ${formatGb(details?.baseline7dLogSizeGb)}, 7-day growth ${formatGb(details?.growth7DaysGb)} (${formatPercent(details?.growth7DaysPercent)}).`,
+    `Usage context: used log ${formatGb(details?.usedLogGb)}, free log ${formatGb(details?.freeLogGb)}, effective cap ${formatGb(details?.effectiveLogCapGb)}, ${formatPercent(details?.percentOfEffectiveCap)} of cap used, recovery model ${formatDetailValue(details?.recoveryModel)}, log reuse wait ${formatDetailValue(details?.logReuseWait)}.`,
+    details?.logReuseWait ? `Start with log reuse wait: ${getLogReuseWaitAction(details.logReuseWait)}` : null,
+    'Correlate the growth window with deployments, bulk loads, index rebuilds, ETL jobs, large deletes/updates, failed log backups, replication or Always On lag, and long-running transactions.',
+    'If the database is in FULL recovery and log backups are stale or failing, protect the backup chain first: take the correct full/log backup sequence and fix the recurring log backup job before trying to shrink.',
+    'If growth came from an open transaction, blocking chain, Always On, or replication wait, resolve that dependency before expecting log truncation. Log backups alone will not clear reusable log while the wait remains.',
+    'Review autogrowth and max size. If the growth was legitimate, right-size the log and storage headroom. If it was abnormal and mostly free after the root cause clears, shrink once during an approved window to a realistic steady-state size.',
+    'Rerun file-size collection and alert generation. The alert retires when the latest log no longer exceeds previous, 24-hour, or 7-day growth-spike thresholds.'
   ]);
 }
 
@@ -1955,6 +1970,24 @@ function getEmailEvidenceLines(alert, details) {
   }
   if (details?.currentLogSizeGb) {
     lines.push(`Current log size: ${formatGb(details.currentLogSizeGb)}`);
+  }
+  if (hasRenderableDetail(details?.previousLogSizeGb)) {
+    lines.push(`Previous log size: ${formatGb(details.previousLogSizeGb)}`);
+  }
+  if (hasRenderableDetail(details?.growthSincePreviousGb)) {
+    lines.push(`Growth since previous sample: ${formatGb(details.growthSincePreviousGb)} (${formatPercent(details?.growthSincePreviousPercent)})`);
+  }
+  if (hasRenderableDetail(details?.baseline24hLogSizeGb)) {
+    lines.push(`24-hour log baseline: ${formatGb(details.baseline24hLogSizeGb)}`);
+  }
+  if (hasRenderableDetail(details?.growth24HoursGb)) {
+    lines.push(`Growth vs 24-hour baseline: ${formatGb(details.growth24HoursGb)} (${formatPercent(details?.growth24HoursPercent)})`);
+  }
+  if (hasRenderableDetail(details?.baseline7dLogSizeGb)) {
+    lines.push(`7-day log baseline: ${formatGb(details.baseline7dLogSizeGb)}`);
+  }
+  if (hasRenderableDetail(details?.growth7DaysGb)) {
+    lines.push(`Growth vs 7-day baseline: ${formatGb(details.growth7DaysGb)} (${formatPercent(details?.growth7DaysPercent)})`);
   }
   if (details?.dataSizeGb) {
     lines.push(`Data size: ${formatGb(details.dataSizeGb)}`);

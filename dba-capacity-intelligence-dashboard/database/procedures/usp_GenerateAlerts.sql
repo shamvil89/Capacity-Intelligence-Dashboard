@@ -507,6 +507,298 @@ BEGIN
               OR r.percent_of_effective_cap >= 50
           );
 
+        ;WITH RankedLogFileRows AS
+        (
+            SELECT
+                f.*,
+                ROW_NUMBER() OVER
+                (
+                    PARTITION BY f.server_name, f.database_name, f.logical_file_name
+                    ORDER BY f.collection_time DESC, f.id DESC
+                ) AS rn
+            FROM dbo.FileSizeHistory AS f
+            WHERE f.file_type = 'LOG'
+        ),
+        LatestGrowthLogFiles AS
+        (
+            SELECT *
+            FROM RankedLogFileRows
+            WHERE rn = 1
+        ),
+        LogFileGrowthRows AS
+        (
+            SELECT
+                l.*,
+                p.collection_time AS previous_collection_time,
+                p.file_size_mb AS previous_file_size_mb,
+                p.used_space_mb AS previous_used_space_mb,
+                b24.collection_time AS baseline_24h_collection_time,
+                b24.file_size_mb AS baseline_24h_file_size_mb,
+                b7.collection_time AS baseline_7d_collection_time,
+                b7.file_size_mb AS baseline_7d_file_size_mb
+            FROM LatestGrowthLogFiles AS l
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    p.collection_time,
+                    p.file_size_mb,
+                    p.used_space_mb
+                FROM dbo.FileSizeHistory AS p
+                WHERE p.file_type = 'LOG'
+                  AND p.server_name = l.server_name
+                  AND p.database_name = l.database_name
+                  AND p.logical_file_name = l.logical_file_name
+                  AND p.collection_time < l.collection_time
+                ORDER BY p.collection_time DESC, p.id DESC
+            ) AS p
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    p.collection_time,
+                    p.file_size_mb
+                FROM dbo.FileSizeHistory AS p
+                WHERE p.file_type = 'LOG'
+                  AND p.server_name = l.server_name
+                  AND p.database_name = l.database_name
+                  AND p.logical_file_name = l.logical_file_name
+                  AND p.collection_time >= DATEADD(HOUR, -24, l.collection_time)
+                  AND p.collection_time < l.collection_time
+                ORDER BY p.file_size_mb ASC, p.collection_time DESC, p.id DESC
+            ) AS b24
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    p.collection_time,
+                    p.file_size_mb
+                FROM dbo.FileSizeHistory AS p
+                WHERE p.file_type = 'LOG'
+                  AND p.server_name = l.server_name
+                  AND p.database_name = l.database_name
+                  AND p.logical_file_name = l.logical_file_name
+                  AND p.collection_time >= DATEADD(DAY, -7, l.collection_time)
+                  AND p.collection_time < l.collection_time
+                ORDER BY p.file_size_mb ASC, p.collection_time DESC, p.id DESC
+            ) AS b7
+        ),
+        LogGrowthSummary AS
+        (
+            SELECT
+                g.server_name,
+                g.database_name,
+                MAX(g.collection_time) AS latest_collection_time,
+                MAX(g.previous_collection_time) AS previous_collection_time,
+                MAX(g.baseline_24h_collection_time) AS baseline_24h_collection_time,
+                MAX(g.baseline_7d_collection_time) AS baseline_7d_collection_time,
+                SUM(g.file_size_mb) / 1024.0 AS current_log_size_gb,
+                SUM(ISNULL(g.used_space_mb, 0)) / 1024.0 AS used_log_gb,
+                SUM(ISNULL(g.free_space_mb, 0)) / 1024.0 AS free_log_gb,
+                SUM(ISNULL(g.previous_file_size_mb, g.file_size_mb)) / 1024.0 AS previous_log_size_gb,
+                SUM(ISNULL(g.baseline_24h_file_size_mb, g.file_size_mb)) / 1024.0 AS baseline_24h_log_size_gb,
+                SUM(ISNULL(g.baseline_7d_file_size_mb, g.file_size_mb)) / 1024.0 AS baseline_7d_log_size_gb,
+                SUM(g.file_size_mb - ISNULL(g.previous_file_size_mb, g.file_size_mb)) / 1024.0 AS growth_since_previous_gb,
+                SUM(g.file_size_mb - ISNULL(g.baseline_24h_file_size_mb, g.file_size_mb)) / 1024.0 AS growth_24h_gb,
+                SUM(g.file_size_mb - ISNULL(g.baseline_7d_file_size_mb, g.file_size_mb)) / 1024.0 AS growth_7d_gb,
+                COUNT(g.previous_file_size_mb) AS previous_sample_count,
+                COUNT(g.baseline_24h_file_size_mb) AS baseline_24h_sample_count,
+                COUNT(g.baseline_7d_file_size_mb) AS baseline_7d_sample_count,
+                MAX(g.recovery_model_desc) AS recovery_model_desc,
+                MAX(g.log_reuse_wait_desc) AS log_reuse_wait_desc,
+                MAX(g.volume_mount_point) AS sample_volume_mount_point,
+                SUM(ISNULL(g.volume_available_gb, 0)) AS observed_volume_available_gb,
+                SUM
+                (
+                    CASE
+                        WHEN g.volume_available_gb IS NOT NULL
+                        THEN
+                            CASE
+                                WHEN ISNULL(g.max_size_mb, @maxLogFileMb) < g.file_size_mb + (g.volume_available_gb * 1024.0)
+                                THEN ISNULL(g.max_size_mb, @maxLogFileMb)
+                                ELSE g.file_size_mb + (g.volume_available_gb * 1024.0)
+                            END
+                        ELSE ISNULL(g.max_size_mb, @maxLogFileMb)
+                    END
+                ) / 1024.0 AS effective_log_cap_gb
+            FROM LogFileGrowthRows AS g
+            GROUP BY g.server_name, g.database_name
+        ),
+        LogGrowthRisk AS
+        (
+            SELECT
+                s.server_name,
+                inv.environment,
+                s.database_name,
+                s.latest_collection_time,
+                s.previous_collection_time,
+                s.baseline_24h_collection_time,
+                s.baseline_7d_collection_time,
+                s.current_log_size_gb,
+                s.used_log_gb,
+                s.free_log_gb,
+                s.previous_log_size_gb,
+                s.baseline_24h_log_size_gb,
+                s.baseline_7d_log_size_gb,
+                s.growth_since_previous_gb,
+                s.growth_24h_gb,
+                s.growth_7d_gb,
+                CASE
+                    WHEN s.previous_log_size_gb > 0
+                    THEN s.growth_since_previous_gb * 100.0 / s.previous_log_size_gb
+                    ELSE NULL
+                END AS growth_since_previous_percent,
+                CASE
+                    WHEN s.baseline_24h_log_size_gb > 0
+                    THEN s.growth_24h_gb * 100.0 / s.baseline_24h_log_size_gb
+                    ELSE NULL
+                END AS growth_24h_percent,
+                CASE
+                    WHEN s.baseline_7d_log_size_gb > 0
+                    THEN s.growth_7d_gb * 100.0 / s.baseline_7d_log_size_gb
+                    ELSE NULL
+                END AS growth_7d_percent,
+                s.previous_sample_count,
+                s.baseline_24h_sample_count,
+                s.baseline_7d_sample_count,
+                s.effective_log_cap_gb,
+                CASE
+                    WHEN s.effective_log_cap_gb > 0
+                    THEN s.current_log_size_gb * 100.0 / s.effective_log_cap_gb
+                    ELSE NULL
+                END AS percent_of_effective_cap,
+                s.recovery_model_desc,
+                s.log_reuse_wait_desc,
+                s.sample_volume_mount_point,
+                s.observed_volume_available_gb
+            FROM LogGrowthSummary AS s
+            OUTER APPLY
+            (
+                SELECT TOP (1)
+                    si.environment
+                FROM dbo.ServerInventory AS si
+                WHERE si.server_name = s.server_name
+                   OR
+                   (
+                       CHARINDEX(N'.', si.server_name) > 0
+                       AND LEFT(si.server_name, CHARINDEX(N'.', si.server_name) - 1) = s.server_name
+                   )
+                ORDER BY CASE WHEN si.server_name = s.server_name THEN 0 ELSE 1 END
+            ) AS inv
+        )
+        INSERT INTO #GeneratedAlerts
+        (
+            alert_key,
+            server_name,
+            database_name,
+            alert_type,
+            severity,
+            message,
+            source_script,
+            details_json
+        )
+        SELECT
+            CONCAT(N'LogFileGrowthSpike|', r.server_name, N'|', ISNULL(r.database_name, N'')),
+            r.server_name,
+            r.database_name,
+            'LogFileGrowthSpike',
+            CASE
+                WHEN r.growth_since_previous_gb >= 5
+                  OR r.growth_24h_gb >= 10
+                  OR r.growth_7d_gb >= 20
+                  OR
+                  (
+                      r.log_reuse_wait_desc IN ('LOG_BACKUP', 'ACTIVE_TRANSACTION', 'AVAILABILITY_REPLICA', 'REPLICATION')
+                      AND
+                      (
+                          r.growth_since_previous_gb >= 1
+                          OR r.growth_24h_gb >= 2
+                          OR r.growth_7d_gb >= 5
+                      )
+                  )
+                THEN 'Critical'
+                WHEN r.growth_since_previous_gb >= 1
+                  OR r.growth_24h_gb >= 2
+                  OR r.growth_7d_gb >= 5
+                  OR
+                  (
+                      r.current_log_size_gb >= 1
+                      AND
+                      (
+                          r.growth_since_previous_percent >= 500
+                          OR r.growth_24h_percent >= 500
+                          OR r.growth_7d_percent >= 500
+                      )
+                  )
+                THEN 'High'
+                ELSE 'Medium'
+            END,
+            CONCAT
+            (
+                'Transaction log growth spike for ', r.database_name,
+                '. Current log: ', CONVERT(DECIMAL(18,2), r.current_log_size_gb), ' GB; growth since previous sample: ',
+                CONVERT(DECIMAL(18,2), r.growth_since_previous_gb), ' GB (',
+                COALESCE(CONVERT(VARCHAR(30), CONVERT(DECIMAL(18,2), r.growth_since_previous_percent)), 'unknown'),
+                '%); growth vs 7-day baseline: ', CONVERT(DECIMAL(18,2), r.growth_7d_gb), ' GB (',
+                COALESCE(CONVERT(VARCHAR(30), CONVERT(DECIMAL(18,2), r.growth_7d_percent)), 'unknown'),
+                '%). Log reuse wait: ', COALESCE(r.log_reuse_wait_desc, 'unknown'), '.'
+            ),
+            N'Collect-FileSize.ps1; usp_GenerateAlerts.sql',
+            (
+                SELECT
+                    'LogFileGrowthSpike' AS category,
+                    r.server_name AS serverName,
+                    r.environment,
+                    r.database_name AS databaseName,
+                    r.latest_collection_time AS latestFileCollectionTime,
+                    r.previous_collection_time AS previousFileCollectionTime,
+                    r.baseline_24h_collection_time AS baseline24hCollectionTime,
+                    r.baseline_7d_collection_time AS baseline7dCollectionTime,
+                    r.current_log_size_gb AS currentLogSizeGb,
+                    r.used_log_gb AS usedLogGb,
+                    r.free_log_gb AS freeLogGb,
+                    r.previous_log_size_gb AS previousLogSizeGb,
+                    r.baseline_24h_log_size_gb AS baseline24hLogSizeGb,
+                    r.baseline_7d_log_size_gb AS baseline7dLogSizeGb,
+                    r.growth_since_previous_gb AS growthSincePreviousGb,
+                    r.growth_since_previous_percent AS growthSincePreviousPercent,
+                    r.growth_24h_gb AS growth24HoursGb,
+                    r.growth_24h_percent AS growth24HoursPercent,
+                    r.growth_7d_gb AS growth7DaysGb,
+                    r.growth_7d_percent AS growth7DaysPercent,
+                    r.effective_log_cap_gb AS effectiveLogCapGb,
+                    r.percent_of_effective_cap AS percentOfEffectiveCap,
+                    r.recovery_model_desc AS recoveryModel,
+                    r.log_reuse_wait_desc AS logReuseWait,
+                    r.sample_volume_mount_point AS sampleVolumeMountPoint,
+                    r.observed_volume_available_gb AS observedVolumeAvailableGb,
+                    0.0625 AS minimumRelativeGrowthThresholdGb,
+                    500.0 AS relativeGrowthPercentThreshold,
+                    0.25 AS mediumGrowthThresholdGb,
+                    1.0 AS highGrowthThresholdGb,
+                    5.0 AS criticalGrowthThresholdGb,
+                    'Flags transaction log file-size growth spikes by comparing latest log file size with the previous sample, the lowest 24-hour baseline, and the lowest 7-day baseline. This catches unexpected autogrowth before the log becomes large enough for UnusuallyLargeLogFile.' AS calculationNote,
+                    'Collect-FileSize.ps1; usp_GenerateAlerts.sql' AS sourceScripts,
+                    'dbo.FileSizeHistory' AS evidenceTable
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            )
+        FROM LogGrowthRisk AS r
+        WHERE
+        (
+            r.previous_sample_count > 0
+            OR r.baseline_24h_sample_count > 0
+            OR r.baseline_7d_sample_count > 0
+        )
+        AND
+        (
+            r.growth_since_previous_gb >= 1
+            OR (r.growth_since_previous_gb >= 0.25 AND r.growth_since_previous_percent >= 100)
+            OR (r.growth_since_previous_gb >= 0.0625 AND r.growth_since_previous_percent >= 500)
+            OR r.growth_24h_gb >= 2
+            OR (r.growth_24h_gb >= 0.5 AND r.growth_24h_percent >= 100)
+            OR (r.growth_24h_gb >= 0.0625 AND r.growth_24h_percent >= 500)
+            OR r.growth_7d_gb >= 5
+            OR (r.growth_7d_gb >= 1 AND r.growth_7d_percent >= 100)
+            OR (r.growth_7d_gb >= 0.0625 AND r.growth_7d_percent >= 500)
+        );
+
         ;WITH LatestLogState AS
         (
             SELECT
@@ -1557,6 +1849,7 @@ BEGIN
               'CapacityRisk',
               'LogFileExhaustionRisk',
               'UnusuallyLargeLogFile',
+              'LogFileGrowthSpike',
               'FullRecoveryNoLogBackup',
               'LongRunningTransaction',
               'BlockingChain',

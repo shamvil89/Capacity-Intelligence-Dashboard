@@ -19,6 +19,8 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
                         THEN 'Collect-FileSize.ps1; Collect-DiskSpace.ps1; usp_GenerateAlerts.sql'
                     WHEN a.alert_type = 'UnusuallyLargeLogFile'
                         THEN 'Collect-FileSize.ps1; Collect-DatabaseSize.ps1; usp_GenerateAlerts.sql'
+                    WHEN a.alert_type = 'LogFileGrowthSpike'
+                        THEN 'Collect-FileSize.ps1; usp_GenerateAlerts.sql'
                     WHEN a.alert_type = 'FullRecoveryNoLogBackup'
                         THEN 'Collect-FileSize.ps1; Collect-BackupSize.ps1; usp_GenerateAlerts.sql'
                     WHEN a.alert_type = 'LongRunningTransaction'
