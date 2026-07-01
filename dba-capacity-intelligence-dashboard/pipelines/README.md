@@ -196,8 +196,8 @@ Queue-time actions:
 
 | Action | Purpose |
 | --- | --- |
-| `BackupRetentionScan` | Scans a target path or latest known source volumes, deletes `.bak`/`.trn` files older than `retentionDays`, and lists remaining files for dashboard selection. |
-| `DeleteSelectedBackupFiles` | Deletes only file rows selected in the dashboard from the previous scan. |
+| `BackupRetentionScan` | Disk-space alerts only. Scans a target path or latest known source volumes, deletes eligible `.bak`/`.trn` files older than `retentionDays`, and lists remaining files for dashboard selection. File names containing `keep` or `do not delete` are skipped. Whole-drive scans such as `C:\` or `\\server\C$` skip the Windows folder. |
+| `DeleteSelectedBackupFiles` | Deletes only file rows selected in the dashboard from the previous scan. File names containing `keep` or `do not delete` are refused even if selected. |
 | `LogShrinkAssessment` | Attempts log shrink only after open transaction, used percent, log size, and log reuse wait safety checks pass. |
 
 Important runtime parameters:

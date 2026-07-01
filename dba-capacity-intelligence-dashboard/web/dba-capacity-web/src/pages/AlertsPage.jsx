@@ -215,6 +215,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const [selectedAutoHealFiles, setSelectedAutoHealFiles] = useState([]);
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
+  const autoHealNowMs = useNowMs(Boolean(autoHealStatus?.isRunning || isQueueingAutoHeal), 1000);
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
   const cmdbLookupTarget = useMemo(() => resolveCmdbLookupTarget(alert, displayDetails), [alert, displayDetails]);
   const displayMessage = useMemo(() => formatAlertMessage(alert, displayDetails), [alert, displayDetails]);
@@ -387,6 +388,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             status={autoHealStatus}
             error={autoHealError}
             isQueueing={isQueueingAutoHeal}
+            nowMs={autoHealNowMs}
             selectedFiles={selectedAutoHealFiles}
             onQueue={handleQueueAutoHeal}
             onSelectedFilesChange={setSelectedAutoHealFiles}
@@ -490,18 +492,27 @@ function AutoHealSection({
   status,
   error,
   isQueueing,
+  nowMs,
   selectedFiles,
   onQueue,
   onSelectedFilesChange,
   onCleanupSelected
 }) {
+  const supportsBackupCleanup = isBackupCleanupAutoHealSupported(alert, details);
   const supportsLogShrink = isLogShrinkAutoHealSupported(alert, details);
   const targetPath = resolveAutoHealTargetPath(details);
   const candidates = status?.fileCandidates ?? [];
   const selectableCandidates = candidates.filter((candidate) => ['Candidate', 'Failed'].includes(candidate.actionStatus));
   const selectedSet = new Set(selectedFiles);
   const detailsValue = parseAlertDetails(status?.detailsJson);
-  const summary = status?.status || (error ? 'Needs attention' : 'Ready');
+  const elapsedText = formatAutoHealElapsed(status, nowMs);
+  const summary = status?.isRunning && elapsedText
+    ? `${status.status} ${elapsedText}`
+    : status?.status || (error ? 'Needs attention' : 'Ready');
+
+  if (!supportsBackupCleanup && !supportsLogShrink) {
+    return null;
+  }
 
   function toggleFile(filePath) {
     if (selectedSet.has(filePath)) {
@@ -525,16 +536,18 @@ function AutoHealSection({
     <CollapsibleSection title="Auto Heal" summary={summary} defaultOpen={Boolean(status || error)}>
       <div className="auto-heal-panel">
         <div className="auto-heal-actions">
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => onQueue('BackupRetentionScan')}
-            disabled={isQueueing || status?.isRunning}
-            title={targetPath ? `Scan ${targetPath}` : 'Scan latest known volumes for this server'}
-          >
-            {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
-            Try auto heal
-          </button>
+          {supportsBackupCleanup ? (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => onQueue('BackupRetentionScan')}
+              disabled={isQueueing || status?.isRunning}
+              title={targetPath ? `Scan ${targetPath}` : 'Scan latest known volumes for this server'}
+            >
+              {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
+              {status?.isRunning && status.actionType === 'BackupRetentionScan' && elapsedText ? `Running ${elapsedText}` : 'Try auto heal'}
+            </button>
+          ) : null}
           {supportsLogShrink ? (
             <button
               type="button"
@@ -543,14 +556,16 @@ function AutoHealSection({
               disabled={isQueueing || status?.isRunning || !(alert.databaseName || details?.databaseName)}
             >
               {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
-              Assess/shrink log
+              {status?.isRunning && status.actionType === 'LogShrinkAssessment' && elapsedText ? `Running ${elapsedText}` : 'Assess/shrink log'}
             </button>
           ) : null}
         </div>
 
-        <p className="auto-heal-helper">
-          Backup auto-heal scans {targetPath ? <strong>{targetPath}</strong> : 'the latest known volumes for this server'}, deletes only .bak/.trn files older than 90 days, then lists remaining .bak/.trn files for explicit selection.
-        </p>
+        {supportsBackupCleanup ? (
+          <p className="auto-heal-helper">
+            Backup auto-heal is available for disk-space alerts. It scans {targetPath ? <strong>{targetPath}</strong> : 'the latest known volumes for this server'}, deletes only eligible .bak/.trn files older than 90 days, then lists remaining .bak/.trn files for explicit selection.
+          </p>
+        ) : null}
 
         {supportsLogShrink ? (
           <p className="auto-heal-helper">
@@ -567,6 +582,7 @@ function AutoHealSection({
                 requestId: status.requestId,
                 action: status.actionType,
                 status: status.status,
+                elapsed: elapsedText || '-',
                 message: status.message,
                 pipelineRunId: status.pipelineRunId,
                 targetPath: status.targetPath,
@@ -737,6 +753,11 @@ function resolveAutoHealTargetPath(details) {
   );
 }
 
+function isBackupCleanupAutoHealSupported(alert, details) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+  return alertType === 'diskspacelow';
+}
+
 function isLogShrinkAutoHealSupported(alert, details) {
   const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
   return Boolean(alert.databaseName || details?.databaseName) && [
@@ -746,7 +767,7 @@ function isLogShrinkAutoHealSupported(alert, details) {
   ].includes(alertType);
 }
 
-function useNowMs(isEnabled) {
+function useNowMs(isEnabled, intervalMs = 30000) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -755,9 +776,9 @@ function useNowMs(isEnabled) {
     }
 
     setNowMs(Date.now());
-    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30000);
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), intervalMs);
     return () => window.clearInterval(intervalId);
-  }, [isEnabled]);
+  }, [intervalMs, isEnabled]);
 
   return nowMs;
 }
@@ -2211,6 +2232,34 @@ function formatAutoHealAge(value) {
     maximumFractionDigits: numericValue < 10 ? 1 : 0,
     minimumFractionDigits: 0
   })} ${Math.round(numericValue * 10) / 10 === 1 ? 'day' : 'days'}`;
+}
+
+function formatAutoHealElapsed(status, nowMs) {
+  if (!status?.requestedAt) {
+    return '';
+  }
+
+  const startMs = Date.parse(status.requestedAt);
+  if (Number.isNaN(startMs)) {
+    return '';
+  }
+
+  const completedMs = status.completedAt ? Date.parse(status.completedAt) : null;
+  const endMs = completedMs && !Number.isNaN(completedMs) ? completedMs : nowMs;
+  const totalSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${padClockValue(minutes)}:${padClockValue(seconds)}`;
+  }
+
+  return `${padClockValue(minutes)}:${padClockValue(seconds)}`;
+}
+
+function padClockValue(value) {
+  return String(value).padStart(2, '0');
 }
 
 function formatMs(value) {

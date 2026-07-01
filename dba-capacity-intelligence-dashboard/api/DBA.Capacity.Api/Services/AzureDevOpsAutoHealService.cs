@@ -24,6 +24,12 @@ public sealed class AzureDevOpsAutoHealService(
         "CleanupQueued",
         "CleanupRunning"
     };
+    private static readonly HashSet<string> LogShrinkAlertTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UnusuallyLargeLogFile",
+        "LogFileExhaustionRisk",
+        "LogFileGrowthSpike"
+    };
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -38,6 +44,12 @@ public sealed class AzureDevOpsAutoHealService(
         if (actionType is null || string.Equals(actionType, "DeleteSelectedBackupFiles", StringComparison.OrdinalIgnoreCase))
         {
             return BuildImmediateFailure(request, "Unsupported auto-heal action. Use BackupRetentionScan or LogShrinkAssessment.");
+        }
+
+        var eligibilityError = ValidateActionEligibility(actionType, request);
+        if (eligibilityError is not null)
+        {
+            return BuildImmediateFailure(request, eligibilityError);
         }
 
         var serverName = Clean(request.ServerName);
@@ -596,6 +608,26 @@ public sealed class AzureDevOpsAutoHealService(
             "deleteselectedbackupfiles" or "cleanupselectedbackupfiles" => "DeleteSelectedBackupFiles",
             _ => null
         };
+    }
+
+    private static string? ValidateActionEligibility(string actionType, AutoHealQueueRequest request)
+    {
+        var alertType = Clean(request.AlertType);
+        if (string.Equals(actionType, "BackupRetentionScan", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(alertType, "DiskSpaceLow", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : "Backup cleanup auto-heal is only available for DiskSpaceLow alerts.";
+        }
+
+        if (string.Equals(actionType, "LogShrinkAssessment", StringComparison.OrdinalIgnoreCase))
+        {
+            return alertType is not null && LogShrinkAlertTypes.Contains(alertType)
+                ? null
+                : "Log shrink auto-heal is only available for log-file alerts.";
+        }
+
+        return null;
     }
 
     private static string? Clean(string? value)

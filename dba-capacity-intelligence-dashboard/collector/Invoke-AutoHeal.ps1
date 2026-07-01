@@ -252,6 +252,76 @@ function Convert-VolumePathToScanPath {
     $trimmedPath
 }
 
+function Test-IsWholeDriveRoot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $normalizedPath = $Path.Trim().TrimEnd('\')
+    $normalizedPath -match '^[a-zA-Z]:$' -or $normalizedPath -match '^\\\\[^\\]+\\[a-zA-Z]\$$'
+}
+
+function Test-IsBackupFileExtension {
+    param(
+        [AllowNull()]
+        [string]$Extension
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Extension)) {
+        return $false
+    }
+
+    @('.bak', '.trn') -contains $Extension.ToLowerInvariant()
+}
+
+function Test-IsProtectedBackupFileName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo]$File
+    )
+
+    $File.Name -match '(?i)(do[\s._-]*not[\s._-]*delete|keep)'
+}
+
+function Get-WholeDriveWindowsDirectoryCount {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScanRoot
+    )
+
+    if (-not (Test-IsWholeDriveRoot -Path $ScanRoot)) {
+        return 0
+    }
+
+    @(
+        Get-ChildItem -LiteralPath $ScanRoot -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { [string]::Equals($_.Name, 'Windows', [System.StringComparison]::OrdinalIgnoreCase) }
+    ).Count
+}
+
+function Get-BackupCandidateFiles {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScanRoot
+    )
+
+    if (-not (Test-IsWholeDriveRoot -Path $ScanRoot)) {
+        Get-ChildItem -LiteralPath $ScanRoot -Recurse -File -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    Get-ChildItem -LiteralPath $ScanRoot -File -Force -ErrorAction SilentlyContinue
+
+    foreach ($directory in Get-ChildItem -LiteralPath $ScanRoot -Directory -Force -ErrorAction SilentlyContinue) {
+        if ([string]::Equals($directory.Name, 'Windows', [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        Get-ChildItem -LiteralPath $directory.FullName -Recurse -File -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-ScanRoots {
     if (-not [string]::IsNullOrWhiteSpace($TargetPath)) {
         return @(Convert-VolumePathToScanPath -Path $TargetPath)
@@ -293,6 +363,8 @@ function Invoke-BackupRetentionScan {
     $retentionDeletedCount = 0
     $candidateCount = 0
     $failedCount = 0
+    $protectedNameSkippedCount = 0
+    $windowsFolderSkippedCount = 0
 
     foreach ($scanRoot in $scanRoots) {
         Write-Host "Scanning $scanRoot for .bak and .trn files..."
@@ -302,10 +374,18 @@ function Invoke-BackupRetentionScan {
             continue
         }
 
-        $files = @(Get-ChildItem -LiteralPath $scanRoot -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in @('.bak', '.trn') })
+        $windowsFolderSkippedCount += Get-WholeDriveWindowsDirectoryCount -ScanRoot $scanRoot
 
-        foreach ($file in $files) {
+        foreach ($file in Get-BackupCandidateFiles -ScanRoot $scanRoot) {
+            if (-not (Test-IsBackupFileExtension -Extension $file.Extension)) {
+                continue
+            }
+
+            if (Test-IsProtectedBackupFileName -File $file) {
+                $protectedNameSkippedCount++
+                continue
+            }
+
             $foundCount++
             $ageDays = [Math]::Round(([DateTime]::UtcNow - $file.LastWriteTimeUtc).TotalDays, 2)
             $sizeMb = [Math]::Round($file.Length / 1MB, 2)
@@ -344,9 +424,11 @@ function Invoke-BackupRetentionScan {
         retentionDeletedCount = $retentionDeletedCount
         candidateCount = $candidateCount
         failedCount = $failedCount
+        protectedNameSkippedCount = $protectedNameSkippedCount
+        windowsFolderSkippedCount = $windowsFolderSkippedCount
     } | ConvertTo-Json -Depth 8 -Compress
 
-    $message = "Scan completed. Found $foundCount .bak/.trn files; deleted $retentionDeletedCount older than $RetentionDays days; $candidateCount remain selectable; $failedCount failed."
+    $message = "Scan completed. Found $foundCount eligible .bak/.trn files; deleted $retentionDeletedCount older than $RetentionDays days; $candidateCount remain selectable; skipped $protectedNameSkippedCount protected file names and $windowsFolderSkippedCount Windows folder(s); $failedCount failed."
     $status = if ($failedCount -gt 0) { 'CompletedWithWarnings' } else { 'Completed' }
     Set-AutoHealRequestStatus -Status $status -Message $message -DetailsJson $details
 }
@@ -375,6 +457,11 @@ WHERE request_id = CONVERT(uniqueidentifier, @request_id)
             $extension = [System.IO.Path]::GetExtension($filePath)
             if ($extension -notin @('.bak', '.trn')) {
                 throw "Refusing to delete '$filePath' because it is not a .bak or .trn file."
+            }
+
+            $fileInfo = [System.IO.FileInfo]::new($filePath)
+            if (Test-IsProtectedBackupFileName -File $fileInfo) {
+                throw "Refusing to delete '$filePath' because the file name contains a protected retention keyword."
             }
 
             if (Test-Path -LiteralPath $filePath) {
