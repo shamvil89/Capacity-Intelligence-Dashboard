@@ -78,6 +78,7 @@ Program.cs
 | `POST /api/collector-run` | `CollectorRunController` | Queues `DBA Capacity - Collect Metrics` through Azure DevOps. |
 | `POST /api/auto-heal/requests` | `AutoHealController` | Queues an auto-heal pipeline action and creates a durable request row. |
 | `GET /api/auto-heal/requests/{requestId}` | `AutoHealController` | Returns auto-heal request status, pipeline link, details JSON, and discovered file candidates. |
+| `GET /api/auto-heal/requests/latest?alertId=...` | `AutoHealController` | Reloads the latest durable auto-heal request for an alert when More info is reopened. |
 | `POST /api/auto-heal/requests/{requestId}/cleanup-files` | `AutoHealController` | Marks selected `.bak`/`.trn` files and queues selected-file cleanup. |
 
 Capacity and summary endpoints support environment filtering from `dbo.ServerInventory.environment`:

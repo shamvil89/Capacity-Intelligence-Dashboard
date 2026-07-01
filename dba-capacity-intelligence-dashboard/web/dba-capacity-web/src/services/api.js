@@ -1,7 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5088/api';
 
 async function request(path, options = {}) {
-  const { headers, ...fetchOptions } = options;
+  const { headers, allow404Null = false, ...fetchOptions } = options;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...fetchOptions,
     headers: {
@@ -9,6 +9,10 @@ async function request(path, options = {}) {
       ...(headers ?? {})
     }
   });
+
+  if (response.status === 404 && allow404Null) {
+    return null;
+  }
 
   if (!response.ok) {
     let message = 'The dashboard service could not complete the request.';
@@ -83,6 +87,7 @@ export const api = {
     body: JSON.stringify(payload)
   }),
   getAutoHealStatus: (requestId) => request(`/auto-heal/requests/${encodeURIComponent(requestId)}`),
+  getLatestAutoHealStatus: (alertId) => request(`/auto-heal/requests/latest${toQueryString({ alertId })}`, { allow404Null: true }),
   cleanupAutoHealFiles: (requestId, filePaths) => request(`/auto-heal/requests/${encodeURIComponent(requestId)}/cleanup-files`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

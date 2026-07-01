@@ -8,5 +8,7 @@ public interface IAutoHealService
 
     Task<AutoHealRequestStatus?> GetStatusAsync(Guid requestId, CancellationToken cancellationToken);
 
+    Task<AutoHealRequestStatus?> GetLatestForAlertAsync(long alertId, CancellationToken cancellationToken);
+
     Task<AutoHealRequestStatus?> QueueSelectedFileCleanupAsync(Guid requestId, AutoHealCleanupFilesRequest request, CancellationToken cancellationToken);
 }

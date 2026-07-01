@@ -81,6 +81,25 @@ public sealed class AzureDevOpsAutoHealService(
         return await QueryStatusAsync(requestId, true, cancellationToken);
     }
 
+    public async Task<AutoHealRequestStatus?> GetLatestForAlertAsync(long alertId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+        SELECT TOP (1)
+            request_id
+        FROM dbo.AutoHealRequest
+        WHERE alert_id = @AlertId
+        ORDER BY requested_at DESC, request_id DESC;
+        """;
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        var requestId = await connection.QuerySingleOrDefaultAsync<Guid?>(
+            new CommandDefinition(sql, new { AlertId = alertId }, cancellationToken: cancellationToken));
+
+        return requestId is Guid value
+            ? await QueryStatusAsync(value, true, cancellationToken)
+            : null;
+    }
+
     public async Task<AutoHealRequestStatus?> QueueSelectedFileCleanupAsync(Guid requestId, AutoHealCleanupFilesRequest request, CancellationToken cancellationToken)
     {
         var current = await QueryStatusAsync(requestId, true, cancellationToken);

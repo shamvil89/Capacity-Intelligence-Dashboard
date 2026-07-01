@@ -28,6 +28,20 @@ public sealed class AutoHealController(IAutoHealService autoHealService) : Contr
         return status is null ? NotFound() : Ok(status);
     }
 
+    [HttpGet("requests/latest")]
+    [ProducesResponseType(typeof(AutoHealRequestStatus), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AutoHealRequestStatus>> GetLatestForAlert([FromQuery] long alertId, CancellationToken cancellationToken)
+    {
+        if (alertId <= 0)
+        {
+            return NotFound();
+        }
+
+        var status = await autoHealService.GetLatestForAlertAsync(alertId, cancellationToken);
+        return status is null ? NotFound() : Ok(status);
+    }
+
     [HttpPost("requests/{requestId:guid}/cleanup-files")]
     [ProducesResponseType(typeof(AutoHealRequestStatus), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

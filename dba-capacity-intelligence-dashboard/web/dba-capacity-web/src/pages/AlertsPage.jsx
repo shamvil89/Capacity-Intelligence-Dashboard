@@ -213,6 +213,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const [autoHealError, setAutoHealError] = useState('');
   const [isQueueingAutoHeal, setIsQueueingAutoHeal] = useState(false);
   const [selectedAutoHealFiles, setSelectedAutoHealFiles] = useState([]);
+  const autoHealRequestVersion = useRef(0);
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
   const autoHealNowMs = useNowMs(Boolean(autoHealStatus?.isRunning || isQueueingAutoHeal), 1000);
@@ -273,6 +274,42 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   }, [cmdbLookupTarget.databaseName, cmdbLookupTarget.serverName]);
 
   useEffect(() => {
+    const canLoadAutoHealStatus = Boolean(alert.alertId)
+      && (isBackupCleanupAutoHealSupported(alert, details) || isLogShrinkAutoHealSupported(alert, details));
+    const requestVersion = ++autoHealRequestVersion.current;
+
+    setAutoHealError('');
+    setSelectedAutoHealFiles([]);
+
+    if (!canLoadAutoHealStatus) {
+      setAutoHealStatus(null);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    async function loadLatestAutoHealStatus() {
+      try {
+        const status = await api.getLatestAutoHealStatus(alert.alertId);
+        if (isMounted && autoHealRequestVersion.current === requestVersion) {
+          setAutoHealStatus(status);
+          setSelectedAutoHealFiles(getSelectedAutoHealFilePaths(status));
+        }
+      } catch (err) {
+        if (isMounted && autoHealRequestVersion.current === requestVersion) {
+          setAutoHealStatus(null);
+          setAutoHealError(err.message || 'Could not reload auto-heal status.');
+        }
+      }
+    }
+
+    loadLatestAutoHealStatus();
+    return () => {
+      isMounted = false;
+    };
+  }, [alert, details]);
+
+  useEffect(() => {
     if (!autoHealStatus?.requestId || !autoHealStatus.isRunning) {
       return undefined;
     }
@@ -303,6 +340,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   }, [autoHealStatus?.isRunning, autoHealStatus?.requestId]);
 
   async function handleQueueAutoHeal(actionType) {
+    const requestVersion = ++autoHealRequestVersion.current;
     setIsQueueingAutoHeal(true);
     setAutoHealError('');
     setSelectedAutoHealFiles([]);
@@ -317,9 +355,13 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         targetPath: resolveAutoHealTargetPath(displayDetails),
         retentionDays: 90
       });
-      setAutoHealStatus(status);
+      if (autoHealRequestVersion.current === requestVersion) {
+        setAutoHealStatus(status);
+      }
     } catch (err) {
-      setAutoHealError(err.message);
+      if (autoHealRequestVersion.current === requestVersion) {
+        setAutoHealError(err.message);
+      }
     } finally {
       setIsQueueingAutoHeal(false);
     }
@@ -330,15 +372,20 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       return;
     }
 
+    const requestVersion = ++autoHealRequestVersion.current;
     setIsQueueingAutoHeal(true);
     setAutoHealError('');
 
     try {
       const status = await api.cleanupAutoHealFiles(autoHealStatus.requestId, selectedAutoHealFiles);
-      setAutoHealStatus(status);
-      setSelectedAutoHealFiles([]);
+      if (autoHealRequestVersion.current === requestVersion) {
+        setAutoHealStatus(status);
+        setSelectedAutoHealFiles([]);
+      }
     } catch (err) {
-      setAutoHealError(err.message);
+      if (autoHealRequestVersion.current === requestVersion) {
+        setAutoHealError(err.message);
+      }
     } finally {
       setIsQueueingAutoHeal(false);
     }
@@ -765,6 +812,12 @@ function isLogShrinkAutoHealSupported(alert, details) {
     'logfileexhaustionrisk',
     'logfilegrowthspike'
   ].includes(alertType);
+}
+
+function getSelectedAutoHealFilePaths(status) {
+  return (status?.fileCandidates ?? [])
+    .filter((candidate) => candidate.selectedForCleanup && ['Candidate', 'Failed'].includes(candidate.actionStatus))
+    .map((candidate) => candidate.filePath);
 }
 
 function useNowMs(isEnabled, intervalMs = 30000) {
