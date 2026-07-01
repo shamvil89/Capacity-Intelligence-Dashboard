@@ -522,7 +522,7 @@ SELECT
     d.log_reuse_wait_desc,
     CAST(ls.total_log_size_in_bytes / 1048576.0 AS DECIMAL(18,2)) AS total_log_size_mb,
     CAST(ls.used_log_space_in_bytes / 1048576.0 AS DECIMAL(18,2)) AS used_log_space_mb,
-    CAST(ls.used_log_space_percent AS DECIMAL(18,2)) AS used_log_space_percent
+    CAST(ls.used_log_space_in_percent AS DECIMAL(18,2)) AS used_log_space_percent
 FROM sys.databases AS d
 CROSS JOIN sys.dm_db_log_space_usage AS ls
 WHERE d.database_id = DB_ID();
