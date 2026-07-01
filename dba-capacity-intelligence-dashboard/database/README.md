@@ -40,8 +40,11 @@ flowchart TD
     D --> E["dbo.CapacityForecastResult"]
     E --> F["dbo.vw_LatestCapacityDashboard"]
     B --> G["dbo.AlertHistory"]
+    G --> H["dbo.AutoHealRequest"]
+    H --> I["dbo.AutoHealFileCandidate"]
     F --> API["API"]
     G --> API
+    H --> API
 ```
 
 ## Repository Tables
@@ -65,6 +68,8 @@ flowchart TD
 | `dbo.AlertThresholdSetting` | Editable forecast and alert thresholds exposed on the dashboard Settings page. |
 | `dbo.ApplicationCmdb` | Application ownership, contacts, support groups, criticality, URL, and notes. |
 | `dbo.ApplicationDatabaseMapping` | Maps one application to many databases across servers. |
+| `dbo.AutoHealRequest` | Dashboard-triggered auto-heal request status, Azure DevOps run id/link, and outcome JSON. |
+| `dbo.AutoHealFileCandidate` | `.bak`/`.trn` files found by auto-heal scans, including selected cleanup status. |
 
 ## Repository Procedures
 
@@ -83,6 +88,24 @@ flowchart TD
 | `dbo.usp_InsertReplicationHealthHistory` | Inserts replication database flag and agent evidence rows. |
 | `dbo.usp_GenerateCapacityForecast` | Calculates latest growth and risk. |
 | `dbo.usp_GenerateAlerts` | Inserts forecast, log-risk, unusually-large-log, log-growth-spike, backup, TempDB, long-transaction, blocking, Always On, replication, disk, and operational alerts. |
+
+## Capacity Forecasting
+
+`dbo.usp_GenerateCapacityForecast` uses database growth history plus file and disk metadata.
+
+When volume metadata is available, estimated days remaining is calculated from the limiting drive, not just the individual database:
+
+```text
+days remaining = limiting volume available GB / total 30-day daily growth from all database files sharing that volume
+```
+
+This makes the forecast more realistic when several databases are hosted on the same drive. The result stores:
+
+- `limiting_volume_mount_point`
+- `shared_volume_growth_per_day_30d_gb`
+- `forecast_method`
+
+If file/volume data is missing, the procedure falls back to the previous database-growth calculation. `estimated_days_remaining` is decimal so the dashboard can show hours when less than one day remains.
 
 ## Alert Evidence Model
 

@@ -399,6 +399,16 @@ jobs:
             BEGIN
                 GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationDatabaseMapping TO [$principalName];
             END;
+
+            IF OBJECT_ID(N'dbo.AutoHealRequest', N'U') IS NOT NULL
+            BEGIN
+                GRANT INSERT, UPDATE ON dbo.AutoHealRequest TO [$principalName];
+            END;
+
+            IF OBJECT_ID(N'dbo.AutoHealFileCandidate', N'U') IS NOT NULL
+            BEGIN
+                GRANT INSERT, UPDATE ON dbo.AutoHealFileCandidate TO [$principalName];
+            END;
             "@
 
               $sqlParams = @{
@@ -424,6 +434,8 @@ jobs:
             [string]$AzdoProject,
             [string]$AzdoCollectorPipelineId,
             [string]$AzdoCollectorPipelineName,
+            [string]$AzdoAutoHealPipelineId,
+            [string]$AzdoAutoHealPipelineName,
             [string]$AzdoPat
             )
 
@@ -432,6 +444,8 @@ jobs:
             -not [string]::IsNullOrWhiteSpace($AzdoProject) -or
             -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineId) -or
             -not [string]::IsNullOrWhiteSpace($AzdoCollectorPipelineName) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoAutoHealPipelineId) -or
+            -not [string]::IsNullOrWhiteSpace($AzdoAutoHealPipelineName) -or
             -not [string]::IsNullOrWhiteSpace($AzdoPat)
 
             if ([string]::IsNullOrWhiteSpace($ConnectionString) -and
@@ -460,6 +474,8 @@ jobs:
               Project = $AzdoProject
               CollectorPipelineId = $AzdoCollectorPipelineId
               CollectorPipelineName = $AzdoCollectorPipelineName
+              AutoHealPipelineId = $AzdoAutoHealPipelineId
+              AutoHealPipelineName = $AzdoAutoHealPipelineName
               Pat = $AzdoPat
             }
             }
@@ -761,7 +777,7 @@ jobs:
               Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
             } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson, $HostingBundleUrl
 
-            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, UPDATE on dbo.AlertThresholdSetting, and INSERT/UPDATE/DELETE on dbo.ApplicationCmdb and dbo.ApplicationDatabaseMapping in DBAUtility."
+            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, UPDATE on dbo.AlertThresholdSetting, INSERT/UPDATE/DELETE on dbo.ApplicationCmdb and dbo.ApplicationDatabaseMapping, and INSERT/UPDATE on dbo.AutoHealRequest and dbo.AutoHealFileCandidate in DBAUtility."
             }
             finally {
             if ($session) {
@@ -784,6 +800,8 @@ jobs:
             $azdoProject = Get-Setting $env:AZDO_PROJECT ''
             $azdoCollectorPipelineId = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_ID ''
             $azdoCollectorPipelineName = Get-Setting $env:AZDO_COLLECTOR_PIPELINE_NAME ''
+            $azdoAutoHealPipelineId = Get-Setting $env:AZDO_AUTOHEAL_PIPELINE_ID ''
+            $azdoAutoHealPipelineName = Get-Setting $env:AZDO_AUTOHEAL_PIPELINE_NAME 'DBA Capacity - Auto Heal'
             $azdoPat = Get-Setting $env:AZDO_PAT ''
 
             $publishRoot = '$(Build.ArtifactStagingDirectory)\api'
@@ -800,6 +818,8 @@ jobs:
             -AzdoProject $azdoProject `
             -AzdoCollectorPipelineId $azdoCollectorPipelineId `
             -AzdoCollectorPipelineName $azdoCollectorPipelineName `
+            -AzdoAutoHealPipelineId $azdoAutoHealPipelineId `
+            -AzdoAutoHealPipelineName $azdoAutoHealPipelineName `
             -AzdoPat $azdoPat
 
             if ($deploymentMode -eq 'Remote') {
@@ -889,4 +909,6 @@ jobs:
           AZDO_PROJECT: $(AZDO_PROJECT)
           AZDO_COLLECTOR_PIPELINE_ID: $(AZDO_COLLECTOR_PIPELINE_ID)
           AZDO_COLLECTOR_PIPELINE_NAME: $(AZDO_COLLECTOR_PIPELINE_NAME)
+          AZDO_AUTOHEAL_PIPELINE_ID: $(AZDO_AUTOHEAL_PIPELINE_ID)
+          AZDO_AUTOHEAL_PIPELINE_NAME: $(AZDO_AUTOHEAL_PIPELINE_NAME)
           AZDO_PAT: $(AZDO_PAT)

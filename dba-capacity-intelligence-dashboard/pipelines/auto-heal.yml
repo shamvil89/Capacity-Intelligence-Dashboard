@@ -1,0 +1,90 @@
+trigger: none
+pr: none
+
+parameters:
+  - name: agentPool
+    displayName: Agent pool
+    type: string
+    default: Shamvil-pool
+
+  - name: agentName
+    displayName: Agent name
+    type: string
+    default: eve-vsts
+
+  - name: action
+    displayName: Auto-heal action
+    type: string
+    default: BackupRetentionScan
+    values:
+      - BackupRetentionScan
+      - DeleteSelectedBackupFiles
+      - LogShrinkAssessment
+
+  - name: requestId
+    displayName: Auto-heal request id
+    type: string
+    default: ''
+
+  - name: serverName
+    displayName: Target SQL Server
+    type: string
+    default: ''
+
+  - name: databaseName
+    displayName: Target database
+    type: string
+    default: ''
+
+  - name: targetPath
+    displayName: Backup scan path or volume
+    type: string
+    default: ''
+
+  - name: retentionDays
+    displayName: Retention days
+    type: string
+    default: '90'
+
+pool:
+  name: ${{ parameters.agentPool }}
+  demands:
+    - Agent.Name -equals ${{ parameters.agentName }}
+    - Agent.OS -equals Windows_NT
+
+variables:
+  - group: configs
+  - name: projectRoot
+    value: dba-capacity-intelligence-dashboard
+
+steps:
+  - checkout: self
+
+  - task: PowerShell@2
+    displayName: Install dbatools
+    inputs:
+      pwsh: false
+      targetType: inline
+      script: |
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+        Install-Module dbatools -Scope CurrentUser -Force -AllowClobber
+
+  - task: PowerShell@2
+    displayName: Run DBA Capacity auto-heal action
+    inputs:
+      pwsh: false
+      filePath: $(projectRoot)/collector/Invoke-AutoHeal.ps1
+      arguments: >
+        -Action "${{ parameters.action }}"
+        -RequestId "${{ parameters.requestId }}"
+        -ServerName "${{ parameters.serverName }}"
+        -DatabaseName "${{ parameters.databaseName }}"
+        -TargetPath "${{ parameters.targetPath }}"
+        -RetentionDays "${{ parameters.retentionDays }}"
+    env:
+      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+      DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
+      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
+      SQL_USER: $(SQL_USER)
+      SQL_PASSWORD: $(SQL_PASSWORD)
+      SOURCE_SQL_CREDENTIALS_JSON: $(SOURCE_SQL_CREDENTIALS_JSON)

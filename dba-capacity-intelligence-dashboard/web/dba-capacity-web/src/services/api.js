@@ -76,5 +76,16 @@ export const api = {
   deleteCmdbApplication: (applicationId) => request(`/cmdb/applications/${encodeURIComponent(applicationId)}`, { method: 'DELETE' }),
   getServers: () => request('/servers'),
   getCollectorRunStatus: () => request('/collector-run'),
-  queueCollectorRun: () => request('/collector-run', { method: 'POST' })
+  queueCollectorRun: () => request('/collector-run', { method: 'POST' }),
+  queueAutoHeal: (payload) => request('/auto-heal/requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }),
+  getAutoHealStatus: (requestId) => request(`/auto-heal/requests/${encodeURIComponent(requestId)}`),
+  cleanupAutoHealFiles: (requestId, filePaths) => request(`/auto-heal/requests/${encodeURIComponent(requestId)}/cleanup-files`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePaths })
+  })
 };

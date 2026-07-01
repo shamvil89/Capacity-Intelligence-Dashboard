@@ -76,6 +76,9 @@ Program.cs
 | `DELETE /api/cmdb/applications/{applicationId}` | `ApplicationCmdbController` | Deletes one application and its database mappings. |
 | `GET /api/collector-run` | `CollectorRunController` | Latest Azure DevOps collector pipeline run status tracked by this API instance. |
 | `POST /api/collector-run` | `CollectorRunController` | Queues `DBA Capacity - Collect Metrics` through Azure DevOps. |
+| `POST /api/auto-heal/requests` | `AutoHealController` | Queues an auto-heal pipeline action and creates a durable request row. |
+| `GET /api/auto-heal/requests/{requestId}` | `AutoHealController` | Returns auto-heal request status, pipeline link, details JSON, and discovered file candidates. |
+| `POST /api/auto-heal/requests/{requestId}/cleanup-files` | `AutoHealController` | Marks selected `.bak`/`.trn` files and queues selected-file cleanup. |
 
 Capacity and summary endpoints support environment filtering from `dbo.ServerInventory.environment`:
 
@@ -157,6 +160,8 @@ In IIS deployment, the pipeline can write these values into `appsettings.Product
 | `AZDO_PROJECT` | Azure DevOps project name, for example `PersonalEnvironment`. |
 | `AZDO_COLLECTOR_PIPELINE_ID` | Optional numeric pipeline id for `DBA Capacity - Collect Metrics`. |
 | `AZDO_COLLECTOR_PIPELINE_NAME` | Pipeline name fallback when the numeric id is not configured. |
+| `AZDO_AUTOHEAL_PIPELINE_ID` | Optional numeric pipeline id for `DBA Capacity - Auto Heal`. |
+| `AZDO_AUTOHEAL_PIPELINE_NAME` | Pipeline name fallback when the numeric id is not configured. |
 | `AZDO_PAT` | Secret PAT used by the API to queue and read pipeline runs. |
 
 Example customer CORS values:
@@ -178,6 +183,20 @@ POST /api/collector-run
 ```
 
 The API then calls Azure DevOps from the IIS server. Dashboard users do not need Azure DevOps pipeline permissions and the PAT is never sent to the browser.
+
+## Auto-Heal Pipeline Trigger
+
+Alert More info uses `AutoHealController` to queue `DBA Capacity - Auto Heal` through the same server-side Azure DevOps PAT used by the collector trigger.
+
+Supported actions:
+
+| Action | What it does |
+| --- | --- |
+| `BackupRetentionScan` | Scans the supplied alert volume/path, deletes only `.bak` and `.trn` files older than 90 days, and writes remaining file candidates to `dbo.AutoHealFileCandidate`. |
+| `DeleteSelectedBackupFiles` | Deletes only file paths that the dashboard user selected from the prior scan result. |
+| `LogShrinkAssessment` | Checks open transactions, used log percent, log size, and log reuse wait before attempting a one-time shrink of inflated log files. |
+
+The API stores request state in `dbo.AutoHealRequest`. The dashboard polls the API and never calls Azure DevOps directly.
 
 Required configuration:
 

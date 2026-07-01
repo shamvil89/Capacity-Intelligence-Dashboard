@@ -34,6 +34,7 @@ builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<IApplicationCmdbService, ApplicationCmdbService>();
+builder.Services.AddHttpClient<IAutoHealService, AzureDevOpsAutoHealService>();
 builder.Services.AddHttpClient<ICollectorRunService, AzureDevOpsCollectorRunService>();
 
 // TODO: Add Azure AD / Entra ID authentication.

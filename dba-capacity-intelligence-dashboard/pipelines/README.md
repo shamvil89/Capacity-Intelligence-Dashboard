@@ -13,6 +13,7 @@ Each pipeline is intentionally focused on one operational job.
 | DBA Capacity - Deploy Database | `deploy-database.yml` | Deploys `DBAUtility` database scripts. |
 | DBA Capacity - Onboard Server | `onboard-server.yml` | Adds or updates one server inventory row. |
 | DBA Capacity - Collect Metrics | `collect-capacity.yml` | Runs collectors and publishes logs. |
+| DBA Capacity - Auto Heal | `auto-heal.yml` | Runs controlled remediation actions requested from alert More info. |
 | DBA Capacity - Deploy API | `deploy-api.yml` | Builds and deploys ASP.NET Core API to IIS. |
 | DBA Capacity - Deploy Web | `deploy-web.yml` | Builds and deploys React static site to IIS. |
 
@@ -81,7 +82,9 @@ Important variables:
 | `AZDO_PROJECT` | No | Azure DevOps project containing the collector pipeline. |
 | `AZDO_COLLECTOR_PIPELINE_ID` | No | Numeric id of `DBA Capacity - Collect Metrics`; preferred when known. |
 | `AZDO_COLLECTOR_PIPELINE_NAME` | No | Pipeline name fallback, usually `DBA Capacity - Collect Metrics`. |
-| `AZDO_PAT` | Yes | Automation PAT used by the API to queue and read collector pipeline runs. |
+| `AZDO_AUTOHEAL_PIPELINE_ID` | No | Numeric id of `DBA Capacity - Auto Heal`; preferred when known. |
+| `AZDO_AUTOHEAL_PIPELINE_NAME` | No | Pipeline name fallback, usually `DBA Capacity - Auto Heal`. |
+| `AZDO_PAT` | Yes | Automation PAT used by the API to queue and read collector and auto-heal pipeline runs. |
 | `IIS_API_*` | No | API IIS settings. |
 | `IIS_WEB_*` | No | Web IIS settings. |
 | `IIS_REMOTE_USER` | No | Optional account for remote IIS deployment. Leave blank to use the agent service identity. |
@@ -174,6 +177,36 @@ Dashboard trigger:
 - The button polls `GET /api/collector-run` and becomes clickable again after Azure DevOps reports the run state as `completed`.
 - Dashboard users do not need Azure DevOps pipeline permissions because the API is the controlled trigger boundary.
 
+## Auto Heal
+
+File:
+
+```text
+auto-heal.yml
+```
+
+What it does:
+
+1. Installs dbatools.
+2. Runs `collector/Invoke-AutoHeal.ps1`.
+3. Uses the same `configs` repository/source credential variables as the collector.
+4. Writes durable request, file-candidate, and action outcome data to `dbo.AutoHealRequest` and `dbo.AutoHealFileCandidate`.
+
+Queue-time actions:
+
+| Action | Purpose |
+| --- | --- |
+| `BackupRetentionScan` | Scans a target path or latest known source volumes, deletes `.bak`/`.trn` files older than `retentionDays`, and lists remaining files for dashboard selection. |
+| `DeleteSelectedBackupFiles` | Deletes only file rows selected in the dashboard from the previous scan. |
+| `LogShrinkAssessment` | Attempts log shrink only after open transaction, used percent, log size, and log reuse wait safety checks pass. |
+
+Dashboard trigger:
+
+- Alert More info calls the API, not Azure DevOps directly.
+- The API uses `AZDO_PAT` plus `AZDO_AUTOHEAL_PIPELINE_ID` or `AZDO_AUTOHEAL_PIPELINE_NAME`.
+- The pipeline agent identity must have filesystem permissions to the target backup path or administrative share for backup cleanup.
+- Log shrink uses the source server connection mode and credential key from `dbo.ServerInventory`.
+
 ## Deploy API
 
 File:
@@ -193,17 +226,19 @@ What it does:
 7. Writes production appsettings if configured.
 8. Grants API app pool read access, alert delete access, alert-threshold update access, and CMDB table write access to `DBAUtility` where possible.
 
-Collector trigger settings written by this pipeline:
+Collector and auto-heal trigger settings written by this pipeline:
 
 ```text
 AZDO_ORGANIZATION
 AZDO_PROJECT
 AZDO_COLLECTOR_PIPELINE_ID
 AZDO_COLLECTOR_PIPELINE_NAME
+AZDO_AUTOHEAL_PIPELINE_ID
+AZDO_AUTOHEAL_PIPELINE_NAME
 AZDO_PAT
 ```
 
-Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, and grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics`.
+Create the PAT under a service or automation identity, mark `AZDO_PAT` secret, and grant only pipeline read/run permission needed for `DBA Capacity - Collect Metrics` and `DBA Capacity - Auto Heal`.
 
 In `Local` mode, the selected agent service must run as local administrator on the IIS server. In `Remote` mode, the remoting identity must be local administrator on `iisHostName`.
 

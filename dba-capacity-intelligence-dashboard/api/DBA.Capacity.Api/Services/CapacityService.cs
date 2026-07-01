@@ -53,6 +53,9 @@ public sealed class CapacityService(IDbConnectionFactory connectionFactory) : IC
             avg_growth_per_day_30d_gb AS AverageGrowthPerDayGb,
             available_space_gb AS AvailableSpaceGb,
             estimated_days_remaining AS EstimatedDaysRemaining,
+            limiting_volume_mount_point AS LimitingVolumeMountPoint,
+            shared_volume_growth_per_day_30d_gb AS SharedVolumeGrowthPerDayGb,
+            forecast_method AS ForecastMethod,
             risk_level AS RiskLevel,
             recommendation AS Recommendation,
             calculation_time AS CalculationTime

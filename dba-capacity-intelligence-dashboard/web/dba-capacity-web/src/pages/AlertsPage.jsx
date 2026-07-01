@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Download, Info, Mail, Maximize2, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Download, Info, LoaderCircle, Mail, Maximize2, Trash2, Wrench, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
 import ColumnFilter from '../components/ColumnFilter.jsx';
@@ -209,6 +209,10 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const [cmdbEntry, setCmdbEntry] = useState(null);
   const [isCmdbLoading, setIsCmdbLoading] = useState(false);
   const [cmdbLookupError, setCmdbLookupError] = useState('');
+  const [autoHealStatus, setAutoHealStatus] = useState(null);
+  const [autoHealError, setAutoHealError] = useState('');
+  const [isQueueingAutoHeal, setIsQueueingAutoHeal] = useState(false);
+  const [selectedAutoHealFiles, setSelectedAutoHealFiles] = useState([]);
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
   const displayDetails = useMemo(() => enrichLiveDurationDetails(details, nowMs), [details, nowMs]);
@@ -267,6 +271,78 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
     };
   }, [cmdbLookupTarget.databaseName, cmdbLookupTarget.serverName]);
 
+  useEffect(() => {
+    if (!autoHealStatus?.requestId || !autoHealStatus.isRunning) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    async function loadAutoHealStatus() {
+      try {
+        const status = await api.getAutoHealStatus(autoHealStatus.requestId);
+        if (isMounted) {
+          setAutoHealStatus(status);
+          setAutoHealError('');
+        }
+      } catch (err) {
+        if (isMounted) {
+          setAutoHealError(err.message);
+        }
+      }
+    }
+
+    const intervalId = window.setInterval(loadAutoHealStatus, 5000);
+    loadAutoHealStatus();
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [autoHealStatus?.isRunning, autoHealStatus?.requestId]);
+
+  async function handleQueueAutoHeal(actionType) {
+    setIsQueueingAutoHeal(true);
+    setAutoHealError('');
+    setSelectedAutoHealFiles([]);
+
+    try {
+      const status = await api.queueAutoHeal({
+        alertId: alert.alertId,
+        alertType: alert.alertType,
+        serverName: cmdbLookupTarget.serverName || alert.serverName,
+        databaseName: cmdbLookupTarget.databaseName || alert.databaseName,
+        actionType,
+        targetPath: resolveAutoHealTargetPath(displayDetails),
+        retentionDays: 90
+      });
+      setAutoHealStatus(status);
+    } catch (err) {
+      setAutoHealError(err.message);
+    } finally {
+      setIsQueueingAutoHeal(false);
+    }
+  }
+
+  async function handleCleanupSelectedAutoHealFiles() {
+    if (!autoHealStatus?.requestId || selectedAutoHealFiles.length === 0) {
+      return;
+    }
+
+    setIsQueueingAutoHeal(true);
+    setAutoHealError('');
+
+    try {
+      const status = await api.cleanupAutoHealFiles(autoHealStatus.requestId, selectedAutoHealFiles);
+      setAutoHealStatus(status);
+      setSelectedAutoHealFiles([]);
+    } catch (err) {
+      setAutoHealError(err.message);
+    } finally {
+      setIsQueueingAutoHeal(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="alert-details-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -303,6 +379,18 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             ccRecipients={ccRecipients}
             lookupError={cmdbLookupError}
             lookupTarget={cmdbLookupTarget}
+          />
+
+          <AutoHealSection
+            alert={alert}
+            details={displayDetails}
+            status={autoHealStatus}
+            error={autoHealError}
+            isQueueing={isQueueingAutoHeal}
+            selectedFiles={selectedAutoHealFiles}
+            onQueue={handleQueueAutoHeal}
+            onSelectedFilesChange={setSelectedAutoHealFiles}
+            onCleanupSelected={handleCleanupSelectedAutoHealFiles}
           />
 
           <BlockingEvidenceSection details={displayDetails} />
@@ -396,6 +484,175 @@ function CmdbContactsSection({ entry, isLoading, ccRecipients, lookupError, look
   );
 }
 
+function AutoHealSection({
+  alert,
+  details,
+  status,
+  error,
+  isQueueing,
+  selectedFiles,
+  onQueue,
+  onSelectedFilesChange,
+  onCleanupSelected
+}) {
+  const supportsLogShrink = isLogShrinkAutoHealSupported(alert, details);
+  const targetPath = resolveAutoHealTargetPath(details);
+  const candidates = status?.fileCandidates ?? [];
+  const selectableCandidates = candidates.filter((candidate) => ['Candidate', 'Failed'].includes(candidate.actionStatus));
+  const selectedSet = new Set(selectedFiles);
+  const detailsValue = parseAlertDetails(status?.detailsJson);
+  const summary = status?.status || (error ? 'Needs attention' : 'Ready');
+
+  function toggleFile(filePath) {
+    if (selectedSet.has(filePath)) {
+      onSelectedFilesChange(selectedFiles.filter((item) => item !== filePath));
+      return;
+    }
+
+    onSelectedFilesChange([...selectedFiles, filePath]);
+  }
+
+  function toggleAllSelectable() {
+    if (selectedFiles.length === selectableCandidates.length) {
+      onSelectedFilesChange([]);
+      return;
+    }
+
+    onSelectedFilesChange(selectableCandidates.map((candidate) => candidate.filePath));
+  }
+
+  return (
+    <CollapsibleSection title="Auto Heal" summary={summary} defaultOpen={Boolean(status || error)}>
+      <div className="auto-heal-panel">
+        <div className="auto-heal-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => onQueue('BackupRetentionScan')}
+            disabled={isQueueing || status?.isRunning}
+            title={targetPath ? `Scan ${targetPath}` : 'Scan latest known volumes for this server'}
+          >
+            {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
+            Try auto heal
+          </button>
+          {supportsLogShrink ? (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => onQueue('LogShrinkAssessment')}
+              disabled={isQueueing || status?.isRunning || !(alert.databaseName || details?.databaseName)}
+            >
+              {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
+              Assess/shrink log
+            </button>
+          ) : null}
+        </div>
+
+        <p className="auto-heal-helper">
+          Backup auto-heal scans {targetPath ? <strong>{targetPath}</strong> : 'the latest known volumes for this server'}, deletes only .bak/.trn files older than 90 days, then lists remaining .bak/.trn files for explicit selection.
+        </p>
+
+        {supportsLogShrink ? (
+          <p className="auto-heal-helper">
+            Log auto-heal shrinks only when there are no open transactions, used log space is 20% or lower, the log is at least 1 GB, and log reuse wait is safe.
+          </p>
+        ) : null}
+
+        {error ? <div className="query-plan-empty auto-heal-error">{error}</div> : null}
+
+        {status ? (
+          <div className="auto-heal-status">
+            <StructuredDetails
+              value={{
+                requestId: status.requestId,
+                action: status.actionType,
+                status: status.status,
+                message: status.message,
+                pipelineRunId: status.pipelineRunId,
+                targetPath: status.targetPath,
+                retentionDays: status.retentionDays
+              }}
+            />
+            {status.pipelineWebUrl ? (
+              <a className="secondary-action auto-heal-link" href={status.pipelineWebUrl} target="_blank" rel="noreferrer">
+                Open pipeline
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+
+        {candidates.length > 0 ? (
+          <div className="auto-heal-files">
+            <div className="auto-heal-files-header">
+              <strong>{candidates.length} files found</strong>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={toggleAllSelectable}
+                disabled={selectableCandidates.length === 0 || status?.isRunning}
+              >
+                {selectedFiles.length === selectableCandidates.length && selectableCandidates.length > 0 ? 'Clear selection' : 'Select remaining'}
+              </button>
+              <button
+                type="button"
+                className="secondary-action danger-action"
+                onClick={onCleanupSelected}
+                disabled={selectedFiles.length === 0 || isQueueing || status?.isRunning}
+              >
+                <Trash2 aria-hidden="true" size={14} />
+                Cleanup selected
+              </button>
+            </div>
+            <div className="evidence-table-scroll">
+              <table className="evidence-mini-table auto-heal-table">
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>File</th>
+                    <th>Size</th>
+                    <th>Age</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map((candidate) => {
+                    const canSelect = ['Candidate', 'Failed'].includes(candidate.actionStatus) && !status?.isRunning;
+                    return (
+                      <tr key={`${candidate.candidateId}-${candidate.filePath}`}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedSet.has(candidate.filePath)}
+                            disabled={!canSelect}
+                            onChange={() => toggleFile(candidate.filePath)}
+                            aria-label={`Select ${candidate.filePath}`}
+                          />
+                        </td>
+                        <td className="auto-heal-file-path">{candidate.filePath}</td>
+                        <td>{formatMb(candidate.sizeMb)}</td>
+                        <td>{formatAutoHealAge(candidate.ageDays)}</td>
+                        <td>{candidate.actionStatus}</td>
+                        <td>{candidate.errorMessage || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {hasRenderableDetail(detailsValue) ? (
+          <CollapsibleSection title="Auto-heal result details" summary={detailsValue.action || status?.actionType}>
+            <StructuredDetails value={detailsValue} />
+          </CollapsibleSection>
+        ) : null}
+      </div>
+    </CollapsibleSection>
+  );
+}
+
 function resolveCmdbLookupTarget(alert, details) {
   const serverName = firstNonEmpty(
     details?.serverName,
@@ -468,6 +725,25 @@ function formatCmdbLookupTarget(target) {
   }
 
   return `${formatDetailValue(target.serverName)}/${formatDetailValue(target.databaseName)}`;
+}
+
+function resolveAutoHealTargetPath(details) {
+  return firstNonEmpty(
+    details?.volumeMountPoint,
+    details?.sampleVolumeMountPoint,
+    details?.limitingVolumeMountPoint,
+    details?.targetPath,
+    findFirstNestedDetailValue(details, ['volumeMountPoint', 'sampleVolumeMountPoint', 'limitingVolumeMountPoint', 'targetPath'])
+  );
+}
+
+function isLogShrinkAutoHealSupported(alert, details) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+  return Boolean(alert.databaseName || details?.databaseName) && [
+    'unusuallylargelogfile',
+    'logfileexhaustionrisk',
+    'logfilegrowthspike'
+  ].includes(alertType);
 }
 
 function useNowMs(isEnabled) {
@@ -1575,7 +1851,8 @@ function buildCollectionFailureResolutionSteps(alert, details) {
 
 function buildCapacityRiskResolutionSteps(alert, details) {
   return compactSteps([
-    `Capacity forecast evidence for ${describeAlertTarget(alert, details)}: current size ${formatGb(details?.currentSizeGb)}, 7-day growth ${formatGb(details?.growth7DaysGb)}, 30-day growth ${formatGb(details?.growth30DaysGb)}, average daily growth ${formatGb(details?.averageGrowthPerDayGb)}, available space ${formatGb(details?.availableSpaceGb)}, estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}.`,
+    `Capacity forecast evidence for ${describeAlertTarget(alert, details)}: current size ${formatGb(details?.currentSizeGb)}, 7-day growth ${formatGb(details?.growth7DaysGb)}, 30-day growth ${formatGb(details?.growth30DaysGb)}, database average daily growth ${formatGb(details?.averageGrowthPerDayGb)}, available space ${formatGb(details?.availableSpaceGb)}, estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}.`,
+    details?.limitingVolumeMountPoint ? `Limiting volume is ${formatDetailValue(details.limitingVolumeMountPoint)}. Shared 30-day daily growth from database files on that volume is ${formatGb(details?.sharedVolumeGrowthPerDayGb)}; forecast method is ${formatDetailValue(details?.forecastMethod)}.` : null,
     details?.recommendation ? `Use the generated recommendation as the starting hypothesis: ${details.recommendation}` : null,
     'Check whether the growth is expected from a release, data load, index maintenance, retention change, or new table growth. Compare the database detail chart and Top Tables view for the same server/database.',
     'If growth is expected, plan the storage action: add/move storage, increase file max size, adjust autogrowth, archive/purge data, or compress/rebuild indexes after validating workload impact.',
@@ -1920,6 +2197,22 @@ function formatHours(value) {
   })} ${Math.round(numericValue * 10) / 10 === 1 ? 'hour' : 'hours'}`;
 }
 
+function formatAutoHealAge(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numericValue = Number(value);
+  if (numericValue < 1) {
+    return formatRemainingTimeFromDays(numericValue, '-');
+  }
+
+  return `${numericValue.toLocaleString(undefined, {
+    maximumFractionDigits: numericValue < 10 ? 1 : 0,
+    minimumFractionDigits: 0
+  })} ${Math.round(numericValue * 10) / 10 === 1 ? 'day' : 'days'}`;
+}
+
 function formatMs(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
@@ -2060,6 +2353,10 @@ function getEmailImpactSummary(alert, details) {
   }
 
   if (alertType === 'capacityrisk') {
+    if (details?.limitingVolumeMountPoint) {
+      return `Forecast shows ${formatGb(details?.availableSpaceGb)} available on limiting volume ${formatDetailValue(details.limitingVolumeMountPoint)} and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)} based on shared drive growth of ${formatGb(details?.sharedVolumeGrowthPerDayGb)} per day. Capacity exhaustion can stop data growth or cause application failures.`;
+    }
+
     return `Forecast shows ${formatGb(details?.availableSpaceGb)} available and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}. Capacity exhaustion can stop data growth or cause application failures.`;
   }
 
@@ -2248,6 +2545,15 @@ function getEmailEvidenceLines(alert, details) {
   }
   if (details?.logReuseWait) {
     lines.push(`Log reuse wait: ${details.logReuseWait}`);
+  }
+  if (details?.limitingVolumeMountPoint) {
+    lines.push(`Limiting volume: ${details.limitingVolumeMountPoint}`);
+  }
+  if (details?.sharedVolumeGrowthPerDayGb) {
+    lines.push(`Shared volume growth/day: ${formatGb(details.sharedVolumeGrowthPerDayGb)}`);
+  }
+  if (details?.forecastMethod) {
+    lines.push(`Forecast method: ${details.forecastMethod}`);
   }
   if (details?.recoveryModel) {
     lines.push(`Recovery model: ${details.recoveryModel}`);

@@ -139,8 +139,13 @@ http://localhost:5173
 - `GET /api/servers`
 - `GET /api/collector-run`
 - `POST /api/collector-run`
+- `POST /api/auto-heal/requests`
+- `GET /api/auto-heal/requests/{requestId}`
+- `POST /api/auto-heal/requests/{requestId}/cleanup-files`
 
 `POST /api/collector-run` lets the dashboard trigger the `DBA Capacity - Collect Metrics` Azure DevOps pipeline through the API. The browser never receives the Azure DevOps PAT. The API queues the pipeline using server-side configuration, then `GET /api/collector-run` polls the latest run so the dashboard button can stay disabled until Azure DevOps reports that the run is complete.
+
+Alert More info can also queue controlled auto-heal actions through the API. The browser still never receives the Azure DevOps PAT. `DBA Capacity - Auto Heal` can scan/prune `.bak` and `.trn` files older than 90 days, list remaining backup files for explicit selection, and perform a conservative transaction-log shrink attempt only when safety checks pass.
 
 ## Azure DevOps Pipelines
 
@@ -149,6 +154,7 @@ http://localhost:5173
 - `pipelines/deploy-database.yml`: deploys database scripts in order.
 - `pipelines/deploy-api.yml`: restores, builds, tests if present, publishes artifact, and deploys the API to IIS.
 - `pipelines/deploy-web.yml`: installs npm packages, builds React, publishes artifact, and deploys the static web app to IIS.
+- `pipelines/auto-heal.yml`: dashboard-triggered controlled remediation for backup-file cleanup and safe log-shrink assessment.
 
 The YAMLs target the self-hosted Windows agent:
 
@@ -189,6 +195,8 @@ All pipeline YAMLs import the Azure DevOps variable group named `configs`. Creat
 - `AZDO_PROJECT`
 - `AZDO_COLLECTOR_PIPELINE_ID`
 - `AZDO_COLLECTOR_PIPELINE_NAME`
+- `AZDO_AUTOHEAL_PIPELINE_ID`
+- `AZDO_AUTOHEAL_PIPELINE_NAME`
 - `AZDO_PAT`
 
 For the local default SQL Server instance on the self-hosted agent, set:
@@ -209,10 +217,12 @@ AZDO_ORGANIZATION = kaz-tec
 AZDO_PROJECT = PersonalEnvironment
 AZDO_COLLECTOR_PIPELINE_NAME = DBA Capacity - Collect Metrics
 AZDO_COLLECTOR_PIPELINE_ID = optional numeric pipeline id
+AZDO_AUTOHEAL_PIPELINE_NAME = DBA Capacity - Auto Heal
+AZDO_AUTOHEAL_PIPELINE_ID = optional numeric pipeline id
 AZDO_PAT = secret PAT owned by an automation account
 ```
 
-Mark `AZDO_PAT` as secret. The PAT only needs permission to read and run pipelines. Prefer using `AZDO_COLLECTOR_PIPELINE_ID` when available because it avoids ambiguity if multiple pipelines share similar names.
+Mark `AZDO_PAT` as secret. The PAT only needs permission to read and run the collector and auto-heal pipelines. Prefer using numeric pipeline ids when available because it avoids ambiguity if multiple pipelines share similar names.
 
 ## IIS Deployment Defaults
 
@@ -251,7 +261,7 @@ For local mode, the Azure DevOps agent process must run as a local administrator
 
 The API deploy pipeline also verifies the ASP.NET Core IIS module and installs or repairs the .NET 9 Windows Hosting Bundle when it is missing. By default it downloads from `https://aka.ms/dotnet/9.0/dotnet-hosting-win.exe`; set `IIS_ASPNETCORE_HOSTING_BUNDLE_URL` if the customer requires an internal software mirror.
 
-The API deploy pipeline grants `db_datareader` plus `DELETE` on `dbo.AlertHistory` to `IIS APPPOOL\DBACapacityApi` in local mode when the repository SQL variables are configured. Remote mode skips that virtual-account grant because `IIS APPPOOL\...` is local to the remote IIS server; use `DBA_API_CONNECTION_STRING` with a SQL/domain credential or manually grant the remote app pool/domain identity in SQL Server.
+The API deploy pipeline grants `db_datareader` plus narrow write permissions for alert deletion, settings, CMDB, and auto-heal request tracking to `IIS APPPOOL\DBACapacityApi` in local mode when the repository SQL variables are configured. Remote mode skips that virtual-account grant because `IIS APPPOOL\...` is local to the remote IIS server; use `DBA_API_CONNECTION_STRING` with a SQL/domain credential or manually grant the remote app pool/domain identity in SQL Server.
 
 Azure SQL Database inventory rows should use `server_type = AzureSQL`. Disk, backup, and TempDB collectors are skipped for Azure SQL Database because those metrics depend on instance-level SQL Server DMVs.
 

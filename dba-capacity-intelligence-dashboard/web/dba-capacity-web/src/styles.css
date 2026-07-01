@@ -617,6 +617,10 @@ td {
   border-color: #98a2b3;
 }
 
+.secondary-action .lucide-loader-circle {
+  animation: spin 0.9s linear infinite;
+}
+
 .secondary-action:disabled {
   color: #98a2b3;
   cursor: not-allowed;
@@ -1189,6 +1193,59 @@ td {
   background: #f8fafc;
   color: #475467;
   padding: 12px;
+}
+
+.auto-heal-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.auto-heal-actions,
+.auto-heal-files-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auto-heal-helper {
+  color: #667085;
+  line-height: 1.45;
+}
+
+.auto-heal-error {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #b42318;
+}
+
+.auto-heal-status {
+  display: grid;
+  gap: 10px;
+}
+
+.auto-heal-link {
+  justify-self: start;
+}
+
+.auto-heal-files {
+  display: grid;
+  gap: 10px;
+}
+
+.auto-heal-table {
+  min-width: 980px;
+}
+
+.auto-heal-table input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
+.auto-heal-file-path {
+  min-width: 360px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.78rem;
 }
 
 .query-plan-viewer svg,
