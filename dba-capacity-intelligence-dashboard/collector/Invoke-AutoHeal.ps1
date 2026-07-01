@@ -58,6 +58,16 @@ function ConvertTo-SqlNumber {
     $Value
 }
 
+function ConvertTo-IsoDateTimeText {
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value -or $Value -is [System.DBNull]) {
+        return $null
+    }
+
+    ([datetime]$Value).ToString('o')
+}
+
 function Set-AutoHealRequestStatus {
     param(
         [Parameter(Mandatory = $true)]
@@ -631,7 +641,7 @@ DBCC SHRINKFILE (@logical_file_name, @target_mb) WITH NO_INFOMSGS;
         usedLogSpaceMb = $usedLogSizeMb
         usedLogSpacePercent = $usedPercent
         openTransactionCount = $openTransactionCount
-        oldestTransactionBeginTime = if ($transaction -and $transaction.oldest_transaction_begin_time) { ([datetime]$transaction.oldest_transaction_begin_time).ToString('o') } else { $null }
+        oldestTransactionBeginTime = if ($transaction) { ConvertTo-IsoDateTimeText $transaction.oldest_transaction_begin_time } else { $null }
         canShrink = $canShrink
         decisionReasons = @($decisionReasons)
         shrinkResults = $shrinkResults
