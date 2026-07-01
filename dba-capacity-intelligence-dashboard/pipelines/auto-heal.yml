@@ -46,45 +46,47 @@ parameters:
     type: string
     default: '90'
 
-pool:
-  name: ${{ parameters.agentPool }}
-  demands:
-    - Agent.Name -equals ${{ parameters.agentName }}
-    - Agent.OS -equals Windows_NT
-
 variables:
   - group: configs
   - name: projectRoot
     value: dba-capacity-intelligence-dashboard
 
-steps:
-  - checkout: self
+jobs:
+  - job: RunAutoHeal
+    displayName: Run DBA Capacity auto-heal
+    pool:
+      name: ${{ parameters.agentPool }}
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+        - Agent.OS -equals Windows_NT
+    steps:
+      - checkout: self
 
-  - task: PowerShell@2
-    displayName: Install dbatools
-    inputs:
-      pwsh: false
-      targetType: inline
-      script: |
-        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-        Install-Module dbatools -Scope CurrentUser -Force -AllowClobber
+      - task: PowerShell@2
+        displayName: Install dbatools
+        inputs:
+          pwsh: false
+          targetType: inline
+          script: |
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module dbatools -Scope CurrentUser -Force -AllowClobber
 
-  - task: PowerShell@2
-    displayName: Run DBA Capacity auto-heal action
-    inputs:
-      pwsh: false
-      filePath: $(projectRoot)/collector/Invoke-AutoHeal.ps1
-      arguments: >
-        -Action "${{ parameters.action }}"
-        -RequestId "${{ parameters.requestId }}"
-        -ServerName "${{ parameters.serverName }}"
-        -DatabaseName "${{ parameters.databaseName }}"
-        -TargetPath "${{ parameters.targetPath }}"
-        -RetentionDays "${{ parameters.retentionDays }}"
-    env:
-      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
-      DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
-      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
-      SQL_USER: $(SQL_USER)
-      SQL_PASSWORD: $(SQL_PASSWORD)
-      SOURCE_SQL_CREDENTIALS_JSON: $(SOURCE_SQL_CREDENTIALS_JSON)
+      - task: PowerShell@2
+        displayName: Run DBA Capacity auto-heal action
+        inputs:
+          pwsh: false
+          filePath: $(projectRoot)/collector/Invoke-AutoHeal.ps1
+          arguments: >
+            -Action "${{ parameters.action }}"
+            -RequestId "${{ parameters.requestId }}"
+            -ServerName "${{ parameters.serverName }}"
+            -DatabaseName "${{ parameters.databaseName }}"
+            -TargetPath "${{ parameters.targetPath }}"
+            -RetentionDays "${{ parameters.retentionDays }}"
+        env:
+          DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+          DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
+          DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
+          SQL_USER: $(SQL_USER)
+          SQL_PASSWORD: $(SQL_PASSWORD)
+          SOURCE_SQL_CREDENTIALS_JSON: $(SOURCE_SQL_CREDENTIALS_JSON)
