@@ -41,6 +41,11 @@ parameters:
     type: string
     default: '__AUTO__'
 
+  - name: targetPath
+    displayName: Legacy backup scan path alias
+    type: string
+    default: '__AUTO__'
+
   - name: retentionDays
     displayName: Retention days
     type: string
@@ -75,14 +80,25 @@ jobs:
         displayName: Run DBA Capacity auto-heal action
         inputs:
           pwsh: false
-          filePath: $(projectRoot)/collector/Invoke-AutoHeal.ps1
-          arguments: >
-            -Action "${{ parameters.action }}"
-            -RequestId "${{ parameters.requestId }}"
-            -ServerName "${{ parameters.serverName }}"
-            -DatabaseName "${{ parameters.databaseName }}"
-            -TargetPath "${{ parameters.backupScanPath }}"
-            -RetentionDays "${{ parameters.retentionDays }}"
+          targetType: inline
+          script: |
+            $ErrorActionPreference = 'Stop'
+
+            $backupScanPath = '${{ parameters.backupScanPath }}'
+            $legacyTargetPath = '${{ parameters.targetPath }}'
+            $effectiveTargetPath = $backupScanPath
+
+            if ($effectiveTargetPath -in @('', '__AUTO__') -and $legacyTargetPath -notin @('', '__AUTO__')) {
+              $effectiveTargetPath = $legacyTargetPath
+            }
+
+            & "$(Build.SourcesDirectory)\$(projectRoot)\collector\Invoke-AutoHeal.ps1" `
+              -Action "${{ parameters.action }}" `
+              -RequestId "${{ parameters.requestId }}" `
+              -ServerName "${{ parameters.serverName }}" `
+              -DatabaseName "${{ parameters.databaseName }}" `
+              -TargetPath $effectiveTargetPath `
+              -RetentionDays "${{ parameters.retentionDays }}"
         env:
           DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
           DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
