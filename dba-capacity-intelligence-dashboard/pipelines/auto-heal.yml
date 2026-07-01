@@ -43,7 +43,7 @@ parameters:
 
   - name: targetPath
     displayName: Legacy backup scan path alias
-    type: string
+    type: object
     default: '__AUTO__'
 
   - name: retentionDays
