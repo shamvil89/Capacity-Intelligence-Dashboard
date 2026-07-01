@@ -24,22 +24,22 @@ parameters:
   - name: requestId
     displayName: Auto-heal request id
     type: string
-    default: ''
+    default: '00000000-0000-0000-0000-000000000000'
 
   - name: serverName
     displayName: Target SQL Server
     type: string
-    default: ''
+    default: '__REQUIRED__'
 
   - name: databaseName
     displayName: Target database
     type: string
-    default: ''
+    default: '__NONE__'
 
-  - name: targetPath
+  - name: backupScanPath
     displayName: Backup scan path or volume
     type: string
-    default: ''
+    default: '__AUTO__'
 
   - name: retentionDays
     displayName: Retention days
@@ -81,7 +81,7 @@ jobs:
             -RequestId "${{ parameters.requestId }}"
             -ServerName "${{ parameters.serverName }}"
             -DatabaseName "${{ parameters.databaseName }}"
-            -TargetPath "${{ parameters.targetPath }}"
+            -TargetPath "${{ parameters.backupScanPath }}"
             -RetentionDays "${{ parameters.retentionDays }}"
         env:
           DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)

@@ -15,6 +15,8 @@ public sealed class AzureDevOpsAutoHealService(
     ILogger<AzureDevOpsAutoHealService> logger) : IAutoHealService
 {
     private const string DefaultPipelineName = "DBA Capacity - Auto Heal";
+    private const string EmptyDatabaseTemplateValue = "__NONE__";
+    private const string AutoBackupPathTemplateValue = "__AUTO__";
     private static readonly HashSet<string> RunningStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "Queued",
@@ -238,8 +240,8 @@ public sealed class AzureDevOpsAutoHealService(
                     ["action"] = actionType,
                     ["requestId"] = requestId.ToString("D"),
                     ["serverName"] = serverName,
-                    ["databaseName"] = databaseName ?? string.Empty,
-                    ["targetPath"] = targetPath ?? string.Empty,
+                    ["databaseName"] = string.IsNullOrWhiteSpace(databaseName) ? EmptyDatabaseTemplateValue : databaseName,
+                    ["backupScanPath"] = string.IsNullOrWhiteSpace(targetPath) ? AutoBackupPathTemplateValue : targetPath,
                     ["retentionDays"] = retentionDays.ToString()
                 }
             };

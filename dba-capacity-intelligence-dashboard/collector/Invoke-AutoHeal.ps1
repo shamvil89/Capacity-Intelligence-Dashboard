@@ -22,6 +22,22 @@ $ErrorActionPreference = 'Stop'
 
 Initialize-DbaTools
 
+if ($ServerName -eq '__REQUIRED__') {
+    throw "ServerName is required. This pipeline is normally queued by the DBA Capacity API."
+}
+
+if ($RequestId -eq [guid]::Empty) {
+    throw "RequestId is required. This pipeline is normally queued by the DBA Capacity API."
+}
+
+if ($DatabaseName -in @('__NONE__', '__AUTO__', '-')) {
+    $DatabaseName = ''
+}
+
+if ($TargetPath -in @('__AUTO__', '__NONE__', '-')) {
+    $TargetPath = ''
+}
+
 function ConvertTo-SqlText {
     param([AllowNull()][object]$Value)
 

@@ -200,6 +200,16 @@ Queue-time actions:
 | `DeleteSelectedBackupFiles` | Deletes only file rows selected in the dashboard from the previous scan. |
 | `LogShrinkAssessment` | Attempts log shrink only after open transaction, used percent, log size, and log reuse wait safety checks pass. |
 
+Important runtime parameters:
+
+| Parameter | Purpose |
+| --- | --- |
+| `requestId` | Repository request id created by the API. Manual runs should not use the all-zero default. |
+| `serverName` | Target SQL Server. Manual runs must replace `__REQUIRED__`. |
+| `databaseName` | Target database for log shrink. Use `__NONE__` for backup-file cleanup. |
+| `backupScanPath` | Optional backup scan path or volume. Use `__AUTO__` to scan latest known source volumes from `DiskSpaceHistory`. |
+| `retentionDays` | Age threshold for automatic `.bak`/`.trn` deletion, default `90`. |
+
 Dashboard trigger:
 
 - Alert More info calls the API, not Azure DevOps directly.
