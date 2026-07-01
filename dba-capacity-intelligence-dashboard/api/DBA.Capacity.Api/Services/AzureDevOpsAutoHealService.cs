@@ -233,17 +233,21 @@ public sealed class AzureDevOpsAutoHealService(
         {
             var url = BuildUrl(settings, $"_apis/pipelines/{pipelineId}/runs?api-version=7.1");
             using var httpRequest = CreateRequest(HttpMethod.Post, url, settings);
+            var templateParameters = new Dictionary<string, string>
+            {
+                ["action"] = actionType,
+                ["requestId"] = requestId.ToString("D"),
+                ["serverName"] = serverName,
+                ["databaseName"] = string.IsNullOrWhiteSpace(databaseName) ? EmptyDatabaseTemplateValue : databaseName,
+                ["backupScanPath"] = string.IsNullOrWhiteSpace(targetPath) ? AutoBackupPathTemplateValue : targetPath,
+                ["retentionDays"] = retentionDays.ToString()
+            }
+            .Where(parameter => !string.IsNullOrWhiteSpace(parameter.Value))
+            .ToDictionary(parameter => parameter.Key, parameter => parameter.Value);
+
             var body = new
             {
-                templateParameters = new Dictionary<string, string?>
-                {
-                    ["action"] = actionType,
-                    ["requestId"] = requestId.ToString("D"),
-                    ["serverName"] = serverName,
-                    ["databaseName"] = string.IsNullOrWhiteSpace(databaseName) ? EmptyDatabaseTemplateValue : databaseName,
-                    ["backupScanPath"] = string.IsNullOrWhiteSpace(targetPath) ? AutoBackupPathTemplateValue : targetPath,
-                    ["retentionDays"] = retentionDays.ToString()
-                }
+                templateParameters
             };
             httpRequest.Content = new StringContent(JsonSerializer.Serialize(body, SerializerOptions), Encoding.UTF8, "application/json");
 
