@@ -15,91 +15,93 @@ parameters:
       - shamvil
       - eve-vsts
 
-pool:
-  name: ${{ parameters.agentPool }}
-  demands:
-    - Agent.Name -equals ${{ parameters.agentName }}
-    - Agent.OS -equals Windows_NT
-
 variables:
   - group: configs
   - name: projectRoot
     value: dba-capacity-intelligence-dashboard
 
-steps:
-  - checkout: self
+jobs:
+  - job: DeployDatabase
+    displayName: Deploy DBAUtility database
+    pool:
+      name: ${{ parameters.agentPool }}
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+        - Agent.OS -equals Windows_NT
+    steps:
+      - checkout: self
 
-  - task: PowerShell@2
-    displayName: Deploy DBAUtility database scripts
-    inputs:
-      pwsh: false
-      targetType: inline
-      script: |
-        $ErrorActionPreference = 'Stop'
+      - task: PowerShell@2
+        displayName: Deploy DBAUtility database scripts
+        inputs:
+          pwsh: false
+          targetType: inline
+          script: |
+            $ErrorActionPreference = 'Stop'
 
-        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-        Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module SqlServer -Scope CurrentUser -Force -AllowClobber
 
-        $repositoryServer = $env:DBA_REPOSITORY_SERVER
-        $authMode = $env:DBA_SQL_AUTH_MODE
+            $repositoryServer = $env:DBA_REPOSITORY_SERVER
+            $authMode = $env:DBA_SQL_AUTH_MODE
 
-        if ([string]::IsNullOrWhiteSpace($repositoryServer) -or $repositoryServer -like '$(*') {
-          throw "DBA_REPOSITORY_SERVER pipeline variable is required. For the local default SQL Server instance, use 'localhost'."
-        }
+            if ([string]::IsNullOrWhiteSpace($repositoryServer) -or $repositoryServer -like '$(*') {
+              throw "DBA_REPOSITORY_SERVER pipeline variable is required. For the local default SQL Server instance, use 'localhost'."
+            }
 
-        if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
-          $authMode = 'SqlAuth'
-        }
+            if ([string]::IsNullOrWhiteSpace($authMode) -or $authMode -like '$(*') {
+              $authMode = 'SqlAuth'
+            }
 
-        if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
-          throw "DBA_SQL_AUTH_MODE must be either 'SqlAuth' or 'WindowsAuth'. Current value: $authMode"
-        }
+            if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
+              throw "DBA_SQL_AUTH_MODE must be either 'SqlAuth' or 'WindowsAuth'. Current value: $authMode"
+            }
 
-        Write-Host "Target SQL Server: $repositoryServer"
-        Write-Host "SQL authentication mode: $authMode"
+            Write-Host "Target SQL Server: $repositoryServer"
+            Write-Host "SQL authentication mode: $authMode"
 
-        $sqlParams = @{
-          ServerInstance = $repositoryServer
-          TrustServerCertificate = $true
-          ErrorAction = 'Stop'
-        }
+            $sqlParams = @{
+              ServerInstance = $repositoryServer
+              TrustServerCertificate = $true
+              ErrorAction = 'Stop'
+            }
 
-        if ($authMode -eq 'SqlAuth') {
-          if ([string]::IsNullOrWhiteSpace($env:SQL_USER) -or $env:SQL_USER -like '$(*') {
-            throw "SQL_USER pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
-          }
+            if ($authMode -eq 'SqlAuth') {
+              if ([string]::IsNullOrWhiteSpace($env:SQL_USER) -or $env:SQL_USER -like '$(*') {
+                throw "SQL_USER pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
+              }
 
-          if ([string]::IsNullOrWhiteSpace($env:SQL_PASSWORD) -or $env:SQL_PASSWORD -like '$(*') {
-            throw "SQL_PASSWORD pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
-          }
+              if ([string]::IsNullOrWhiteSpace($env:SQL_PASSWORD) -or $env:SQL_PASSWORD -like '$(*') {
+                throw "SQL_PASSWORD pipeline variable is required when DBA_SQL_AUTH_MODE is SqlAuth."
+              }
 
-          $sqlParams.Username = $env:SQL_USER
-          $sqlParams.Password = $env:SQL_PASSWORD
-        }
+              $sqlParams.Username = $env:SQL_USER
+              $sqlParams.Password = $env:SQL_PASSWORD
+            }
 
-        Write-Host "Testing SQL Server connection..."
-        Invoke-Sqlcmd @sqlParams -Query "SELECT @@SERVERNAME AS server_name, @@SERVICENAME AS service_name;" | Format-Table -AutoSize
+            Write-Host "Testing SQL Server connection..."
+            Invoke-Sqlcmd @sqlParams -Query "SELECT @@SERVERNAME AS server_name, @@SERVICENAME AS service_name;" | Format-Table -AutoSize
 
-        $projectRoot = Join-Path '$(Build.SourcesDirectory)' '$(projectRoot)'
-        $databaseRoot = Join-Path $projectRoot 'database'
+            $projectRoot = Join-Path '$(Build.SourcesDirectory)' '$(projectRoot)'
+            $databaseRoot = Join-Path $projectRoot 'database'
 
-        if (-not (Test-Path $databaseRoot)) {
-          throw "Database script folder not found: $databaseRoot"
-        }
+            if (-not (Test-Path $databaseRoot)) {
+              throw "Database script folder not found: $databaseRoot"
+            }
 
-        $orderedScripts = @()
-        $orderedScripts += (Resolve-Path (Join-Path $databaseRoot '001_Create_Database.sql')).Path
-        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'tables') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'procedures') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'views') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
-        $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'seed') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+            $orderedScripts = @()
+            $orderedScripts += (Resolve-Path (Join-Path $databaseRoot '001_Create_Database.sql')).Path
+            $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'tables') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+            $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'procedures') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+            $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'views') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
+            $orderedScripts += Get-ChildItem (Join-Path $databaseRoot 'seed') -Filter '*.sql' | Sort-Object Name | Select-Object -ExpandProperty FullName
 
-        foreach ($script in $orderedScripts) {
-          Write-Host "Running $script"
-          Invoke-Sqlcmd @sqlParams -InputFile $script
-        }
-    env:
-      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
-      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
-      SQL_USER: $(SQL_USER)
-      SQL_PASSWORD: $(SQL_PASSWORD)
+            foreach ($script in $orderedScripts) {
+              Write-Host "Running $script"
+              Invoke-Sqlcmd @sqlParams -InputFile $script
+            }
+        env:
+          DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+          DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
+          SQL_USER: $(SQL_USER)
+          SQL_PASSWORD: $(SQL_PASSWORD)

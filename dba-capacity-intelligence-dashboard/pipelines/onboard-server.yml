@@ -61,197 +61,199 @@ parameters:
     type: boolean
     default: true
 
-pool:
-  name: ${{ parameters.agentPool }}
-  demands:
-    - Agent.Name -equals ${{ parameters.agentName }}
-    - Agent.OS -equals Windows_NT
-
 variables:
   - group: configs
 
-steps:
-  - checkout: self
+jobs:
+  - job: OnboardServer
+    displayName: Onboard SQL Server
+    pool:
+      name: ${{ parameters.agentPool }}
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+        - Agent.OS -equals Windows_NT
+    steps:
+      - checkout: self
 
-  - task: PowerShell@2
-    displayName: Onboard SQL Server into DBAUtility
-    inputs:
-      pwsh: false
-      targetType: inline
-      script: |
-        $ErrorActionPreference = 'Stop'
+      - task: PowerShell@2
+        displayName: Onboard SQL Server into DBAUtility
+        inputs:
+          pwsh: false
+          targetType: inline
+          script: |
+            $ErrorActionPreference = 'Stop'
 
-        function Get-Setting {
-          param(
-            [string]$Value,
-            [string]$DefaultValue
-          )
+            function Get-Setting {
+              param(
+                [string]$Value,
+                [string]$DefaultValue
+              )
 
-          if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
-            return $DefaultValue
-          }
+              if ([string]::IsNullOrWhiteSpace($Value) -or $Value -like '$(*') {
+                return $DefaultValue
+              }
 
-          return $Value
-        }
+              return $Value
+            }
 
-        $repositoryServer = Get-Setting $env:DBA_REPOSITORY_SERVER ''
-        $repositoryDatabase = Get-Setting $env:DBA_REPOSITORY_DB 'DBAUtility'
-        $authMode = Get-Setting $env:DBA_SQL_AUTH_MODE 'WindowsAuth'
-        $serverName = '${{ parameters.serverName }}'.Trim()
-        $environment = '${{ parameters.environment }}'
-        $serverType = '${{ parameters.serverType }}'
-        $connectionMode = '${{ parameters.connectionMode }}'
-        $credentialKey = '${{ parameters.credentialKey }}'.Trim()
-        $isActive = [System.Convert]::ToBoolean('${{ parameters.isActive }}')
-        $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $repositoryServer = Get-Setting $env:DBA_REPOSITORY_SERVER ''
+            $repositoryDatabase = Get-Setting $env:DBA_REPOSITORY_DB 'DBAUtility'
+            $authMode = Get-Setting $env:DBA_SQL_AUTH_MODE 'WindowsAuth'
+            $serverName = '${{ parameters.serverName }}'.Trim()
+            $environment = '${{ parameters.environment }}'
+            $serverType = '${{ parameters.serverType }}'
+            $connectionMode = '${{ parameters.connectionMode }}'
+            $credentialKey = '${{ parameters.credentialKey }}'.Trim()
+            $isActive = [System.Convert]::ToBoolean('${{ parameters.isActive }}')
+            $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-        Write-Host "Pipeline Windows identity: $windowsIdentity"
-        Write-Host "Repository target: $repositoryServer/$repositoryDatabase"
-        Write-Host "Repository auth mode: $authMode"
+            Write-Host "Pipeline Windows identity: $windowsIdentity"
+            Write-Host "Repository target: $repositoryServer/$repositoryDatabase"
+            Write-Host "Repository auth mode: $authMode"
 
-        if ($authMode -eq 'WindowsAuth' -and $repositoryServer -in @('localhost', '127.0.0.1')) {
-          Write-Warning "WindowsAuth with '$repositoryServer' can resolve as a network machine identity for services. For a local SQL Server on this self-hosted agent, prefer DBA_REPOSITORY_SERVER='.' or use SqlAuth."
-        }
+            if ($authMode -eq 'WindowsAuth' -and $repositoryServer -in @('localhost', '127.0.0.1')) {
+              Write-Warning "WindowsAuth with '$repositoryServer' can resolve as a network machine identity for services. For a local SQL Server on this self-hosted agent, prefer DBA_REPOSITORY_SERVER='.' or use SqlAuth."
+            }
 
-        if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
-          throw "DBA_REPOSITORY_SERVER is required in the configs variable group."
-        }
+            if ([string]::IsNullOrWhiteSpace($repositoryServer)) {
+              throw "DBA_REPOSITORY_SERVER is required in the configs variable group."
+            }
 
-        if ([string]::IsNullOrWhiteSpace($serverName)) {
-          throw "serverName parameter is required."
-        }
+            if ([string]::IsNullOrWhiteSpace($serverName)) {
+              throw "serverName parameter is required."
+            }
 
-        if ([string]::IsNullOrWhiteSpace($credentialKey)) {
-          $credentialKey = 'default'
-        }
+            if ([string]::IsNullOrWhiteSpace($credentialKey)) {
+              $credentialKey = 'default'
+            }
 
-        if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
-          throw "DBA_SQL_AUTH_MODE must be either SqlAuth or WindowsAuth for this pipeline. Current value: $authMode"
-        }
+            if ($authMode -notin @('SqlAuth', 'WindowsAuth')) {
+              throw "DBA_SQL_AUTH_MODE must be either SqlAuth or WindowsAuth for this pipeline. Current value: $authMode"
+            }
 
-        $connectionStringBuilder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
-        $connectionStringBuilder['Data Source'] = $repositoryServer
-        $connectionStringBuilder['Initial Catalog'] = $repositoryDatabase
-        $connectionStringBuilder['Encrypt'] = $true
-        $connectionStringBuilder['TrustServerCertificate'] = $true
+            $connectionStringBuilder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+            $connectionStringBuilder['Data Source'] = $repositoryServer
+            $connectionStringBuilder['Initial Catalog'] = $repositoryDatabase
+            $connectionStringBuilder['Encrypt'] = $true
+            $connectionStringBuilder['TrustServerCertificate'] = $true
 
-        if ($authMode -eq 'SqlAuth') {
-          if ([string]::IsNullOrWhiteSpace($env:SQL_USER) -or $env:SQL_USER -like '$(*') {
-            throw "SQL_USER is required when DBA_SQL_AUTH_MODE is SqlAuth."
-          }
+            if ($authMode -eq 'SqlAuth') {
+              if ([string]::IsNullOrWhiteSpace($env:SQL_USER) -or $env:SQL_USER -like '$(*') {
+                throw "SQL_USER is required when DBA_SQL_AUTH_MODE is SqlAuth."
+              }
 
-          if ([string]::IsNullOrWhiteSpace($env:SQL_PASSWORD) -or $env:SQL_PASSWORD -like '$(*') {
-            throw "SQL_PASSWORD is required when DBA_SQL_AUTH_MODE is SqlAuth."
-          }
+              if ([string]::IsNullOrWhiteSpace($env:SQL_PASSWORD) -or $env:SQL_PASSWORD -like '$(*') {
+                throw "SQL_PASSWORD is required when DBA_SQL_AUTH_MODE is SqlAuth."
+              }
 
-          $connectionStringBuilder['User ID'] = $env:SQL_USER
-          $connectionStringBuilder['Password'] = $env:SQL_PASSWORD
-        }
-        else {
-          $connectionStringBuilder['Integrated Security'] = $true
-        }
+              $connectionStringBuilder['User ID'] = $env:SQL_USER
+              $connectionStringBuilder['Password'] = $env:SQL_PASSWORD
+            }
+            else {
+              $connectionStringBuilder['Integrated Security'] = $true
+            }
 
-        $query = @"
-        SET NOCOUNT ON;
+            $query = @"
+            SET NOCOUNT ON;
 
-        IF EXISTS (SELECT 1 FROM dbo.ServerInventory WHERE server_name = @server_name)
-        BEGIN
-            UPDATE dbo.ServerInventory
-            SET
-                environment = @environment,
-                server_type = @server_type,
-                connection_mode = @connection_mode,
-                credential_key = @credential_key,
-                is_active = @is_active,
-                updated_at = SYSUTCDATETIME()
-            WHERE server_name = @server_name;
-        END
-        ELSE
-        BEGIN
-            INSERT INTO dbo.ServerInventory
-            (
+            IF EXISTS (SELECT 1 FROM dbo.ServerInventory WHERE server_name = @server_name)
+            BEGIN
+                UPDATE dbo.ServerInventory
+                SET
+                    environment = @environment,
+                    server_type = @server_type,
+                    connection_mode = @connection_mode,
+                    credential_key = @credential_key,
+                    is_active = @is_active,
+                    updated_at = SYSUTCDATETIME()
+                WHERE server_name = @server_name;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.ServerInventory
+                (
+                    server_name,
+                    environment,
+                    server_type,
+                    connection_mode,
+                    credential_key,
+                    is_active
+                )
+                VALUES
+                (
+                    @server_name,
+                    @environment,
+                    @server_type,
+                    @connection_mode,
+                    @credential_key,
+                    @is_active
+                );
+            END;
+
+            SELECT
+                server_id,
                 server_name,
                 environment,
                 server_type,
                 connection_mode,
                 credential_key,
-                is_active
-            )
-            VALUES
-            (
-                @server_name,
-                @environment,
-                @server_type,
-                @connection_mode,
-                @credential_key,
-                @is_active
-            );
-        END;
+                is_active,
+                created_at,
+                updated_at
+            FROM dbo.ServerInventory
+            WHERE server_name = @server_name;
+            "@
 
-        SELECT
-            server_id,
-            server_name,
-            environment,
-            server_type,
-            connection_mode,
-            credential_key,
-            is_active,
-            created_at,
-            updated_at
-        FROM dbo.ServerInventory
-        WHERE server_name = @server_name;
-        "@
+            $connection = New-Object System.Data.SqlClient.SqlConnection($connectionStringBuilder.ConnectionString)
+            $command = $connection.CreateCommand()
+            $command.CommandText = $query
+            $command.CommandTimeout = 60
 
-        $connection = New-Object System.Data.SqlClient.SqlConnection($connectionStringBuilder.ConnectionString)
-        $command = $connection.CreateCommand()
-        $command.CommandText = $query
-        $command.CommandTimeout = 60
+            $null = $command.Parameters.Add('@server_name', [System.Data.SqlDbType]::NVarChar, 128)
+            $command.Parameters['@server_name'].Value = $serverName
 
-        $null = $command.Parameters.Add('@server_name', [System.Data.SqlDbType]::NVarChar, 128)
-        $command.Parameters['@server_name'].Value = $serverName
+            $null = $command.Parameters.Add('@environment', [System.Data.SqlDbType]::VarChar, 50)
+            $command.Parameters['@environment'].Value = $environment
 
-        $null = $command.Parameters.Add('@environment', [System.Data.SqlDbType]::VarChar, 50)
-        $command.Parameters['@environment'].Value = $environment
+            $null = $command.Parameters.Add('@server_type', [System.Data.SqlDbType]::VarChar, 50)
+            $command.Parameters['@server_type'].Value = $serverType
 
-        $null = $command.Parameters.Add('@server_type', [System.Data.SqlDbType]::VarChar, 50)
-        $command.Parameters['@server_type'].Value = $serverType
+            $null = $command.Parameters.Add('@connection_mode', [System.Data.SqlDbType]::VarChar, 50)
+            $command.Parameters['@connection_mode'].Value = $connectionMode
 
-        $null = $command.Parameters.Add('@connection_mode', [System.Data.SqlDbType]::VarChar, 50)
-        $command.Parameters['@connection_mode'].Value = $connectionMode
+            $null = $command.Parameters.Add('@credential_key', [System.Data.SqlDbType]::VarChar, 100)
+            $command.Parameters['@credential_key'].Value = $credentialKey
 
-        $null = $command.Parameters.Add('@credential_key', [System.Data.SqlDbType]::VarChar, 100)
-        $command.Parameters['@credential_key'].Value = $credentialKey
+            $null = $command.Parameters.Add('@is_active', [System.Data.SqlDbType]::Bit)
+            $command.Parameters['@is_active'].Value = $isActive
 
-        $null = $command.Parameters.Add('@is_active', [System.Data.SqlDbType]::Bit)
-        $command.Parameters['@is_active'].Value = $isActive
+            try {
+              Write-Host "Connecting to repository $repositoryServer/$repositoryDatabase..."
+              $connection.Open()
+              $reader = $command.ExecuteReader()
+              $table = New-Object System.Data.DataTable
+              $table.Load($reader)
 
-        try {
-          Write-Host "Connecting to repository $repositoryServer/$repositoryDatabase..."
-          $connection.Open()
-          $reader = $command.ExecuteReader()
-          $table = New-Object System.Data.DataTable
-          $table.Load($reader)
+              Write-Host "Server inventory row:"
+              $table | Format-Table -AutoSize
+            }
+            catch {
+              if ($authMode -eq 'WindowsAuth') {
+                Write-Warning "Windows authentication failed for pipeline identity '$windowsIdentity'. If the agent service runs as NETWORK SERVICE on the SQL Server host, set DBA_REPOSITORY_SERVER='.' and grant SQL access to 'NT AUTHORITY\NETWORK SERVICE'. Otherwise switch DBA_SQL_AUTH_MODE to SqlAuth."
+              }
 
-          Write-Host "Server inventory row:"
-          $table | Format-Table -AutoSize
-        }
-        catch {
-          if ($authMode -eq 'WindowsAuth') {
-            Write-Warning "Windows authentication failed for pipeline identity '$windowsIdentity'. If the agent service runs as NETWORK SERVICE on the SQL Server host, set DBA_REPOSITORY_SERVER='.' and grant SQL access to 'NT AUTHORITY\NETWORK SERVICE'. Otherwise switch DBA_SQL_AUTH_MODE to SqlAuth."
-          }
+              throw
+            }
+            finally {
+              if ($connection.State -ne [System.Data.ConnectionState]::Closed) {
+                $connection.Close()
+              }
 
-          throw
-        }
-        finally {
-          if ($connection.State -ne [System.Data.ConnectionState]::Closed) {
-            $connection.Close()
-          }
-
-          $connection.Dispose()
-        }
-    env:
-      DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
-      DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
-      DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
-      SQL_USER: $(SQL_USER)
-      SQL_PASSWORD: $(SQL_PASSWORD)
+              $connection.Dispose()
+            }
+        env:
+          DBA_REPOSITORY_SERVER: $(DBA_REPOSITORY_SERVER)
+          DBA_REPOSITORY_DB: $(DBA_REPOSITORY_DB)
+          DBA_SQL_AUTH_MODE: $(DBA_SQL_AUTH_MODE)
+          SQL_USER: $(SQL_USER)
+          SQL_PASSWORD: $(SQL_PASSWORD)
