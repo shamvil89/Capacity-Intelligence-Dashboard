@@ -99,6 +99,66 @@ WHERE alert_type = @alert_type
     [decimal]$rows[0].setting_value_decimal
 }
 
+function Add-AutoHealWorkNote {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$NoteType,
+
+        [Parameter(Mandatory = $true)]
+        [string]$NoteSource,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CreatedBy,
+
+        [string]$NoteText,
+
+        [AllowNull()]
+        [string]$DetailsJson
+    )
+
+    $query = @"
+IF OBJECT_ID(N'dbo.AlertWorkNote', N'U') IS NOT NULL
+BEGIN
+    INSERT INTO dbo.AlertWorkNote
+    (
+        alert_id,
+        request_id,
+        note_type,
+        note_source,
+        created_by,
+        note_text,
+        details_json
+    )
+    SELECT
+        request.alert_id,
+        request.request_id,
+        @note_type,
+        @note_source,
+        @created_by,
+        COALESCE(NULLIF(@note_text, N''), N'Auto-heal status updated.'),
+        @details_json
+    FROM dbo.AutoHealRequest AS request
+    WHERE request.request_id = CONVERT(uniqueidentifier, @request_id)
+      AND request.alert_id IS NOT NULL
+      AND EXISTS
+      (
+          SELECT 1
+          FROM dbo.AlertHistory AS alert
+          WHERE alert.alert_id = request.alert_id
+      );
+END;
+"@
+
+    Invoke-RepositoryQuery -Query $query -SqlParameter @{
+        request_id = $RequestId.ToString()
+        note_type = $NoteType
+        note_source = $NoteSource
+        created_by = $CreatedBy
+        note_text = $NoteText
+        details_json = $DetailsJson
+    } | Out-Null
+}
+
 function Set-AutoHealRequestStatus {
     param(
         [Parameter(Mandatory = $true)]
@@ -126,6 +186,22 @@ WHERE request_id = CONVERT(uniqueidentifier, @request_id);
         message = $Message
         details_json = $DetailsJson
     } | Out-Null
+
+    $noteType = switch ($Status) {
+        'Running' { 'AutoHealRunning'; break }
+        'CleanupRunning' { 'AutoHealCleanupRunning'; break }
+        'Completed' { 'AutoHealCompleted'; break }
+        'CompletedWithWarnings' { 'AutoHealCompletedWithWarnings'; break }
+        'Failed' { 'AutoHealFailed'; break }
+        default { "AutoHeal$Status" }
+    }
+
+    Add-AutoHealWorkNote `
+        -NoteType $noteType `
+        -NoteSource 'AutoHealPipeline' `
+        -CreatedBy 'Auto Heal Pipeline' `
+        -NoteText $Message `
+        -DetailsJson $DetailsJson
 }
 
 function Add-AutoHealFileCandidate {

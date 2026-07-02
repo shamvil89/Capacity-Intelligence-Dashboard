@@ -272,6 +272,14 @@ Alerts are not just plain messages. `dbo.AlertHistory` stores:
 | `details_json` | Structured evidence shown by the web More info popup. |
 | `resolved_by` | Resolution source shown in alert history and email text. Normal retirement uses `Collector`; auto-heal-confirmed retirement uses `AutoHeal:<ActionType>`. |
 
+The alert More info popup also reads:
+
+```text
+dbo.AlertWorkNote
+```
+
+This table stores a durable alert timeline. Multiple auto-heal runs against the same alert are appended as separate work notes, and dashboard comments are stored as `UserComment` notes. Future SSO/RBAC can replace the current `Dashboard User` default with the signed-in identity without changing the table contract.
+
 Important alert signals:
 
 | Alert type | What it checks | Main source |
@@ -354,10 +362,11 @@ Auto-heal is intentionally a two-step lifecycle:
 
 1. The dashboard queues `DBA Capacity - Auto Heal` through the API.
 2. The pipeline writes status and result details to `dbo.AutoHealRequest`.
-3. The More info popup reads the latest durable status, so closing and reopening the popup does not lose the result.
-4. The email body includes the latest auto-heal action, status, Azure DevOps run link, and action-specific outcome.
-5. The next collector run regenerates alerts.
-6. If the alert condition is no longer present and there was a completed auto-heal request for that alert, `dbo.usp_GenerateAlerts` sets `dbo.AlertHistory.resolved_by` to `AutoHeal:<ActionType>` and moves the alert to history.
+3. The API and pipeline append queue/running/completed/failed work notes to `dbo.AlertWorkNote`.
+4. The More info popup reads the latest durable status and the full work-note timeline, so closing and reopening the popup does not lose the result.
+5. The email body includes the latest auto-heal action, status, Azure DevOps run link, and action-specific outcome.
+6. The next collector run regenerates alerts.
+7. If the alert condition is no longer present and there was a completed auto-heal request for that alert, `dbo.usp_GenerateAlerts` sets `dbo.AlertHistory.resolved_by` to `AutoHeal:<ActionType>` and moves the alert to history.
 
 This means a completed remediation pipeline is not treated as proof that the alert is fixed. The fix is confirmed only after the next collection proves the condition disappeared.
 
@@ -1423,6 +1432,7 @@ IIS APPPOOL\DBACapacityApi -> DELETE on dbo.AlertHistory
 IIS APPPOOL\DBACapacityApi -> UPDATE on dbo.AlertThresholdSetting
 IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationCmdb
 IIS APPPOOL\DBACapacityApi -> INSERT/UPDATE/DELETE on dbo.ApplicationDatabaseMapping
+IIS APPPOOL\DBACapacityApi -> INSERT on dbo.AlertWorkNote
 ```
 
 Alternative: provide a SQL connection string in `DBA_API_CONNECTION_STRING` that uses a SQL login with equivalent permissions.
@@ -2017,6 +2027,7 @@ GRANT DELETE ON dbo.AlertHistory TO [IIS APPPOOL\DBACapacityApi];
 GRANT UPDATE ON dbo.AlertThresholdSetting TO [IIS APPPOOL\DBACapacityApi];
 GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationCmdb TO [IIS APPPOOL\DBACapacityApi];
 GRANT INSERT, UPDATE, DELETE ON dbo.ApplicationDatabaseMapping TO [IIS APPPOOL\DBACapacityApi];
+GRANT INSERT ON dbo.AlertWorkNote TO [IIS APPPOOL\DBACapacityApi];
 ```
 
 ### Web page loads but API calls fail

@@ -42,9 +42,11 @@ flowchart TD
     B --> G["dbo.AlertHistory"]
     G --> H["dbo.AutoHealRequest"]
     H --> I["dbo.AutoHealFileCandidate"]
+    G --> J["dbo.AlertWorkNote"]
     F --> API["API"]
     G --> API
     H --> API
+    J --> API
 ```
 
 ## Repository Tables
@@ -70,6 +72,7 @@ flowchart TD
 | `dbo.ApplicationDatabaseMapping` | Maps one application to many databases across servers. |
 | `dbo.AutoHealRequest` | Dashboard-triggered auto-heal request status, Azure DevOps run id/link, and outcome JSON. |
 | `dbo.AutoHealFileCandidate` | `.bak`/`.trn` files found by auto-heal scans, including selected cleanup status. |
+| `dbo.AlertWorkNote` | Alert-level work notes from auto-heal runs and dashboard user comments. |
 
 ## Repository Procedures
 
@@ -116,6 +119,8 @@ If file/volume data is missing, the procedure falls back to the previous databas
 | `source_script` | Script or procedure chain that produced the alert. |
 | `details_json` | Structured alert evidence, such as log growth rate, projected hours to cap, last log backup time, TempDB top consumers, cached query plan XML, or collector failure text. |
 | `resolved_by` | Resolution source. Generated alerts use `Collector` when the next alert-generation run no longer sees the condition. If a completed auto-heal request exists for the alert, the value is `AutoHeal:<ActionType>`. |
+
+`dbo.AlertWorkNote` stores the alert timeline outside `details_json`. Auto-heal queue events, running/completed/failed pipeline events, selected-file cleanup notes, and dashboard comments are appended here. This lets an alert keep multiple auto-heal attempts and human investigation notes without overwriting the latest auto-heal status.
 
 The log-risk alert calculation uses:
 

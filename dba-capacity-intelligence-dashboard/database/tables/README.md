@@ -27,6 +27,7 @@ The files are numbered so deployment order is predictable.
 | `015_AlertThresholdSetting.sql` | `dbo.AlertThresholdSetting` | Stores editable alert and forecast threshold settings used by `dbo.usp_GenerateCapacityForecast` and `dbo.usp_GenerateAlerts`. |
 | `016_ApplicationCmdb.sql` | `dbo.ApplicationCmdb`, `dbo.ApplicationDatabaseMapping` | Stores application ownership/contact details and maps applications to databases across servers. |
 | `017_AutoHealHistory.sql` | `dbo.AutoHealRequest`, `dbo.AutoHealFileCandidate` | Stores dashboard-triggered auto-heal pipeline requests, durable run status, result JSON, and backup-file cleanup candidates. |
+| `018_AlertWorkNote.sql` | `dbo.AlertWorkNote` | Stores alert work notes from auto-heal runs and dashboard user comments. |
 
 ## ServerInventory Details
 
@@ -175,6 +176,28 @@ Important fields:
 | `details_json` | Action-specific result payload. Log shrink stores used log, target settings, requested target, post-shrink size, and whether SQL Server stopped above target. |
 
 `dbo.AutoHealFileCandidate` stores `.bak` and `.trn` files discovered by backup cleanup scans. User-selected cleanup reads these candidate rows rather than accepting arbitrary paths from the browser.
+
+## Alert Work Note Details
+
+`dbo.AlertWorkNote` stores the operational timeline for an alert.
+
+Work note sources:
+
+| Source | Meaning |
+| --- | --- |
+| `Dashboard` | User-entered comments from the alert More info popup. |
+| `AzureDevOps` | Queue, queue-failure, and status-refresh notes from the API. |
+| `AutoHealPipeline` | Running/completed/failed notes written by `collector/Invoke-AutoHeal.ps1`. |
+
+Important columns:
+
+| Column | Meaning |
+| --- | --- |
+| `alert_id` | Alert that owns the work note. Notes are deleted when the alert is deleted. |
+| `request_id` | Auto-heal request that produced the note, when applicable. |
+| `note_type` | Machine-readable type such as `AutoHealQueued`, `AutoHealCompleted`, or `UserComment`. |
+| `note_text` | Human-readable note body shown in the dashboard. |
+| `details_json` | Optional structured payload for auto-heal results or queue metadata. |
 
 ## CapacityForecastResult Details
 

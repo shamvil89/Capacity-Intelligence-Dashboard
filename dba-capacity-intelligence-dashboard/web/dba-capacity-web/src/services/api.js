@@ -57,6 +57,12 @@ export const api = {
   getActiveAlerts: () => request('/alerts/active'),
   getAlertHistory: (limit = 250) => request(`/alerts/history${toQueryString({ limit })}`),
   deleteAlert: (alertId) => request(`/alerts/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
+  getAlertWorkNotes: (alertId) => request(`/alerts/${encodeURIComponent(alertId)}/work-notes`),
+  addAlertWorkNote: (alertId, noteText, createdBy) => request(`/alerts/${encodeURIComponent(alertId)}/work-notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ noteText, createdBy })
+  }),
   getAlertThresholds: () => request('/settings/alert-thresholds'),
   updateAlertThreshold: (settingId, settingValueDecimal) => request(`/settings/alert-thresholds/${encodeURIComponent(settingId)}`, {
     method: 'PUT',

@@ -62,6 +62,14 @@ public sealed class AzureDevOpsAutoHealService(
         var retentionDays = Math.Clamp(request.RetentionDays ?? 90, 1, 3650);
 
         await InsertRequestAsync(requestId, request, actionType, serverName, retentionDays, cancellationToken);
+        await AddAutoHealWorkNoteAsync(
+            requestId,
+            "AutoHealQueued",
+            "Dashboard",
+            "Dashboard User",
+            $"Auto-heal request queued for {actionType}.",
+            null,
+            cancellationToken);
 
         var queuedStatus = await QueuePipelineForRequestAsync(
             requestId,
@@ -118,6 +126,14 @@ public sealed class AzureDevOpsAutoHealService(
         if (selectedPaths.Length == 0)
         {
             await UpdateRequestMessageAsync(requestId, "Select one or more files before cleanup.", cancellationToken);
+            await AddAutoHealWorkNoteAsync(
+                requestId,
+                "AutoHealValidation",
+                "Dashboard",
+                "Dashboard User",
+                "Selected file cleanup was not queued because no files were selected.",
+                null,
+                cancellationToken);
             return await QueryStatusAsync(requestId, false, cancellationToken);
         }
 
@@ -151,6 +167,15 @@ public sealed class AzureDevOpsAutoHealService(
                         cancellationToken: cancellationToken));
             }
         }
+
+        await AddAutoHealWorkNoteAsync(
+            requestId,
+            "AutoHealSelection",
+            "Dashboard",
+            "Dashboard User",
+            $"Selected {selectedPaths.Length} backup file(s) for cleanup.",
+            JsonSerializer.Serialize(new { selectedPaths }, SerializerOptions),
+            cancellationToken);
 
         var queuedStatus = await QueuePipelineForRequestAsync(
             requestId,
@@ -435,11 +460,11 @@ public sealed class AzureDevOpsAutoHealService(
                 ? "Completed"
                 : "Failed";
             var message = string.Equals(currentStatus, "Completed", StringComparison.OrdinalIgnoreCase)
-                ? status.Message
+                ? status.Message ?? "Auto-heal pipeline completed successfully."
                 : $"Auto-heal pipeline completed with result {run?.Result ?? "unknown"}.";
 
             using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
-            await connection.ExecuteAsync(
+            var affectedRows = await connection.ExecuteAsync(
                 new CommandDefinition(
                     """
                     UPDATE dbo.AutoHealRequest
@@ -465,6 +490,24 @@ public sealed class AzureDevOpsAutoHealService(
                         Message = message
                     },
                     cancellationToken: cancellationToken));
+
+            if (affectedRows > 0)
+            {
+                await AddAutoHealWorkNoteAsync(
+                    status.RequestId,
+                    $"AutoHeal{currentStatus}",
+                    "AzureDevOps",
+                    "Auto Heal Pipeline",
+                    message,
+                    JsonSerializer.Serialize(new
+                    {
+                        runId,
+                        run!.State,
+                        run.Result,
+                        run.FinishedDate
+                    }, SerializerOptions),
+                    cancellationToken);
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -495,6 +538,83 @@ public sealed class AzureDevOpsAutoHealService(
                     PipelineRunId = runId,
                     PipelineWebUrl = webUrl,
                     Message = message
+                },
+                cancellationToken: cancellationToken));
+
+        await AddAutoHealWorkNoteAsync(
+            requestId,
+            status switch
+            {
+                "Running" or "CleanupRunning" => "AutoHealPipelineQueued",
+                "QueueFailed" or "NotConfigured" or "NotFound" => "AutoHealQueueFailed",
+                _ => $"AutoHeal{status}"
+            },
+            "AzureDevOps",
+            "DBA Capacity API",
+            message,
+            JsonSerializer.Serialize(new
+            {
+                status,
+                pipelineRunId = runId,
+                pipelineWebUrl = webUrl
+            }, SerializerOptions),
+            cancellationToken);
+    }
+
+    private async Task AddAutoHealWorkNoteAsync(
+        Guid requestId,
+        string noteType,
+        string noteSource,
+        string createdBy,
+        string noteText,
+        string? detailsJson,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+        IF OBJECT_ID(N'dbo.AlertWorkNote', N'U') IS NOT NULL
+        BEGIN
+        INSERT INTO dbo.AlertWorkNote
+        (
+            alert_id,
+            request_id,
+            note_type,
+            note_source,
+            created_by,
+            note_text,
+            details_json
+        )
+        SELECT
+            request.alert_id,
+            request.request_id,
+            @NoteType,
+            @NoteSource,
+            @CreatedBy,
+            @NoteText,
+            @DetailsJson
+        FROM dbo.AutoHealRequest AS request
+        WHERE request.request_id = @RequestId
+          AND request.alert_id IS NOT NULL
+          AND EXISTS
+          (
+              SELECT 1
+              FROM dbo.AlertHistory AS alert
+              WHERE alert.alert_id = request.alert_id
+          );
+        END;
+        """;
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    RequestId = requestId,
+                    NoteType = noteType,
+                    NoteSource = noteSource,
+                    CreatedBy = createdBy,
+                    NoteText = noteText,
+                    DetailsJson = detailsJson
                 },
                 cancellationToken: cancellationToken));
     }

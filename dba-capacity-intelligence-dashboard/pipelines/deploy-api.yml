@@ -409,6 +409,11 @@ jobs:
             BEGIN
                 GRANT INSERT, UPDATE ON dbo.AutoHealFileCandidate TO [$principalName];
             END;
+
+            IF OBJECT_ID(N'dbo.AlertWorkNote', N'U') IS NOT NULL
+            BEGIN
+                GRANT INSERT ON dbo.AlertWorkNote TO [$principalName];
+            END;
             "@
 
               $sqlParams = @{
@@ -777,7 +782,7 @@ jobs:
               Write-Host "API deployed on $env:COMPUTERNAME to http://${env:COMPUTERNAME}:$Port"
             } -ArgumentList $remotePackagePath, $SiteName, $AppPoolName, $PhysicalPath, $Port, $ProductionSettingsJson, $HostingBundleUrl
 
-            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, UPDATE on dbo.AlertThresholdSetting, INSERT/UPDATE/DELETE on dbo.ApplicationCmdb and dbo.ApplicationDatabaseMapping, and INSERT/UPDATE on dbo.AutoHealRequest and dbo.AutoHealFileCandidate in DBAUtility."
+            Write-Warning "Remote API deployment skips the automatic SQL grant for local virtual app pool identity 'IIS APPPOOL\$AppPoolName'. Use DBA_API_CONNECTION_STRING with SQL/domain credentials, or manually grant the remote IIS app pool/domain identity db_datareader, DELETE on dbo.AlertHistory, UPDATE on dbo.AlertThresholdSetting, INSERT/UPDATE/DELETE on dbo.ApplicationCmdb and dbo.ApplicationDatabaseMapping, INSERT/UPDATE on dbo.AutoHealRequest and dbo.AutoHealFileCandidate, and INSERT on dbo.AlertWorkNote in DBAUtility."
             }
             finally {
             if ($session) {

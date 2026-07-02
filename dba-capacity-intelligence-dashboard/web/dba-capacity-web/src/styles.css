@@ -1248,6 +1248,103 @@ td {
   font-size: 0.78rem;
 }
 
+.work-notes-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.work-note-form {
+  display: grid;
+  gap: 10px;
+}
+
+.work-note-editor {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-weight: 800;
+}
+
+.work-note-editor textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  color: #17202a;
+  background: #ffffff;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.work-note-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.work-note-list {
+  display: grid;
+  gap: 10px;
+}
+
+.work-note-item {
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.work-note-item p {
+  margin: 0;
+  color: #17202a;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.work-note-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.work-note-meta strong {
+  color: #17202a;
+}
+
+.work-note-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.work-note-request {
+  color: #667085;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.work-note-details {
+  border-top: 1px solid #e6ebf1;
+  padding-top: 8px;
+}
+
+.work-note-details summary {
+  color: #475467;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.work-note-details[open] summary {
+  margin-bottom: 8px;
+}
+
 .query-plan-viewer svg,
 .query-plan-viewer table {
   max-width: none;

@@ -24,6 +24,31 @@ public sealed class AlertsController(IAlertService alertService) : ControllerBas
         return Ok(rows);
     }
 
+    [HttpGet("{alertId:long}/work-notes")]
+    [ProducesResponseType(typeof(IReadOnlyList<AlertWorkNoteItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<AlertWorkNoteItem>>> GetWorkNotes(long alertId, CancellationToken cancellationToken = default)
+    {
+        var rows = await alertService.GetWorkNotesAsync(alertId, cancellationToken);
+        return Ok(rows);
+    }
+
+    [HttpPost("{alertId:long}/work-notes")]
+    [ProducesResponseType(typeof(AlertWorkNoteItem), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AlertWorkNoteItem>> AddWorkNote(long alertId, [FromBody] CreateAlertWorkNoteRequest request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.NoteText))
+        {
+            return BadRequest(new { message = "Work note text is required." });
+        }
+
+        var note = await alertService.AddWorkNoteAsync(alertId, request, cancellationToken);
+        return note is null
+            ? NotFound()
+            : CreatedAtAction(nameof(GetWorkNotes), new { alertId }, note);
+    }
+
     [HttpDelete("{alertId:long}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

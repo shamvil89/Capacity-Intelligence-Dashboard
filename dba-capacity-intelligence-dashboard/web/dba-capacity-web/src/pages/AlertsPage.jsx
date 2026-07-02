@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Download, Info, LoaderCircle, Mail, Maximize2, Trash2, Wrench, X } from 'lucide-react';
 import queryPlanScript from 'html-query-plan/dist/qp.js?raw';
 import 'html-query-plan/css/qp.css';
@@ -216,6 +216,11 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const [autoHealError, setAutoHealError] = useState('');
   const [isQueueingAutoHeal, setIsQueueingAutoHeal] = useState(false);
   const [selectedAutoHealFiles, setSelectedAutoHealFiles] = useState([]);
+  const [workNotes, setWorkNotes] = useState([]);
+  const [isWorkNotesLoading, setIsWorkNotesLoading] = useState(false);
+  const [workNotesError, setWorkNotesError] = useState('');
+  const [workNoteText, setWorkNoteText] = useState('');
+  const [isSavingWorkNote, setIsSavingWorkNote] = useState(false);
   const autoHealRequestVersion = useRef(0);
   const details = useMemo(() => parseAlertDetails(alert.detailsJson), [alert.detailsJson]);
   const nowMs = useNowMs(hasLiveDurationDetails(details));
@@ -236,6 +241,29 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
     const cleanedDetails = stripQueryPlanXml(displayDetails);
     return hasDedicatedEvidence ? stripDedicatedEvidence(cleanedDetails) : cleanedDetails;
   }, [displayDetails, hasDedicatedEvidence]);
+
+  const loadWorkNotes = useCallback(async ({ showSpinner = true } = {}) => {
+    if (!alert.alertId) {
+      setWorkNotes([]);
+      return;
+    }
+
+    if (showSpinner) {
+      setIsWorkNotesLoading(true);
+    }
+
+    try {
+      const rows = await api.getAlertWorkNotes(alert.alertId);
+      setWorkNotes(rows ?? []);
+      setWorkNotesError('');
+    } catch (err) {
+      setWorkNotesError(err.message || 'Could not load work notes.');
+    } finally {
+      if (showSpinner) {
+        setIsWorkNotesLoading(false);
+      }
+    }
+  }, [alert.alertId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -277,6 +305,13 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   }, [cmdbLookupTarget.databaseName, cmdbLookupTarget.serverName]);
 
   useEffect(() => {
+    setWorkNotes([]);
+    setWorkNotesError('');
+    setWorkNoteText('');
+    loadWorkNotes();
+  }, [loadWorkNotes]);
+
+  useEffect(() => {
     const canLoadAutoHealStatus = Boolean(alert.alertId)
       && (isBackupCleanupAutoHealSupported(alert, details) || isLogShrinkAutoHealSupported(alert, details));
     const requestVersion = ++autoHealRequestVersion.current;
@@ -297,6 +332,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         if (isMounted && autoHealRequestVersion.current === requestVersion) {
           setAutoHealStatus(status);
           setSelectedAutoHealFiles(getSelectedAutoHealFilePaths(status));
+          loadWorkNotes({ showSpinner: false });
         }
       } catch (err) {
         if (isMounted && autoHealRequestVersion.current === requestVersion) {
@@ -310,7 +346,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
     return () => {
       isMounted = false;
     };
-  }, [alert, details]);
+  }, [alert, details, loadWorkNotes]);
 
   useEffect(() => {
     if (!autoHealStatus?.requestId || !autoHealStatus.isRunning) {
@@ -325,6 +361,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
         if (isMounted) {
           setAutoHealStatus(status);
           setAutoHealError('');
+          loadWorkNotes({ showSpinner: false });
         }
       } catch (err) {
         if (isMounted) {
@@ -340,7 +377,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, [autoHealStatus?.isRunning, autoHealStatus?.requestId]);
+  }, [autoHealStatus?.isRunning, autoHealStatus?.requestId, loadWorkNotes]);
 
   async function handleQueueAutoHeal(actionType) {
     const requestVersion = ++autoHealRequestVersion.current;
@@ -360,6 +397,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       });
       if (autoHealRequestVersion.current === requestVersion) {
         setAutoHealStatus(status);
+        loadWorkNotes({ showSpinner: false });
       }
     } catch (err) {
       if (autoHealRequestVersion.current === requestVersion) {
@@ -384,6 +422,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       if (autoHealRequestVersion.current === requestVersion) {
         setAutoHealStatus(status);
         setSelectedAutoHealFiles([]);
+        loadWorkNotes({ showSpinner: false });
       }
     } catch (err) {
       if (autoHealRequestVersion.current === requestVersion) {
@@ -391,6 +430,28 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       }
     } finally {
       setIsQueueingAutoHeal(false);
+    }
+  }
+
+  async function handleAddWorkNote(event) {
+    event.preventDefault();
+
+    const noteText = workNoteText.trim();
+    if (!noteText || !alert.alertId) {
+      return;
+    }
+
+    setIsSavingWorkNote(true);
+    setWorkNotesError('');
+
+    try {
+      const note = await api.addAlertWorkNote(alert.alertId, noteText);
+      setWorkNotes((currentNotes) => note ? [note, ...currentNotes] : currentNotes);
+      setWorkNoteText('');
+    } catch (err) {
+      setWorkNotesError(err.message || 'Could not add work note.');
+    } finally {
+      setIsSavingWorkNote(false);
     }
   }
 
@@ -444,6 +505,17 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             onQueue={handleQueueAutoHeal}
             onSelectedFilesChange={setSelectedAutoHealFiles}
             onCleanupSelected={handleCleanupSelectedAutoHealFiles}
+          />
+
+          <WorkNotesSection
+            notes={workNotes}
+            isLoading={isWorkNotesLoading}
+            error={workNotesError}
+            noteText={workNoteText}
+            isSaving={isSavingWorkNote}
+            timeZone={effectiveTimeZone}
+            onNoteTextChange={setWorkNoteText}
+            onSubmit={handleAddWorkNote}
           />
 
           <BlockingEvidenceSection details={displayDetails} />
@@ -714,6 +786,76 @@ function AutoHealSection({
           <CollapsibleSection title="Auto-heal result details" summary={detailsValue.action || status?.actionType}>
             <StructuredDetails value={detailsValue} />
           </CollapsibleSection>
+        ) : null}
+      </div>
+    </CollapsibleSection>
+  );
+}
+
+function WorkNotesSection({
+  notes,
+  isLoading,
+  error,
+  noteText,
+  isSaving,
+  timeZone,
+  onNoteTextChange,
+  onSubmit
+}) {
+  const summary = isLoading ? 'Loading' : `${notes.length} note${notes.length === 1 ? '' : 's'}`;
+
+  return (
+    <CollapsibleSection title="Work Notes" summary={summary} defaultOpen={notes.length > 0 || Boolean(error)}>
+      <div className="work-notes-panel">
+        <form className="work-note-form" onSubmit={onSubmit}>
+          <label className="work-note-editor">
+            <span>Add comment</span>
+            <textarea
+              value={noteText}
+              onChange={(event) => onNoteTextChange(event.target.value)}
+              placeholder="Add investigation notes, handoff details, approval notes, or remediation context."
+              rows={3}
+            />
+          </label>
+          <div className="work-note-actions">
+            <button type="submit" className="secondary-action" disabled={isSaving || !noteText.trim()}>
+              {isSaving ? <LoaderCircle aria-hidden="true" size={14} /> : <Info aria-hidden="true" size={14} />}
+              Add note
+            </button>
+          </div>
+        </form>
+
+        {error ? <div className="query-plan-empty auto-heal-error">{error}</div> : null}
+        {isLoading ? <div className="query-plan-empty">Loading work notes.</div> : null}
+
+        {!isLoading && notes.length === 0 ? (
+          <div className="query-plan-empty">No work notes yet. Auto-heal runs and user comments will appear here.</div>
+        ) : null}
+
+        {notes.length > 0 ? (
+          <div className="work-note-list">
+            {notes.map((note) => {
+              const detailValue = parseAlertDetails(note.detailsJson);
+              return (
+                <article className="work-note-item" key={note.noteId}>
+                  <div className="work-note-meta">
+                    <strong>{formatWorkNoteType(note.noteType)}</strong>
+                    <span>{formatDateTime(note.noteTime, timeZone)}</span>
+                    <span>{note.createdBy || 'System'}</span>
+                    <span>{note.noteSource || 'System'}</span>
+                  </div>
+                  <p>{note.noteText}</p>
+                  {note.requestId ? <span className="work-note-request">Request {note.requestId}</span> : null}
+                  {hasRenderableDetail(detailValue) ? (
+                    <details className="work-note-details">
+                      <summary>Details</summary>
+                      <StructuredDetails value={detailValue} />
+                    </details>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
         ) : null}
       </div>
     </CollapsibleSection>
@@ -2289,6 +2431,17 @@ function formatAutoHealAge(value) {
     maximumFractionDigits: numericValue < 10 ? 1 : 0,
     minimumFractionDigits: 0
   })} ${Math.round(numericValue * 10) / 10 === 1 ? 'day' : 'days'}`;
+}
+
+function formatWorkNoteType(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return 'Work note';
+  }
+
+  return text
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ');
 }
 
 function formatAutoHealElapsed(status, nowMs) {

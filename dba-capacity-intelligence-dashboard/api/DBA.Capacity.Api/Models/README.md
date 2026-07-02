@@ -14,7 +14,9 @@ Models should be simple data containers. They should not contain database access
 | `CapacityDashboardItem` | `GET /api/capacity/databases` | One latest capacity row per database. |
 | `DatabaseTrendPoint` | `GET /api/capacity/databases/{serverName}/{databaseName}/trend` | One chart point in database size history. |
 | `TopGrowingTableItem` | `GET /api/capacity/top-growing-tables` | One top growing table row. |
-| `AlertItem` | `GET /api/alerts/active` | One active alert row. |
+| `AlertItem` | `GET /api/alerts/active`, `GET /api/alerts/history` | One active or historical alert row. |
+| `AlertWorkNoteItem` | `GET /api/alerts/{alertId}/work-notes` | One alert work-note timeline row. |
+| `CreateAlertWorkNoteRequest` | `POST /api/alerts/{alertId}/work-notes` | Request body for dashboard user comments. |
 | `ServerInventoryItem` | `GET /api/servers` | One active monitored server row. |
 | `AlertThresholdSettingItem` | `GET /api/settings/alert-thresholds` | One editable alert threshold row. |
 | `UpdateAlertThresholdSettingRequest` | `PUT /api/settings/alert-thresholds/{settingId}` | Request body for updating one threshold value. |

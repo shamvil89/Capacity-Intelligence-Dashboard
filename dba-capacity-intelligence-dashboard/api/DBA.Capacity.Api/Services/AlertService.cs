@@ -188,4 +188,95 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
 
         return affectedRows > 0;
     }
+
+    public async Task<IReadOnlyList<AlertWorkNoteItem>> GetWorkNotesAsync(long alertId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+        SELECT
+            note_id AS NoteId,
+            alert_id AS AlertId,
+            request_id AS RequestId,
+            note_time AS NoteTime,
+            note_type AS NoteType,
+            note_source AS NoteSource,
+            created_by AS CreatedBy,
+            note_text AS NoteText,
+            details_json AS DetailsJson
+        FROM dbo.AlertWorkNote
+        WHERE alert_id = @AlertId
+        ORDER BY note_time DESC, note_id DESC;
+        """;
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<AlertWorkNoteItem>(
+            new CommandDefinition(sql, new { AlertId = alertId }, cancellationToken: cancellationToken));
+
+        return rows.AsList();
+    }
+
+    public async Task<AlertWorkNoteItem?> AddWorkNoteAsync(long alertId, CreateAlertWorkNoteRequest request, CancellationToken cancellationToken)
+    {
+        const string sql = """
+        INSERT INTO dbo.AlertWorkNote
+        (
+            alert_id,
+            note_type,
+            note_source,
+            created_by,
+            note_text
+        )
+        OUTPUT
+            inserted.note_id AS NoteId,
+            inserted.alert_id AS AlertId,
+            inserted.request_id AS RequestId,
+            inserted.note_time AS NoteTime,
+            inserted.note_type AS NoteType,
+            inserted.note_source AS NoteSource,
+            inserted.created_by AS CreatedBy,
+            inserted.note_text AS NoteText,
+            inserted.details_json AS DetailsJson
+        SELECT
+            @AlertId,
+            N'UserComment',
+            N'Dashboard',
+            @CreatedBy,
+            @NoteText
+        WHERE EXISTS
+        (
+            SELECT 1
+            FROM dbo.AlertHistory
+            WHERE alert_id = @AlertId
+        );
+        """;
+
+        var noteText = Clean(request.NoteText);
+        if (noteText is null)
+        {
+            return null;
+        }
+
+        var createdBy = Clean(request.CreatedBy) ?? "Dashboard User";
+        if (createdBy.Length > 256)
+        {
+            createdBy = createdBy[..256];
+        }
+
+        using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<AlertWorkNoteItem>(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    AlertId = alertId,
+                    CreatedBy = createdBy,
+                    NoteText = noteText
+                },
+                cancellationToken: cancellationToken));
+    }
+
+    private static string? Clean(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
 }

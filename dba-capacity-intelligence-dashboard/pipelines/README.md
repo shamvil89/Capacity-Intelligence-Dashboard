@@ -190,7 +190,7 @@ What it does:
 1. Installs dbatools.
 2. Runs `collector/Invoke-AutoHeal.ps1`.
 3. Uses the same `configs` repository/source credential variables as the collector.
-4. Writes durable request, file-candidate, and action outcome data to `dbo.AutoHealRequest` and `dbo.AutoHealFileCandidate`.
+4. Writes durable request, file-candidate, action outcome, and work-note data to `dbo.AutoHealRequest`, `dbo.AutoHealFileCandidate`, and `dbo.AlertWorkNote`.
 
 Queue-time actions:
 
@@ -217,6 +217,7 @@ Dashboard trigger:
 - The pipeline agent identity must have filesystem permissions to the target backup path or administrative share for backup cleanup.
 - Log shrink uses the source server connection mode and credential key from `dbo.ServerInventory`.
 - Auto-heal request status is persisted in `dbo.AutoHealRequest`, so the dashboard can show the latest result even if the popup is closed and reopened.
+- Auto-heal queue, running, completion, warning, failure, and selected-file cleanup events are appended to `dbo.AlertWorkNote`. Multiple auto-heal attempts against the same alert remain visible as a timeline in More info.
 - The alert email body includes the latest auto-heal action, status, pipeline link, and action-specific results. For log shrink this includes used log space, configured target logic, requested target, post-shrink size, and whether SQL Server stopped above the requested target.
 - A generated alert is marked as fixed by auto-heal only on the next collector/alert-generation pass when the alert condition is no longer produced. At that point `dbo.AlertHistory.resolved_by` is set to `AutoHeal:<ActionType>` and the row moves to history.
 

@@ -29,7 +29,7 @@ flowchart LR
 | --- | --- | --- |
 | `DashboardController.cs` | `api/dashboard` | Returns dashboard summary cards. |
 | `CapacityController.cs` | `api/capacity` | Returns database capacity rows, trend rows, and top growing tables. |
-| `AlertsController.cs` | `api/alerts` | Returns active repository alerts and deletes selected alert rows. |
+| `AlertsController.cs` | `api/alerts` | Returns active/history repository alerts, alert work notes, and deletes selected alert rows. |
 | `ServersController.cs` | `api/servers` | Returns active server inventory. |
 | `SettingsController.cs` | `api/settings` | Returns, updates, and resets alert threshold settings. |
 | `ApplicationCmdbController.cs` | `api/cmdb` | Returns, imports, updates, and deletes application CMDB mappings. |
@@ -105,7 +105,18 @@ GET /api/alerts/active
 DELETE /api/alerts/{alertId}
 ```
 
-Returns active unresolved alerts from `dbo.vw_ActiveAlerts`. The delete endpoint removes one row from `dbo.AlertHistory`; if the underlying issue is still active, a later collector run can raise a fresh alert.
+Returns active unresolved alerts from `dbo.vw_ActiveAlerts`. The history endpoint returns resolved alerts from `dbo.AlertHistory`.
+
+Work-note endpoints:
+
+```text
+GET  /api/alerts/{alertId}/work-notes
+POST /api/alerts/{alertId}/work-notes
+```
+
+`GET` returns the alert timeline from `dbo.AlertWorkNote`. `POST` appends a dashboard `UserComment` note. Auto-heal system notes are written by the auto-heal API and collector.
+
+The delete endpoint removes one row from `dbo.AlertHistory`; if the underlying issue is still active, a later collector run can raise a fresh alert. Work notes cascade with the deleted alert row.
 
 ## ServersController
 
