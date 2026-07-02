@@ -22,7 +22,7 @@ React Dashboard Web App
 
 - SQL Server repository scripts for tables, procedures, forecast logic, alerts, views, and seed data.
 - PowerShell collectors for database size, file size, disk space, table size, backup size, and TempDB usage.
-- Separate PowerShell auto-heal scripts for controlled backup cleanup and log shrink remediation.
+- Separate PowerShell auto-heal scripts for controlled backup cleanup, log shrink remediation, and guarded Always On health repair.
 - ASP.NET Core Web API with Dapper, Swagger, CORS, and error handling middleware.
 - React Vite admin dashboard with summary cards, filtering, detail chart, top tables, and alerts.
 - Azure DevOps YAMLs for collection and build/deployment workflows.
@@ -146,7 +146,7 @@ http://localhost:5173
 
 `POST /api/collector-run` lets the dashboard trigger the `DBA Capacity - Collect Metrics` Azure DevOps pipeline through the API. The browser never receives the Azure DevOps PAT. The API queues the pipeline using server-side configuration, then `GET /api/collector-run` polls the latest run so the dashboard button can stay disabled until Azure DevOps reports that the run is complete.
 
-Alert More info can also queue controlled auto-heal actions through the API. The browser still never receives the Azure DevOps PAT. `DBA Capacity - Auto Heal` can scan/prune `.bak` and `.trn` files older than 90 days, list remaining backup files for explicit selection, and perform a conservative transaction-log shrink attempt only when safety checks pass.
+Alert More info can also queue controlled auto-heal actions through the API. The browser still never receives the Azure DevOps PAT. `DBA Capacity - Auto Heal` can scan/prune `.bak` and `.trn` files older than 90 days, list remaining backup files for explicit selection, perform a conservative transaction-log shrink attempt only when safety checks pass, and run guarded Always On health assessment/repair for suspended data movement or stopped HADR endpoints.
 
 ## Azure DevOps Pipelines
 
@@ -155,7 +155,7 @@ Alert More info can also queue controlled auto-heal actions through the API. The
 - `pipelines/deploy-database.yml`: deploys database scripts in order.
 - `pipelines/deploy-api.yml`: restores, builds, tests if present, publishes artifact, and deploys the API to IIS.
 - `pipelines/deploy-web.yml`: installs npm packages, builds React, publishes artifact, and deploys the static web app to IIS.
-- `pipelines/auto-heal.yml`: dashboard-triggered controlled remediation for backup-file cleanup and safe log-shrink assessment.
+- `pipelines/auto-heal.yml`: dashboard-triggered controlled remediation for backup-file cleanup, safe log-shrink assessment, and guarded Always On health assessment.
 
 The YAMLs default to the self-hosted Windows agent:
 

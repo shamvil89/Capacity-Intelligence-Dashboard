@@ -17,6 +17,7 @@ Auto-heal scripts are intentionally separate from the metric collectors:
 | --- | --- |
 | `Invoke-AutoHeal.ps1` | Thin dispatcher used by `pipelines/auto-heal.yml`. Validates shared parameters and routes to the selected category script. |
 | `Common.ps1` | Shared auto-heal helpers for request status, work notes, SQL value conversion, threshold lookup, and source inventory resolution. |
+| `AlwaysOn.ps1` | Always On category. Runs AG, database, endpoint, service, network, SQL error log, and cluster checks, then attempts only low-risk repairs. |
 | `BackupRetention.ps1` | Backup cleanup category. Contains backup scan, retention deletion, protected-name checks, Windows-folder skip logic, and selected file cleanup. |
 | `LogShrink.ps1` | Transaction log category. Contains safety checks and conservative `DBCC SHRINKFILE` logic. |
 
@@ -27,6 +28,11 @@ Auto-heal scripts are intentionally separate from the metric collectors:
 | `BackupRetentionScan` | For `DiskSpaceLow` alerts. Scans known volumes or a target path, deletes eligible `.bak`/`.trn` files older than retention, and records remaining files for dashboard selection. |
 | `DeleteSelectedBackupFiles` | Deletes only dashboard-selected file candidates from a previous scan. |
 | `LogShrinkAssessment` | For log-file alerts. Checks open transactions, used log space, log reuse wait, and file size before attempting `DBCC SHRINKFILE`. |
+| `AlwaysOnHealthAssessment` | For Always On alerts. Checks cluster/service/replica/database/endpoint health, tests endpoint ports, reads recent SQL error log evidence, resumes suspended data movement, and starts stopped HADR endpoints. |
+
+## Always On Guardrails
+
+`AlwaysOnHealthAssessment` deliberately does not force failover, allow data loss, change availability mode, change failover mode, modify quorum, create firewall rules, grant endpoint permissions, change session timeout, or re-seed databases. Those actions require DBA and business approval.
 
 ## Operational Notes
 

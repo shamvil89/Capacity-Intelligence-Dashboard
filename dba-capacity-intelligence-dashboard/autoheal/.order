@@ -1,5 +1,6 @@
 README
 Invoke-AutoHeal.ps1
 Common.ps1
+AlwaysOn.ps1
 BackupRetention.ps1
 LogShrink.ps1

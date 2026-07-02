@@ -98,7 +98,7 @@ flowchart LR
 | --- | --- | --- |
 | Repository database | `database/` | Creates `DBAUtility`, history tables, inventory, alerts, forecast procedures, and reporting views. |
 | Collector scripts | `collector/` | PowerShell scripts that read active inventory, collect metrics, and insert repository history rows. |
-| Auto-heal scripts | `autoheal/` | PowerShell remediation scripts for dashboard-triggered backup cleanup and conservative log shrink actions. |
+| Auto-heal scripts | `autoheal/` | PowerShell remediation scripts for dashboard-triggered backup cleanup, conservative log shrink actions, and guarded Always On health assessment/repair. |
 | API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper, deletes selected alert rows, and queues collector/auto-heal pipelines through Azure DevOps. |
 | Web app | `web/dba-capacity-web/` | React Vite dashboard for capacity trends, top growing tables, and alerts. |
 | Pipelines | `pipelines/` | Azure DevOps YAML pipelines for database deployment, server onboarding, collection, auto-heal, API deploy, and web deploy. |
@@ -366,9 +366,12 @@ Auto-heal is intentionally a two-step lifecycle:
 2. The pipeline writes status and result details to `dbo.AutoHealRequest`.
 3. The API and pipeline append queue/running/completed/failed work notes to `dbo.AlertWorkNote`.
 4. The More info popup reads the latest durable status and the full work-note timeline, so closing and reopening the popup does not lose the result.
-5. The email body includes the latest auto-heal action, status, Azure DevOps run link, and action-specific outcome.
-6. The next collector run regenerates alerts.
-7. If the alert condition is no longer present and there was a completed auto-heal request for that alert, `dbo.usp_GenerateAlerts` sets `dbo.AlertHistory.resolved_by` to `AutoHeal:<ActionType>` and moves the alert to history.
+5. Always On auto-heal follows the runbook order: cluster health, SQL Server service status, AG replica health, database synchronization state, endpoint/port discovery, endpoint-port connectivity, SQL error log, and cluster resource checks.
+6. Always On auto-heal only attempts low-risk repairs: `ALTER DATABASE ... SET HADR RESUME` for suspended data movement and `ALTER ENDPOINT ... STATE = STARTED` for stopped HADR endpoints.
+7. Always On auto-heal does not force failover, allow data loss, change availability/failover mode, modify quorum, create firewall rules, grant endpoint permissions, change session timeout, or re-seed databases.
+8. The email body includes the latest auto-heal action, status, Azure DevOps run link, and action-specific outcome.
+9. The next collector run regenerates alerts.
+10. If the alert condition is no longer present and there was a completed auto-heal request for that alert, `dbo.usp_GenerateAlerts` sets `dbo.AlertHistory.resolved_by` to `AutoHeal:<ActionType>` and moves the alert to history.
 
 This means a completed remediation pipeline is not treated as proof that the alert is fixed. The fix is confirmed only after the next collection proves the condition disappeared.
 

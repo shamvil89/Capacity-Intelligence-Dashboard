@@ -20,6 +20,7 @@ parameters:
       - BackupRetentionScan
       - DeleteSelectedBackupFiles
       - LogShrinkAssessment
+      - AlwaysOnHealthAssessment
 
   - name: requestId
     displayName: Auto-heal request id

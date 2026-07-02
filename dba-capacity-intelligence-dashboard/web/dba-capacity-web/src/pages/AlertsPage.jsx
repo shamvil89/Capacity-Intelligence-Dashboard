@@ -313,7 +313,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
 
   useEffect(() => {
     const canLoadAutoHealStatus = Boolean(alert.alertId)
-      && (isBackupCleanupAutoHealSupported(alert, details) || isLogShrinkAutoHealSupported(alert, details));
+      && (isBackupCleanupAutoHealSupported(alert, details) || isLogShrinkAutoHealSupported(alert, details) || isAlwaysOnAutoHealSupported(alert, details));
     const requestVersion = ++autoHealRequestVersion.current;
 
     setAutoHealError('');
@@ -623,6 +623,7 @@ function AutoHealSection({
 }) {
   const supportsBackupCleanup = isBackupCleanupAutoHealSupported(alert, details);
   const supportsLogShrink = isLogShrinkAutoHealSupported(alert, details);
+  const supportsAlwaysOn = isAlwaysOnAutoHealSupported(alert, details);
   const targetPath = resolveAutoHealTargetPath(details);
   const candidates = status?.fileCandidates ?? [];
   const selectableCandidates = candidates.filter((candidate) => ['Candidate', 'Failed'].includes(candidate.actionStatus));
@@ -633,7 +634,7 @@ function AutoHealSection({
     ? `${status.status} ${elapsedText}`
     : status?.status || (error ? 'Needs attention' : 'Ready');
 
-  if (!supportsBackupCleanup && !supportsLogShrink) {
+  if (!supportsBackupCleanup && !supportsLogShrink && !supportsAlwaysOn) {
     return null;
   }
 
@@ -682,6 +683,17 @@ function AutoHealSection({
               {status?.isRunning && status.actionType === 'LogShrinkAssessment' && elapsedText ? `Running ${elapsedText}` : 'Assess/shrink log'}
             </button>
           ) : null}
+          {supportsAlwaysOn ? (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => onQueue('AlwaysOnHealthAssessment')}
+              disabled={isQueueing || status?.isRunning}
+            >
+              {isQueueing || status?.isRunning ? <LoaderCircle aria-hidden="true" size={14} /> : <Wrench aria-hidden="true" size={14} />}
+              {status?.isRunning && status.actionType === 'AlwaysOnHealthAssessment' && elapsedText ? `Running ${elapsedText}` : 'Assess/repair Always On'}
+            </button>
+          ) : null}
         </div>
 
         {supportsBackupCleanup ? (
@@ -693,6 +705,12 @@ function AutoHealSection({
         {supportsLogShrink ? (
           <p className="auto-heal-helper">
             Log auto-heal shrinks only when there are no open transactions, used log space is 20% or lower, the log is at least 1 GB, and log reuse wait is safe.
+          </p>
+        ) : null}
+
+        {supportsAlwaysOn ? (
+          <p className="auto-heal-helper">
+            Always On auto-heal runs cluster, service, replica, database, endpoint, endpoint-port, and SQL error-log checks. It can resume suspended data movement and start a stopped HADR endpoint, but it will not fail over, change AG mode, modify quorum, create firewall rules, grant permissions, or re-seed databases.
           </p>
         ) : null}
 
@@ -2123,6 +2141,11 @@ function buildLogFileGrowthSpikeResolutionSteps(alert, details) {
   ]);
 }
 
+function isAlwaysOnAutoHealSupported(alert, details) {
+  const alertType = String(alert.alertType ?? details?.category ?? '').toLowerCase();
+  return ['alwaysonhealthissue', 'alwaysonlogreusewait'].includes(alertType);
+}
+
 function buildFullRecoveryNoLogBackupResolutionSteps(alert, details) {
   const hasObservedLogBackup = hasRenderableDetail(details?.lastLogBackupFinishDate);
   const logReuseWait = String(details?.logReuseWait ?? '').toUpperCase();
@@ -2815,6 +2838,25 @@ function getAutoHealDetailsEmailLines(status, details) {
     }
   } else if (action === 'deleteselectedbackupfiles') {
     lines.push(`Selected cleanup: selected ${formatDetailValue(details?.selectedCount)}, deleted ${formatDetailValue(details?.deletedCount)}, failed ${formatDetailValue(details?.failedCount)}.`);
+  } else if (action === 'alwaysonhealthassessment') {
+    const attemptedActions = Array.isArray(details?.attemptedActions) ? details.attemptedActions : [];
+    const successfulActions = attemptedActions.filter((item) => String(item?.status ?? '').toLowerCase() === 'succeeded');
+    const failedActions = attemptedActions.filter((item) => String(item?.status ?? '').toLowerCase() === 'failed');
+    const connectivityFailures = Array.isArray(details?.endpointConnectivity)
+      ? details.endpointConnectivity.filter((item) => item?.reachable === false)
+      : [];
+    const recommendations = Array.isArray(details?.recommendations) ? details.recommendations : [];
+
+    lines.push(`Always On assessment: HADR enabled ${formatDetailValue(details?.hadrEnabled)}, AG ${formatDetailValue(details?.availabilityGroupName)}, safe actions succeeded ${successfulActions.length}, failed ${failedActions.length}.`);
+    if (connectivityFailures.length > 0) {
+      lines.push(`Endpoint connectivity failures: ${connectivityFailures.map((item) => `${formatDetailValue(item.host)}:${formatDetailValue(item.port)}`).join(', ')}.`);
+    }
+    attemptedActions.slice(0, 5).forEach((item) => {
+      lines.push(`Auto-heal action ${formatDetailValue(item?.action)} ${formatDetailValue(item?.databaseName || item?.endpointName)}: ${formatDetailValue(item?.status)}${item?.errorMessage ? ` (${item.errorMessage})` : ''}.`);
+    });
+    recommendations.slice(0, 5).forEach((recommendation) => {
+      lines.push(`Recommendation: ${recommendation}`);
+    });
   }
 
   return lines;

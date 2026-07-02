@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('BackupRetentionScan', 'DeleteSelectedBackupFiles', 'LogShrinkAssessment')]
+    [ValidateSet('BackupRetentionScan', 'DeleteSelectedBackupFiles', 'LogShrinkAssessment', 'AlwaysOnHealthAssessment')]
     [string]$Action,
 
     [Parameter(Mandatory = $true)]
@@ -21,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\..\collector\Common.ps1"
 . "$PSScriptRoot\Common.ps1"
+. "$PSScriptRoot\AlwaysOn.ps1"
 . "$PSScriptRoot\BackupRetention.ps1"
 . "$PSScriptRoot\LogShrink.ps1"
 
@@ -52,6 +53,9 @@ try {
         }
         'LogShrinkAssessment' {
             Invoke-LogShrinkAssessment
+        }
+        'AlwaysOnHealthAssessment' {
+            Invoke-AlwaysOnHealthAssessment
         }
     }
 }

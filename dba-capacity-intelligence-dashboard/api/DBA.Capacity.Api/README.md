@@ -196,6 +196,7 @@ Supported actions:
 | `BackupRetentionScan` | Disk-space alerts only. Scans the supplied alert volume/path, deletes eligible `.bak` and `.trn` files older than 90 days, and writes remaining file candidates to `dbo.AutoHealFileCandidate`. File names containing `keep` or `do not delete` are skipped. Whole-drive scans such as `C:\` or `\\server\C$` skip the Windows folder. |
 | `DeleteSelectedBackupFiles` | Deletes only file paths that the dashboard user selected from the prior scan result. File names containing `keep` or `do not delete` are refused even if selected. |
 | `LogShrinkAssessment` | Checks open transactions, used log percent, log size, and log reuse wait before attempting a one-time shrink of inflated log files. |
+| `AlwaysOnHealthAssessment` | Always On alerts only. Runs cluster/service/replica/database/endpoint/port/log checks and attempts only `ALTER DATABASE ... SET HADR RESUME` and `ALTER ENDPOINT ... STATE = STARTED` when applicable. |
 
 The API stores request state in `dbo.AutoHealRequest`. The dashboard polls the API and never calls Azure DevOps directly.
 

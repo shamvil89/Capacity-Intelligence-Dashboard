@@ -30,6 +30,11 @@ public sealed class AzureDevOpsAutoHealService(
         "LogFileExhaustionRisk",
         "LogFileGrowthSpike"
     };
+    private static readonly HashSet<string> AlwaysOnAlertTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AlwaysOnHealthIssue",
+        "AlwaysOnLogReuseWait"
+    };
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -43,7 +48,7 @@ public sealed class AzureDevOpsAutoHealService(
         var actionType = NormalizeActionType(request.ActionType);
         if (actionType is null || string.Equals(actionType, "DeleteSelectedBackupFiles", StringComparison.OrdinalIgnoreCase))
         {
-            return BuildImmediateFailure(request, "Unsupported auto-heal action. Use BackupRetentionScan or LogShrinkAssessment.");
+            return BuildImmediateFailure(request, "Unsupported auto-heal action. Use BackupRetentionScan, LogShrinkAssessment, or AlwaysOnHealthAssessment.");
         }
 
         var eligibilityError = ValidateActionEligibility(actionType, request);
@@ -744,6 +749,7 @@ public sealed class AzureDevOpsAutoHealService(
         {
             "backupretentionscan" or "backupretentionscanandprune" => "BackupRetentionScan",
             "logshrinkassessment" or "logshrink" => "LogShrinkAssessment",
+            "alwaysonhealthassessment" or "alwaysonassessment" or "alwayson" => "AlwaysOnHealthAssessment",
             "deleteselectedbackupfiles" or "cleanupselectedbackupfiles" => "DeleteSelectedBackupFiles",
             _ => null
         };
@@ -764,6 +770,13 @@ public sealed class AzureDevOpsAutoHealService(
             return alertType is not null && LogShrinkAlertTypes.Contains(alertType)
                 ? null
                 : "Log shrink auto-heal is only available for log-file alerts.";
+        }
+
+        if (string.Equals(actionType, "AlwaysOnHealthAssessment", StringComparison.OrdinalIgnoreCase))
+        {
+            return alertType is not null && AlwaysOnAlertTypes.Contains(alertType)
+                ? null
+                : "Always On auto-heal is only available for AlwaysOnHealthIssue and AlwaysOnLogReuseWait alerts.";
         }
 
         return null;
