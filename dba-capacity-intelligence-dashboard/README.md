@@ -22,6 +22,7 @@ React Dashboard Web App
 
 - SQL Server repository scripts for tables, procedures, forecast logic, alerts, views, and seed data.
 - PowerShell collectors for database size, file size, disk space, table size, backup size, and TempDB usage.
+- Separate PowerShell auto-heal scripts for controlled backup cleanup and log shrink remediation.
 - ASP.NET Core Web API with Dapper, Swagger, CORS, and error handling middleware.
 - React Vite admin dashboard with summary cards, filtering, detail chart, top tables, and alerts.
 - Azure DevOps YAMLs for collection and build/deployment workflows.

@@ -6,6 +6,8 @@ The `collector` folder contains PowerShell automation that gathers capacity metr
 
 The collector is designed to run from Azure DevOps on a self-hosted Windows agent, but it can also be run locally for troubleshooting.
 
+Controlled remediation scripts live in `../autoheal`. Keep metric collection and auto-heal actions separate so collection can remain read-oriented while remediation remains explicitly requested from alert More info.
+
 ## Main Entry Point
 
 ```text

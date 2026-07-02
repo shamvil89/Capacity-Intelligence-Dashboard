@@ -187,7 +187,7 @@ Work note sources:
 | --- | --- |
 | `Dashboard` | User-entered comments from the alert More info popup. |
 | `AzureDevOps` | Queue, queue-failure, and status-refresh notes from the API. |
-| `AutoHealPipeline` | Running/completed/failed notes written by `collector/Invoke-AutoHeal.ps1`. |
+| `AutoHealPipeline` | Running/completed/failed notes written by `autoheal/Invoke-AutoHeal.ps1`. |
 
 Important columns:
 

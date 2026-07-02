@@ -98,9 +98,10 @@ flowchart LR
 | --- | --- | --- |
 | Repository database | `database/` | Creates `DBAUtility`, history tables, inventory, alerts, forecast procedures, and reporting views. |
 | Collector scripts | `collector/` | PowerShell scripts that read active inventory, collect metrics, and insert repository history rows. |
-| API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper, deletes selected alert rows, and queues the collector pipeline through Azure DevOps. |
+| Auto-heal scripts | `autoheal/` | PowerShell remediation scripts for dashboard-triggered backup cleanup and conservative log shrink actions. |
+| API | `api/DBA.Capacity.Api/` | ASP.NET Core API that queries `DBAUtility` through Dapper, deletes selected alert rows, and queues collector/auto-heal pipelines through Azure DevOps. |
 | Web app | `web/dba-capacity-web/` | React Vite dashboard for capacity trends, top growing tables, and alerts. |
-| Pipelines | `pipelines/` | Azure DevOps YAML pipelines for database deployment, server onboarding, collection, API deploy, and web deploy. |
+| Pipelines | `pipelines/` | Azure DevOps YAML pipelines for database deployment, server onboarding, collection, auto-heal, API deploy, and web deploy. |
 | Documentation | `docs/` | Architecture, setup, screenshots, and this lift-and-shift guide. |
 
 ## 4. Data Flow
@@ -115,6 +116,7 @@ flowchart LR
 8. The API reads from repository views and tables.
 9. The React web app calls the API and displays dashboards.
 10. When a dashboard user clicks **Run collector**, the web app calls `POST /api/collector-run`; the API uses a server-side PAT to queue the Azure DevOps pipeline and then exposes run status through `GET /api/collector-run`.
+11. When a dashboard user clicks **Try auto heal**, the web app calls `POST /api/auto-heal/requests`; the API queues `pipelines/auto-heal.yml`, which runs `autoheal/Invoke-AutoHeal.ps1`.
 
 ## 5. Security Boundary
 

@@ -18,7 +18,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\Common.ps1"
+. "$PSScriptRoot\..\collector\Common.ps1"
 
 Initialize-DbaTools
 

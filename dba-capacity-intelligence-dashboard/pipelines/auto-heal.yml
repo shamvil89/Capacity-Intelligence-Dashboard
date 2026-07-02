@@ -79,7 +79,7 @@ jobs:
           script: |
             $ErrorActionPreference = 'Stop'
 
-            & "$(Build.SourcesDirectory)\$(projectRoot)\collector\Invoke-AutoHeal.ps1" `
+            & "$(Build.SourcesDirectory)\$(projectRoot)\autoheal\Invoke-AutoHeal.ps1" `
               -Action "${{ parameters.action }}" `
               -RequestId "${{ parameters.requestId }}" `
               -ServerName "${{ parameters.serverName }}" `

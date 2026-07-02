@@ -188,7 +188,7 @@ auto-heal.yml
 What it does:
 
 1. Installs dbatools.
-2. Runs `collector/Invoke-AutoHeal.ps1`.
+2. Runs `autoheal/Invoke-AutoHeal.ps1`.
 3. Uses the same `configs` repository/source credential variables as the collector.
 4. Writes durable request, file-candidate, action outcome, and work-note data to `dbo.AutoHealRequest`, `dbo.AutoHealFileCandidate`, and `dbo.AlertWorkNote`.
 
