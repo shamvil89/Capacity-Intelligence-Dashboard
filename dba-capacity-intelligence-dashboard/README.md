@@ -157,7 +157,7 @@ Alert More info can also queue controlled auto-heal actions through the API. The
 - `pipelines/deploy-web.yml`: installs npm packages, builds React, publishes artifact, and deploys the static web app to IIS.
 - `pipelines/auto-heal.yml`: dashboard-triggered controlled remediation for backup-file cleanup and safe log-shrink assessment.
 
-The YAMLs target the self-hosted Windows agent:
+The YAMLs default to the self-hosted Windows agent:
 
 ```text
 Pool: Shamvil-pool
@@ -166,6 +166,8 @@ Local path: C:\Users\shamvil\PersonalEnvironment\agent
 ```
 
 PowerShell pipeline tasks are configured for Windows PowerShell on this host.
+
+Database, onboarding, and collector pipelines expose queue-time `agentPool` and `agentName` parameters. API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` parameters.
 
 The YAMLs use `projectRoot: dba-capacity-intelligence-dashboard` because the project currently lives inside that folder in the repository checkout. If the project files are moved to the repository root, change `projectRoot` to `.` in each pipeline.
 
@@ -284,7 +286,7 @@ For SQL auth Azure SQL, use `connection_mode = SqlAuth` and `credential_key = az
 
 `connection_mode` chooses the authentication method. `credential_key` chooses which secret entry to read from `SOURCE_SQL_CREDENTIALS_JSON`; it can be any customer-defined key such as `default`, `prod`, `finance-prod`, `azuresql-sql`, or `azuresql-aad`.
 
-The API and web deploy pipelines expose queue-time `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` parameters. `iisAgentPool`/`iisAgentName` choose the agent that runs the job. `iisHostName` is only used in remote mode and points to the IIS server.
+For automation pipelines, `agentPool`/`agentName` choose the agent that can reach the repository and source SQL Servers. For API/web deploys, `iisAgentPool`/`iisAgentName` choose the agent that runs the job, and `iisHostName` is only used in remote mode to point to the IIS server.
 
 ## Security Notes
 

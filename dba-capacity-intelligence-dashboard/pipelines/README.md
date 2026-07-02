@@ -27,7 +27,16 @@ Agent: shamvil
 OS: Windows_NT
 ```
 
-`deploy-api.yml` and `deploy-web.yml` expose queue-time parameters so the job runner and IIS host can be selected without editing YAML:
+All YAMLs expose queue-time parameters so the self-hosted agent can be selected without editing YAML.
+
+Automation pipelines use:
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `agentPool` | `Shamvil-pool` | Self-hosted agent pool containing the automation agent. |
+| `agentName` | Varies by YAML | Agent that runs the database, onboarding, or collector job. |
+
+IIS deploy pipelines use:
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
@@ -109,6 +118,13 @@ What it does:
 
 Run this first in every new customer environment.
 
+Queue-time agent selection:
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `agentPool` | `Shamvil-pool` | Agent pool containing the repository deployment agent. |
+| `agentName` | `eve-vsts` | Agent that can reach the repository SQL Server. |
+
 ## Onboard Server
 
 File:
@@ -121,6 +137,8 @@ Queue-time parameters:
 
 | Parameter | Purpose |
 | --- | --- |
+| `agentPool` | Agent pool containing the onboarding agent. |
+| `agentName` | Agent that can reach the repository SQL Server. |
 | `serverName` | Source server or Azure SQL logical server. |
 | `environment` | Development, Test, QA, UAT, Production, or DR. |
 | `serverType` | `SQLServer`, `AzureSQL`, or `ManagedInstance`. |
@@ -169,6 +187,13 @@ cron: "*/10 * * * *"
 ```
 
 Azure DevOps cron is UTC. For production, consider `*/15` or a customer-approved interval.
+
+Queue-time agent selection:
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `agentPool` | `Shamvil-pool` | Agent pool containing the collector agent. |
+| `agentName` | `shamvil` | Agent that can reach the repository SQL Server and monitored source SQL Servers. |
 
 Dashboard trigger:
 
@@ -294,7 +319,7 @@ Queue-time deployment selection:
 
 ## Customer Lift-And-Shift Checklist
 
-1. Update automation pipeline pool/demands where needed; use `iisAgentPool`, `iisAgentName`, `iisDeploymentMode`, and `iisHostName` when queueing API/web deploys.
+1. Use queue-time `agentPool`/`agentName` for database/onboard/collector pipelines, and `iisAgentPool`/`iisAgentName`/`iisDeploymentMode`/`iisHostName` for API/web deploys.
 2. Update `projectRoot` if repository layout changes.
 3. Create variable group `configs`.
 4. Mark passwords and connection strings secret.

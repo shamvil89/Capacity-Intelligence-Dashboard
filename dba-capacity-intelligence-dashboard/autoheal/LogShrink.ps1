@@ -114,7 +114,7 @@ DBCC SHRINKFILE (@logical_file_name, @target_mb) WITH NO_INFOMSGS;
                 previousSizeMb = $currentFileSizeMb
                 targetSizeMb = $targetMb
                 postShrinkSizeMb = $postShrinkSizeMb
-                shrinkLimitedBySqlServer = if ($postShrinkSizeMb -ne $null) { $postShrinkSizeMb -gt $targetMb } else { $null }
+                shrinkLimitedBySqlServer = if ($null -ne $postShrinkSizeMb) { $postShrinkSizeMb -gt $targetMb } else { $null }
             }
         }
     }
