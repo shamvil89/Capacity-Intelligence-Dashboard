@@ -19,9 +19,7 @@ public sealed class AzureDevOpsAutoHealService(
     private const string AutoBackupPathTemplateValue = "__AUTO__";
     private static readonly HashSet<string> RunningStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Queued",
         "Running",
-        "CleanupQueued",
         "CleanupRunning"
     };
     private static readonly HashSet<string> LogShrinkAlertTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -326,10 +324,22 @@ public sealed class AzureDevOpsAutoHealService(
             }
 
             var run = await DeserializeAsync<PipelineRunResponse>(response, cancellationToken);
+            if (run?.Id is null)
+            {
+                await UpdateRequestAfterQueueAsync(
+                    requestId,
+                    "QueueFailed",
+                    null,
+                    run?.Links?.Web?.Href ?? run?.Url,
+                    "Azure DevOps accepted the auto-heal queue request but did not return a pipeline run id. The dashboard cannot track this run.",
+                    cancellationToken);
+                return await QueryStatusAsync(requestId, false, cancellationToken);
+            }
+
             await UpdateRequestAfterQueueAsync(
                 requestId,
                 runningStatus,
-                run?.Id,
+                run.Id,
                 run?.Links?.Web?.Href ?? run?.Url,
                 $"Auto-heal pipeline queued for {actionType}.",
                 cancellationToken);
@@ -423,11 +433,20 @@ public sealed class AzureDevOpsAutoHealService(
             return await QueryStatusAsync(requestId, false, cancellationToken);
         }
 
+        var hasTrackedPipelineRun = status.PipelineRunId is int;
+        var isRunning = RunningStatuses.Contains(status.Status) && hasTrackedPipelineRun;
+        var message = status.Message;
+        if (string.Equals(status.Status, "Queued", StringComparison.OrdinalIgnoreCase) && !hasTrackedPipelineRun)
+        {
+            message = "Auto-heal request was created, but no Azure DevOps pipeline run id was recorded. The pipeline did not start; check API database connectivity and Azure DevOps auto-heal pipeline settings, then try again.";
+        }
+
         return status with
         {
-            IsRunning = RunningStatuses.Contains(status.Status),
+            IsRunning = isRunning,
             IsConfigured = !string.Equals(status.Status, "NotConfigured", StringComparison.OrdinalIgnoreCase),
-            FileCandidates = candidates
+            FileCandidates = candidates,
+            Message = message
         };
     }
 

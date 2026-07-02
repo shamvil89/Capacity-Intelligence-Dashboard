@@ -401,6 +401,17 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
       }
     } catch (err) {
       if (autoHealRequestVersion.current === requestVersion) {
+        setAutoHealStatus((currentStatus) => (
+          currentStatus?.isRunning
+            ? {
+                ...currentStatus,
+                status: 'QueueFailed',
+                isRunning: false,
+                completedAt: new Date().toISOString(),
+                message: err.message || 'Auto-heal pipeline was not queued.'
+              }
+            : currentStatus
+        ));
         setAutoHealError(err.message);
       }
     } finally {
