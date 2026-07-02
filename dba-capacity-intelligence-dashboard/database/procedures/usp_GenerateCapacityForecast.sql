@@ -121,46 +121,53 @@ BEGIN
             FROM FileGrowth
             GROUP BY server_name, volume_mount_point
         ),
+        DatabaseVolumeGrowth AS
+        (
+            SELECT
+                server_name,
+                database_name,
+                volume_mount_point,
+                SUM(avg_file_growth_per_day_30d_gb) AS database_volume_growth_per_day_30d_gb
+            FROM FileGrowth
+            GROUP BY server_name, database_name, volume_mount_point
+        ),
         DbVolumeRisk AS
         (
             SELECT
-                fg.server_name,
-                fg.database_name,
-                fg.volume_mount_point,
+                dg.server_name,
+                dg.database_name,
+                dg.volume_mount_point,
                 vg.volume_available_gb,
                 vg.shared_volume_growth_per_day_30d_gb,
+                dg.database_volume_growth_per_day_30d_gb,
                 CAST
                 (
                     CASE
                         WHEN vg.volume_available_gb IS NULL
-                          OR vg.shared_volume_growth_per_day_30d_gb IS NULL
-                          OR vg.shared_volume_growth_per_day_30d_gb <= 0
+                          OR dg.database_volume_growth_per_day_30d_gb IS NULL
+                          OR dg.database_volume_growth_per_day_30d_gb <= 0
                             THEN NULL
-                        ELSE vg.volume_available_gb / NULLIF(vg.shared_volume_growth_per_day_30d_gb, 0)
+                        ELSE vg.volume_available_gb / NULLIF(dg.database_volume_growth_per_day_30d_gb, 0)
                     END AS DECIMAL(18,4)
                 ) AS estimated_days_remaining,
                 ROW_NUMBER() OVER
                 (
-                    PARTITION BY fg.server_name, fg.database_name
+                    PARTITION BY dg.server_name, dg.database_name
                     ORDER BY
                         CASE
                             WHEN vg.volume_available_gb IS NULL
-                              OR vg.shared_volume_growth_per_day_30d_gb IS NULL
-                              OR vg.shared_volume_growth_per_day_30d_gb <= 0
+                              OR dg.database_volume_growth_per_day_30d_gb IS NULL
+                              OR dg.database_volume_growth_per_day_30d_gb <= 0
                                 THEN 1
                             ELSE 0
                         END,
-                        vg.volume_available_gb / NULLIF(vg.shared_volume_growth_per_day_30d_gb, 0),
-                        fg.volume_mount_point
+                        vg.volume_available_gb / NULLIF(dg.database_volume_growth_per_day_30d_gb, 0),
+                        dg.volume_mount_point
                 ) AS rn
-            FROM
-            (
-                SELECT DISTINCT server_name, database_name, volume_mount_point
-                FROM FileGrowth
-            ) AS fg
+            FROM DatabaseVolumeGrowth AS dg
             INNER JOIN VolumeGrowth AS vg
-                ON vg.server_name = fg.server_name
-               AND vg.volume_mount_point = fg.volume_mount_point
+                ON vg.server_name = dg.server_name
+               AND vg.volume_mount_point = dg.volume_mount_point
         ),
         LimitingVolume AS
         (
@@ -170,6 +177,7 @@ BEGIN
                 volume_mount_point,
                 volume_available_gb,
                 shared_volume_growth_per_day_30d_gb,
+                database_volume_growth_per_day_30d_gb,
                 estimated_days_remaining
             FROM DbVolumeRisk
             WHERE rn = 1
@@ -189,8 +197,10 @@ BEGIN
                 COALESCE(lv.volume_available_gb, a.available_space_gb) AS available_space_gb,
                 lv.volume_mount_point AS limiting_volume_mount_point,
                 lv.shared_volume_growth_per_day_30d_gb,
+                lv.database_volume_growth_per_day_30d_gb,
+                lv.estimated_days_remaining AS volume_estimated_days_remaining,
                 CASE
-                    WHEN lv.estimated_days_remaining IS NOT NULL THEN 'SharedDriveGrowth'
+                    WHEN lv.estimated_days_remaining IS NOT NULL THEN 'DatabaseVolumeGrowth'
                     WHEN a.available_space_gb IS NOT NULL THEN 'DatabaseGrowthFallback'
                     ELSE 'InsufficientDiskData'
                 END AS forecast_method
@@ -235,10 +245,8 @@ BEGIN
                 CAST
                 (
                     CASE
-                        WHEN g.shared_volume_growth_per_day_30d_gb IS NOT NULL
-                          AND g.shared_volume_growth_per_day_30d_gb > 0
-                          AND g.available_space_gb IS NOT NULL
-                            THEN g.available_space_gb / NULLIF(g.shared_volume_growth_per_day_30d_gb, 0)
+                        WHEN g.volume_estimated_days_remaining IS NOT NULL
+                            THEN g.volume_estimated_days_remaining
                         WHEN g.available_space_gb IS NULL
                           OR g.avg_growth_per_day_30d_gb IS NULL
                           OR g.avg_growth_per_day_30d_gb <= 0
@@ -301,14 +309,14 @@ BEGIN
             CASE r.risk_level
                 WHEN 'Critical' THEN
                     CASE
-                        WHEN r.forecast_method = 'SharedDriveGrowth'
-                            THEN CONCAT(N'Immediate action required. The limiting volume ', r.limiting_volume_mount_point, N' may be exhausted soon based on total growth from databases sharing that drive.')
+                        WHEN r.forecast_method = 'DatabaseVolumeGrowth'
+                            THEN CONCAT(N'Immediate action required. The limiting volume ', r.limiting_volume_mount_point, N' may be exhausted soon based on this database growth pattern.')
                         ELSE N'Immediate action required. Storage may be exhausted soon or growth is unusually high.'
                     END
                 WHEN 'High' THEN
                     CASE
-                        WHEN r.forecast_method = 'SharedDriveGrowth'
-                            THEN CONCAT(N'Plan storage increase or growth reduction for shared volume ', r.limiting_volume_mount_point, N'.')
+                        WHEN r.forecast_method = 'DatabaseVolumeGrowth'
+                            THEN CONCAT(N'Plan storage increase or growth reduction for database files on volume ', r.limiting_volume_mount_point, N'.')
                         ELSE N'Plan storage increase or investigate top growing tables.'
                     END
                 WHEN 'Medium' THEN N'Monitor closely and review growth trend.'

@@ -1926,7 +1926,7 @@ function buildCollectionFailureResolutionSteps(alert, details) {
 function buildCapacityRiskResolutionSteps(alert, details) {
   return compactSteps([
     `Capacity forecast evidence for ${describeAlertTarget(alert, details)}: current size ${formatGb(details?.currentSizeGb)}, 7-day growth ${formatGb(details?.growth7DaysGb)}, 30-day growth ${formatGb(details?.growth30DaysGb)}, database average daily growth ${formatGb(details?.averageGrowthPerDayGb)}, available space ${formatGb(details?.availableSpaceGb)}, estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}.`,
-    details?.limitingVolumeMountPoint ? `Limiting volume is ${formatDetailValue(details.limitingVolumeMountPoint)}. Shared 30-day daily growth from database files on that volume is ${formatGb(details?.sharedVolumeGrowthPerDayGb)}; forecast method is ${formatDetailValue(details?.forecastMethod)}.` : null,
+    details?.limitingVolumeMountPoint ? `Limiting volume is ${formatDetailValue(details.limitingVolumeMountPoint)}. The database timer is based on this database's own growth pattern; shared 30-day daily growth from all database files on that volume is ${formatGb(details?.sharedVolumeGrowthPerDayGb)} for context. Forecast method is ${formatDetailValue(details?.forecastMethod)}.` : null,
     details?.recommendation ? `Use the generated recommendation as the starting hypothesis: ${details.recommendation}` : null,
     'Check whether the growth is expected from a release, data load, index maintenance, retention change, or new table growth. Compare the database detail chart and Top Tables view for the same server/database.',
     'If growth is expected, plan the storage action: add/move storage, increase file max size, adjust autogrowth, archive/purge data, or compress/rebuild indexes after validating workload impact.',
@@ -2456,7 +2456,7 @@ function getEmailImpactSummary(alert, details) {
 
   if (alertType === 'capacityrisk') {
     if (details?.limitingVolumeMountPoint) {
-      return `Forecast shows ${formatGb(details?.availableSpaceGb)} available on limiting volume ${formatDetailValue(details.limitingVolumeMountPoint)} and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)} based on shared drive growth of ${formatGb(details?.sharedVolumeGrowthPerDayGb)} per day. Capacity exhaustion can stop data growth or cause application failures.`;
+      return `Forecast shows ${formatGb(details?.availableSpaceGb)} available on limiting volume ${formatDetailValue(details.limitingVolumeMountPoint)} and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)} based on this database's own growth pattern. Shared drive growth is ${formatGb(details?.sharedVolumeGrowthPerDayGb)} per day for context. Capacity exhaustion can stop data growth or cause application failures.`;
     }
 
     return `Forecast shows ${formatGb(details?.availableSpaceGb)} available and estimated time remaining ${formatDaysRemaining(details?.estimatedDaysRemaining)}. Capacity exhaustion can stop data growth or cause application failures.`;

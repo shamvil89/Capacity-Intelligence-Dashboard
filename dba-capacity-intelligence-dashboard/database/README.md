@@ -93,19 +93,19 @@ flowchart TD
 
 `dbo.usp_GenerateCapacityForecast` uses database growth history plus file and disk metadata.
 
-When volume metadata is available, estimated days remaining is calculated from the limiting drive, not just the individual database:
+When volume metadata is available, estimated days remaining is calculated from the limiting drive using the database's own file growth on that drive:
 
 ```text
-days remaining = limiting volume available GB / total 30-day daily growth from all database files sharing that volume
+days remaining = limiting volume available GB / this database's 30-day daily file growth on that volume
 ```
 
-This makes the forecast more realistic when several databases are hosted on the same drive. The result stores:
+This keeps database rows independent: a flat database does not inherit another database's growth risk just because both share a volume. The result still stores shared volume growth as context so the More info popup can explain pressure from other files on the same drive:
 
 - `limiting_volume_mount_point`
 - `shared_volume_growth_per_day_30d_gb`
 - `forecast_method`
 
-If file/volume data is missing, the procedure falls back to the previous database-growth calculation. `estimated_days_remaining` is decimal so the dashboard can show hours when less than one day remains.
+If file/volume data is missing, the procedure falls back to the previous database-growth calculation. `DiskSpaceLow` alerts remain responsible for drive-level free-space risk across all files. `estimated_days_remaining` is decimal so the dashboard can show hours when less than one day remains.
 
 ## Alert Evidence Model
 
