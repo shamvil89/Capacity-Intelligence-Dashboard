@@ -116,6 +116,9 @@ VALUES
 ('LogFileGrowthSpike', 'CriticalBlocked24hGrowthGb', N'Critical blocked 24-hour growth', N'Critical severity when log reuse is blocked and 24-hour growth is at or above this value.', 'GB', 2, 2, 0, NULL, 250),
 ('LogFileGrowthSpike', 'CriticalBlocked7dGrowthGb', N'Critical blocked 7-day growth', N'Critical severity when log reuse is blocked and 7-day growth is at or above this value.', 'GB', 5, 5, 0, NULL, 260),
 
+('LogShrinkAutoHeal', 'MinimumTargetSizeMb', N'Minimum shrink target', N'Auto-heal will not request a transaction log shrink target below this size.', 'MB', 256, 256, 64, NULL, 10),
+('LogShrinkAutoHeal', 'UsedLogMultiplier', N'Used log multiplier', N'Auto-heal target is at least current used log space multiplied by this value.', 'multiplier', 2, 2, 1, NULL, 20),
+
 ('FullRecoveryNoLogBackup', 'CriticalStaleHours', N'Critical stale log backup age', N'Critical when latest observed log backup is older than this many hours.', 'hours', 72, 72, 0, NULL, 10),
 ('FullRecoveryNoLogBackup', 'AlertStaleHours', N'Alert stale log backup age', N'Raises an alert when latest observed log backup is older than this many hours.', 'hours', 24, 24, 0, NULL, 20),
 

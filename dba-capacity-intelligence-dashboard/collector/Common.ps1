@@ -465,7 +465,8 @@ function Resolve-CollectionFailureAlert {
     $query = @"
 UPDATE dbo.AlertHistory
 SET is_resolved = 1,
-    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME())
+    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME()),
+    resolved_by = COALESCE(resolved_by, N'Collector')
 WHERE is_resolved = 0
   AND server_name = @server_name
   AND ISNULL(database_name, N'') = ISNULL(@database_name, N'')
@@ -492,7 +493,8 @@ function Resolve-CollectionFailureAlertsForMetric {
     $query = @"
 UPDATE dbo.AlertHistory
 SET is_resolved = 1,
-    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME())
+    resolved_at = COALESCE(resolved_at, SYSUTCDATETIME()),
+    resolved_by = COALESCE(resolved_by, N'Collector')
 WHERE is_resolved = 0
   AND server_name = @server_name
   AND alert_type = @alert_type;

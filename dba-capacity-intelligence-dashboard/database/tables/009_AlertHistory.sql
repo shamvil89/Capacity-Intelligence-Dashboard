@@ -16,7 +16,8 @@ BEGIN
         source_script NVARCHAR(260) NULL,
         details_json NVARCHAR(MAX) NULL,
         is_resolved BIT NOT NULL CONSTRAINT DF_AlertHistory_is_resolved DEFAULT (0),
-        resolved_at DATETIME2(7) NULL
+        resolved_at DATETIME2(7) NULL,
+        resolved_by NVARCHAR(120) NULL
     );
 
     CREATE INDEX IX_AlertHistory_Active
@@ -71,6 +72,13 @@ IF COL_LENGTH(N'dbo.AlertHistory', N'resolved_at') IS NULL
 BEGIN
     ALTER TABLE dbo.AlertHistory
         ADD resolved_at DATETIME2(7) NULL;
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AlertHistory', N'resolved_by') IS NULL
+BEGIN
+    ALTER TABLE dbo.AlertHistory
+        ADD resolved_by NVARCHAR(120) NULL;
 END;
 GO
 

@@ -270,6 +270,7 @@ Alerts are not just plain messages. `dbo.AlertHistory` stores:
 | --- | --- |
 | `source_script` | Script or procedure chain that generated the alert. |
 | `details_json` | Structured evidence shown by the web More info popup. |
+| `resolved_by` | Resolution source shown in alert history and email text. Normal retirement uses `Collector`; auto-heal-confirmed retirement uses `AutoHeal:<ActionType>`. |
 
 Important alert signals:
 
@@ -324,7 +325,7 @@ What can be tuned:
 | Area | Examples |
 | --- | --- |
 | Capacity forecast | Days remaining and average daily growth thresholds for Low, Medium, High, and Critical risk. |
-| Transaction logs | Log exhaustion headroom, effective-cap percent, projected hours to cap, unusually large log size, log/data ratio, and log growth spike thresholds. |
+| Transaction logs | Log exhaustion headroom, effective-cap percent, projected hours to cap, unusually large log size, log/data ratio, log growth spike thresholds, and log-shrink auto-heal target sizing. |
 | Backup hygiene | Stale log backup hours for FULL recovery databases. |
 | Blocking and transactions | Long-running transaction duration, blocking lookback window, blocked session count, wait duration, and lead blocker duration. |
 | Platform health | TempDB usage, disk free space, Always On evidence windows, replication evidence windows, and backup growth thresholds. |
@@ -337,6 +338,28 @@ Operational behavior:
 - Stored procedures read the table each time they run, so changes affect the next collector or forecast generation run.
 - Existing historical alerts are not rewritten; new active/resolved state is decided on the next alert-generation pass.
 - Redeploying the database preserves customized current values and refreshes labels, descriptions, default values, and validation ranges.
+
+Log shrink auto-heal threshold rows:
+
+| Alert type | Setting | Default | Purpose |
+| --- | --- | --- | --- |
+| `LogShrinkAutoHeal` | `MinimumTargetSizeMb` | `256` MB | Lowest target passed to `DBCC SHRINKFILE`. |
+| `LogShrinkAutoHeal` | `UsedLogMultiplier` | `2` | Keeps the shrink target at least this many times larger than current used log space. |
+
+SQL Server can leave the log file larger than the requested shrink target when the active log tail or VLF layout prevents further movement. The dashboard and email evidence show both requested target and post-shrink size so the DBA can tell whether the run was limited by SQL Server internals rather than by the tool.
+
+## 7.2.1 Auto-Heal Result Lifecycle
+
+Auto-heal is intentionally a two-step lifecycle:
+
+1. The dashboard queues `DBA Capacity - Auto Heal` through the API.
+2. The pipeline writes status and result details to `dbo.AutoHealRequest`.
+3. The More info popup reads the latest durable status, so closing and reopening the popup does not lose the result.
+4. The email body includes the latest auto-heal action, status, Azure DevOps run link, and action-specific outcome.
+5. The next collector run regenerates alerts.
+6. If the alert condition is no longer present and there was a completed auto-heal request for that alert, `dbo.usp_GenerateAlerts` sets `dbo.AlertHistory.resolved_by` to `AutoHeal:<ActionType>` and moves the alert to history.
+
+This means a completed remediation pipeline is not treated as proof that the alert is fixed. The fix is confirmed only after the next collection proves the condition disappeared.
 
 Migration tip:
 

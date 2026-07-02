@@ -109,12 +109,13 @@ If file/volume data is missing, the procedure falls back to the previous databas
 
 ## Alert Evidence Model
 
-`dbo.AlertHistory` stores two fields used by the web alert popup:
+`dbo.AlertHistory` stores the fields used by the web alert popup and alert lifecycle:
 
 | Column | Purpose |
 | --- | --- |
 | `source_script` | Script or procedure chain that produced the alert. |
 | `details_json` | Structured alert evidence, such as log growth rate, projected hours to cap, last log backup time, TempDB top consumers, cached query plan XML, or collector failure text. |
+| `resolved_by` | Resolution source. Generated alerts use `Collector` when the next alert-generation run no longer sees the condition. If a completed auto-heal request exists for the alert, the value is `AutoHeal:<ActionType>`. |
 
 The log-risk alert calculation uses:
 
@@ -137,12 +138,19 @@ The log-growth-spike alert calculation is separate again. It compares latest log
 `dbo.AlertThresholdSetting` stores configurable thresholds for alert generation and forecast risk. Examples include:
 
 - Forecast days remaining and daily growth risk levels.
-- Transaction log exhaustion, unusually large log file, and log growth spike thresholds.
+- Transaction log exhaustion, unusually large log file, log growth spike thresholds, and log-shrink auto-heal target sizing.
 - FULL recovery stale log backup hours.
 - Long-running transaction duration and lookback windows.
 - Blocking, TempDB, disk space, Always On, replication, and backup growth thresholds.
 
 The API Settings endpoints and the web Settings page update this table. Stored procedures read the table each time they run, so changes take effect on the next forecast or collector alert-generation run. If a setting is missing, the procedures fall back to the built-in default value.
+
+Log shrink auto-heal uses the `LogShrinkAutoHeal` settings:
+
+- `MinimumTargetSizeMb` is the lowest target passed to `DBCC SHRINKFILE`.
+- `UsedLogMultiplier` keeps the target above current used log space, for example used log MB multiplied by `2`.
+
+SQL Server can still leave a log file larger than the requested target when the active log tail or VLF layout prevents further movement. Auto-heal records the requested target, post-shrink file size, and whether SQL Server stopped above the target in `dbo.AutoHealRequest.details_json`.
 
 ## Application CMDB
 

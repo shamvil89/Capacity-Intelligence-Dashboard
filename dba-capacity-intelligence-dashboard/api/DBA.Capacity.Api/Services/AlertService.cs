@@ -77,7 +77,8 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
                 )
             ) AS DetailsJson,
             a.is_resolved AS IsResolved,
-            a.resolved_at AS ResolvedAt
+            a.resolved_at AS ResolvedAt,
+            a.resolved_by AS ResolvedBy
         """;
 
     public async Task<IReadOnlyList<AlertItem>> GetActiveAlertsAsync(CancellationToken cancellationToken)
@@ -126,7 +127,8 @@ public sealed class AlertService(IDbConnectionFactory connectionFactory) : IAler
                 ah.source_script,
                 ah.details_json,
                 ah.is_resolved,
-                ah.resolved_at
+                ah.resolved_at,
+                ah.resolved_by
             FROM dbo.AlertHistory AS ah
             OUTER APPLY
             (

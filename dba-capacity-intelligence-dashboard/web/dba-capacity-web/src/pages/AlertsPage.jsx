@@ -18,6 +18,7 @@ const alertFilterColumns = [
   { key: 'alertType', label: 'Type' },
   { key: 'severity', label: 'Severity' },
   { key: 'status', label: 'Status', field: (row) => (row.isResolved ? 'Resolved' : 'Active') },
+  { key: 'resolvedBy', label: 'Resolved By' },
   { key: 'message', label: 'Message' },
   { key: 'sourceScript', label: 'Source' },
   { key: 'detailsJson', label: 'Evidence' }
@@ -152,6 +153,7 @@ export default function AlertsPage({ mode = 'active' }) {
                     <th><SortableHeader label="Severity" sortKey="severity" sortState={sortState} onSort={handleSort} /></th>
                     {isHistoryMode ? <th><SortableHeader label="Status" sortKey="isResolved" sortState={sortState} onSort={handleSort} /></th> : null}
                     {isHistoryMode ? <th><SortableHeader label="Resolved" sortKey="resolvedAt" sortState={sortState} onSort={handleSort} /></th> : null}
+                    {isHistoryMode ? <th><SortableHeader label="Resolved By" sortKey="resolvedBy" sortState={sortState} onSort={handleSort} /></th> : null}
                     <th><SortableHeader label="Message" sortKey="message" sortState={sortState} onSort={handleSort} /></th>
                     <th>Actions</th>
                   </tr>
@@ -167,6 +169,7 @@ export default function AlertsPage({ mode = 'active' }) {
                       <td><RiskBadge level={item.severity} /></td>
                       {isHistoryMode ? <td><AlertStatusBadge isResolved={item.isResolved} /></td> : null}
                       {isHistoryMode ? <td>{item.resolvedAt ? formatDateTime(item.resolvedAt, effectiveTimeZone) : '-'}</td> : null}
+                      {isHistoryMode ? <td>{item.resolvedBy || '-'}</td> : null}
                       <td className="recommendation-cell alert-message-cell">{item.message}</td>
                       <td>
                         <div className="row-actions">
@@ -225,8 +228,8 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
   const emailSubject = useMemo(() => buildAlertEmailSubject(alert), [alert]);
   const ccRecipients = useMemo(() => collectCmdbCcEmails(cmdbEntry), [cmdbEntry]);
   const emailBody = useMemo(
-    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry),
-    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry]
+    () => buildAlertEmailBody(alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry, autoHealStatus),
+    [alert, displayDetails, displayMessage, resolutionSteps, emailAttachments, effectiveTimeZone, cmdbEntry, autoHealStatus]
   );
   const hasDedicatedEvidence = useMemo(() => hasBlockingEvidence(displayDetails), [displayDetails]);
   const evidenceDetails = useMemo(() => {
@@ -413,6 +416,7 @@ function AlertDetailsModal({ alert, effectiveTimeZone, onClose }) {
             <DetailItem label="Severity" value={alert.severity} />
             <DetailItem label="Status" value={alert.isResolved ? 'Resolved' : 'Active'} />
             {alert.resolvedAt ? <DetailItem label="Resolved" value={formatDateTime(alert.resolvedAt, effectiveTimeZone)} /> : null}
+            {alert.resolvedBy ? <DetailItem label="Resolved By" value={alert.resolvedBy} /> : null}
             <DetailItem label="Source" value={alert.sourceScript || displayDetails?.sourceScripts || '-'} wide />
           </div>
 
@@ -2526,9 +2530,10 @@ function collectCmdbCcEmails(entry) {
     });
 }
 
-function buildAlertEmailBody(alert, details, message, steps, attachments = [], timeZone, cmdbEntry = null) {
+function buildAlertEmailBody(alert, details, message, steps, attachments = [], timeZone, cmdbEntry = null, autoHealStatus = null) {
   const evidenceLines = getEmailEvidenceLines(alert, details);
   const actionLines = selectEmailActionSteps(alert, details, steps).map((step, index) => `${index + 1}. ${step}`);
+  const autoHealLines = getAutoHealEmailLines(alert, autoHealStatus, timeZone);
   const hasSqlAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sql'));
   const hasPlanAttachment = attachments.some((attachment) => attachment.fileName.toLowerCase().endsWith('.sqlplan'));
   const cmdbLines = cmdbEntry
@@ -2566,7 +2571,9 @@ function buildAlertEmailBody(alert, details, message, steps, attachments = [], t
     `- Alert type: ${formatDetailValue(alert.alertType)}`,
     `- Severity: ${formatDetailValue(alert.severity)}`,
     `- Status: ${alert.isResolved ? 'Resolved' : 'Active'}`,
+    ...(alert.resolvedBy ? [`- Resolved by: ${formatDetailValue(alert.resolvedBy)}`] : []),
     `- Detected: ${formatDateTime(alert.alertTime, timeZone)}`,
+    ...(alert.resolvedAt ? [`- Resolved: ${formatDateTime(alert.resolvedAt, timeZone)}`] : []),
     `- Message: ${message}`,
     ...(hasSqlAttachment ? ['- SQL text captured: Yes, prepared as .sql evidence'] : []),
     ...(hasPlanAttachment ? ['- Query plan captured: Yes, prepared as .sqlplan evidence'] : []),
@@ -2576,6 +2583,7 @@ function buildAlertEmailBody(alert, details, message, steps, attachments = [], t
     '',
     'Relevant evidence:',
     ...evidenceLines.map((line) => `- ${line}`),
+    ...autoHealLines,
     ...attachmentSection,
     '',
     'Recommended next actions:',
@@ -2586,6 +2594,77 @@ function buildAlertEmailBody(alert, details, message, steps, attachments = [], t
     'Regards,',
     'DBA Team'
   ].join('\n');
+}
+
+function getAutoHealEmailLines(alert, status, timeZone) {
+  const resolvedByAutoHeal = String(alert.resolvedBy ?? '').toLowerCase().startsWith('autoheal:');
+  if (!status && !resolvedByAutoHeal) {
+    return [];
+  }
+
+  const details = parseAlertDetails(status?.detailsJson);
+  const lines = [
+    '',
+    'Auto-heal result:'
+  ];
+
+  if (status) {
+    lines.push(`- Action: ${formatDetailValue(status.actionType)}`);
+    lines.push(`- Status: ${formatDetailValue(status.status)}`);
+    lines.push(`- Requested: ${status.requestedAt ? formatDateTime(status.requestedAt, timeZone) : '-'}`);
+    if (status.completedAt) {
+      lines.push(`- Completed: ${formatDateTime(status.completedAt, timeZone)}`);
+    }
+    if (status.message) {
+      lines.push(`- Result message: ${status.message}`);
+    }
+    if (status.pipelineWebUrl) {
+      lines.push(`- Pipeline run: ${status.pipelineWebUrl}`);
+    }
+
+    getAutoHealDetailsEmailLines(status, details).forEach((line) => lines.push(`- ${line}`));
+  } else {
+    lines.push(`- This alert was marked resolved by ${formatDetailValue(alert.resolvedBy)}.`);
+  }
+
+  if (resolvedByAutoHeal) {
+    lines.push('- Resolution identifier: Auto-heal fixed this alert. It moved to history after the next collector/alert generation run confirmed the condition was no longer present.');
+  } else if (status?.isRunning) {
+    lines.push('- Resolution state: auto-heal is still running. Rerun collection/alert generation after completion to confirm whether the active alert retires.');
+  } else if (status) {
+    lines.push('- Resolution state: rerun collection/alert generation to confirm whether this auto-heal attempt retired the active alert.');
+  }
+
+  return lines;
+}
+
+function getAutoHealDetailsEmailLines(status, details) {
+  const action = String(details?.action || status?.actionType || '').toLowerCase();
+  const lines = [];
+
+  if (action === 'logshrinkassessment') {
+    lines.push(`Log assessment: total ${formatMb(details?.totalLogSizeMb)}, used ${formatMb(details?.usedLogSpaceMb)} (${formatPercent(details?.usedLogSpacePercent)}), reuse wait ${formatDetailValue(details?.logReuseWait)}, open transactions ${formatDetailValue(details?.openTransactionCount)}.`);
+    lines.push(`Shrink target settings: minimum ${formatMb(details?.minimumTargetSizeMb)}, used-log multiplier ${formatDetailValue(details?.usedLogMultiplier)}.`);
+
+    const shrinkResults = Array.isArray(details?.shrinkResults) ? details.shrinkResults : [];
+    if (shrinkResults.length > 0) {
+      shrinkResults.forEach((result) => {
+        const limitedText = result?.shrinkLimitedBySqlServer ? ' SQL Server stopped above the requested target, usually because the active log tail/VLF layout could not move lower yet.' : '';
+        lines.push(`Log file ${formatDetailValue(result?.logicalFileName)}: previous ${formatMb(result?.previousSizeMb)}, requested target ${formatMb(result?.targetSizeMb)}, post-shrink ${formatMb(result?.postShrinkSizeMb)}.${limitedText}`);
+      });
+    } else if (Array.isArray(details?.decisionReasons) && details.decisionReasons.length > 0) {
+      lines.push(`Shrink decision: ${details.decisionReasons.join(' ')}`);
+    }
+  } else if (action === 'backupretentionscan') {
+    lines.push(`Backup cleanup scan: found ${formatDetailValue(details?.foundCount)} eligible files, deleted ${formatDetailValue(details?.retentionDeletedCount)} by retention, selectable remaining ${formatDetailValue(details?.candidateCount)}, failed ${formatDetailValue(details?.failedCount)}.`);
+    if (hasRenderableDetail(details?.protectedNameSkippedCount) || hasRenderableDetail(details?.windowsFolderSkippedCount)) {
+      lines.push(`Safety skips: protected names ${formatDetailValue(details?.protectedNameSkippedCount)}, Windows folders ${formatDetailValue(details?.windowsFolderSkippedCount)}.`);
+    }
+  } else if (action === 'deleteselectedbackupfiles') {
+    lines.push(`Selected cleanup: selected ${formatDetailValue(details?.selectedCount)}, deleted ${formatDetailValue(details?.deletedCount)}, failed ${formatDetailValue(details?.failedCount)}.`);
+  }
+
+  return lines;
 }
 
 function getEmailEvidenceLines(alert, details) {

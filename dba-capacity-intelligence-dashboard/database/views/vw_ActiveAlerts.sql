@@ -16,7 +16,8 @@ SELECT
     a.source_script,
     a.details_json,
     a.is_resolved,
-    a.resolved_at
+    a.resolved_at,
+    a.resolved_by
 FROM dbo.AlertHistory AS a
 OUTER APPLY
 (

@@ -1879,7 +1879,8 @@ BEGIN
                 details_json = c.details_json,
                 alert_key = c.alert_key,
                 is_resolved = 0,
-                resolved_at = NULL
+                resolved_at = NULL,
+                resolved_by = NULL
         FROM dbo.AlertHistory AS a
         INNER JOIN #CurrentGeneratedAlerts AS c
             ON c.alert_key = a.alert_key
@@ -1918,8 +1919,26 @@ BEGIN
 
         UPDATE a
             SET is_resolved = 1,
-                resolved_at = COALESCE(a.resolved_at, @runStartedAt)
+                resolved_at = COALESCE(a.resolved_at, @runStartedAt),
+                resolved_by =
+                    CASE
+                        WHEN auto_heal.request_id IS NOT NULL
+                            THEN CONCAT(N'AutoHeal:', auto_heal.action_type)
+                        ELSE COALESCE(a.resolved_by, N'Collector')
+                    END
         FROM dbo.AlertHistory AS a
+        OUTER APPLY
+        (
+            SELECT TOP (1)
+                r.request_id,
+                r.action_type
+            FROM dbo.AutoHealRequest AS r
+            WHERE r.alert_id = a.alert_id
+              AND r.status = 'Completed'
+              AND r.completed_at IS NOT NULL
+              AND r.completed_at >= a.alert_time
+            ORDER BY r.completed_at DESC, r.requested_at DESC
+        ) AS auto_heal
         WHERE a.is_resolved = 0
           AND a.alert_type IN
           (

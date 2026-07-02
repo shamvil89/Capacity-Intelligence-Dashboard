@@ -198,7 +198,7 @@ Queue-time actions:
 | --- | --- |
 | `BackupRetentionScan` | Disk-space alerts only. Scans a target path or latest known source volumes, deletes eligible `.bak`/`.trn` files older than `retentionDays`, and lists remaining files for dashboard selection. File names containing `keep` or `do not delete` are skipped. Whole-drive scans such as `C:\` or `\\server\C$` skip the Windows folder. |
 | `DeleteSelectedBackupFiles` | Deletes only file rows selected in the dashboard from the previous scan. File names containing `keep` or `do not delete` are refused even if selected. |
-| `LogShrinkAssessment` | Attempts log shrink only after open transaction, used percent, log size, and log reuse wait safety checks pass. |
+| `LogShrinkAssessment` | Attempts log shrink only after open transaction, used percent, log size, and log reuse wait safety checks pass. Shrink target is controlled by Settings rows `LogShrinkAutoHeal/MinimumTargetSizeMb` and `LogShrinkAutoHeal/UsedLogMultiplier`. |
 
 Important runtime parameters:
 
@@ -216,6 +216,9 @@ Dashboard trigger:
 - The API uses `AZDO_PAT` plus `AZDO_AUTOHEAL_PIPELINE_ID` or `AZDO_AUTOHEAL_PIPELINE_NAME`.
 - The pipeline agent identity must have filesystem permissions to the target backup path or administrative share for backup cleanup.
 - Log shrink uses the source server connection mode and credential key from `dbo.ServerInventory`.
+- Auto-heal request status is persisted in `dbo.AutoHealRequest`, so the dashboard can show the latest result even if the popup is closed and reopened.
+- The alert email body includes the latest auto-heal action, status, pipeline link, and action-specific results. For log shrink this includes used log space, configured target logic, requested target, post-shrink size, and whether SQL Server stopped above the requested target.
+- A generated alert is marked as fixed by auto-heal only on the next collector/alert-generation pass when the alert condition is no longer produced. At that point `dbo.AlertHistory.resolved_by` is set to `AutoHeal:<ActionType>` and the row moves to history.
 
 ## Deploy API
 

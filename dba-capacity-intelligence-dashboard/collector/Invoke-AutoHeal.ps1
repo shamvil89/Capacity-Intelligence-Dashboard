@@ -68,6 +68,37 @@ function ConvertTo-IsoDateTimeText {
     ([datetime]$Value).ToString('o')
 }
 
+function Get-AlertThresholdDecimal {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AlertType,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SettingKey,
+
+        [Parameter(Mandatory = $true)]
+        [decimal]$DefaultValue
+    )
+
+    $query = @"
+SELECT TOP (1) setting_value_decimal
+FROM dbo.AlertThresholdSetting
+WHERE alert_type = @alert_type
+  AND setting_key = @setting_key;
+"@
+
+    $rows = @(Invoke-RepositoryQuery -Query $query -SqlParameter @{
+        alert_type = $AlertType
+        setting_key = $SettingKey
+    })
+
+    if ($rows.Count -eq 0 -or $null -eq $rows[0].setting_value_decimal -or $rows[0].setting_value_decimal -is [System.DBNull]) {
+        return $DefaultValue
+    }
+
+    [decimal]$rows[0].setting_value_decimal
+}
+
 function Set-AutoHealRequestStatus {
     param(
         [Parameter(Mandatory = $true)]
@@ -574,6 +605,8 @@ ORDER BY file_id;
     $usedLogSizeMb = [decimal]$assessment.used_log_space_mb
     $logReuseWait = [string]$assessment.log_reuse_wait_desc
     $allowedReuseWaits = @('NOTHING', 'CHECKPOINT')
+    $minimumTargetSizeMb = Get-AlertThresholdDecimal -AlertType 'LogShrinkAutoHeal' -SettingKey 'MinimumTargetSizeMb' -DefaultValue 256
+    $usedLogMultiplier = Get-AlertThresholdDecimal -AlertType 'LogShrinkAutoHeal' -SettingKey 'UsedLogMultiplier' -DefaultValue 2
     $canShrink = $true
     $decisionReasons = New-Object System.Collections.Generic.List[string]
 
@@ -602,7 +635,7 @@ ORDER BY file_id;
         foreach ($logFile in $logFiles) {
             $logicalFileName = [string]$logFile.logical_file_name
             $currentFileSizeMb = [decimal]$logFile.file_size_mb
-            $targetMb = [int][Math]::Ceiling([Math]::Max(1024, $usedLogSizeMb * 2))
+            $targetMb = [int][Math]::Ceiling([Math]::Max($minimumTargetSizeMb, $usedLogSizeMb * $usedLogMultiplier))
 
             if ($targetMb -ge $currentFileSizeMb) {
                 $decisionReasons.Add("Log file $logicalFileName is already at or below calculated target $targetMb MB.")
@@ -619,10 +652,16 @@ DBCC SHRINKFILE (@logical_file_name, @target_mb) WITH NO_INFOMSGS;
                 target_mb_parameter = $targetMb
             } | Out-Null
 
+            $postShrinkRows = @(Invoke-SourceQuery -ServerName $ServerName -Database $DatabaseName -Query $logFileQuery)
+            $postShrinkFile = $postShrinkRows | Where-Object { [string]::Equals([string]$_.logical_file_name, $logicalFileName, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+            $postShrinkSizeMb = if ($postShrinkFile) { [decimal]$postShrinkFile.file_size_mb } else { $null }
+
             $shrinkResults += [ordered]@{
                 logicalFileName = $logicalFileName
                 previousSizeMb = $currentFileSizeMb
                 targetSizeMb = $targetMb
+                postShrinkSizeMb = $postShrinkSizeMb
+                shrinkLimitedBySqlServer = if ($postShrinkSizeMb -ne $null) { $postShrinkSizeMb -gt $targetMb } else { $null }
             }
         }
     }
@@ -640,6 +679,8 @@ DBCC SHRINKFILE (@logical_file_name, @target_mb) WITH NO_INFOMSGS;
         totalLogSizeMb = $totalLogSizeMb
         usedLogSpaceMb = $usedLogSizeMb
         usedLogSpacePercent = $usedPercent
+        minimumTargetSizeMb = $minimumTargetSizeMb
+        usedLogMultiplier = $usedLogMultiplier
         openTransactionCount = $openTransactionCount
         oldestTransactionBeginTime = if ($transaction) { ConvertTo-IsoDateTimeText $transaction.oldest_transaction_begin_time } else { $null }
         canShrink = $canShrink

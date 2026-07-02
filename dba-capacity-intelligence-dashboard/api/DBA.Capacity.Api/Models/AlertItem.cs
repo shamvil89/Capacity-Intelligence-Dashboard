@@ -14,4 +14,5 @@ public sealed class AlertItem
     public string? DetailsJson { get; init; }
     public bool IsResolved { get; init; }
     public DateTime? ResolvedAt { get; init; }
+    public string? ResolvedBy { get; init; }
 }

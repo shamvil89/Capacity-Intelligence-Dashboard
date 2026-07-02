@@ -18,7 +18,7 @@ The files are numbered so deployment order is predictable.
 | `006_BackupSizeHistory.sql` | `dbo.BackupSizeHistory` | Stores backup size and compressed backup size history. |
 | `007_TempDBUsageHistory.sql` | `dbo.TempDBUsageHistory` | Stores TempDB size and used space snapshots. |
 | `008_CapacityForecastResult.sql` | `dbo.CapacityForecastResult` | Stores latest capacity forecast output and risk classification. |
-| `009_AlertHistory.sql` | `dbo.AlertHistory` | Stores alerts raised by forecast logic and collector failure handling. |
+| `009_AlertHistory.sql` | `dbo.AlertHistory` | Stores alerts raised by forecast logic and collector failure handling, including active/resolved state and the resolution source. |
 | `010_LongRunningTransactionHistory.sql` | `dbo.LongRunningTransactionHistory` | Stores open transaction evidence, SQL text, and cached XML query plan when available. |
 | `011_TempDBSessionUsageHistory.sql` | `dbo.TempDBSessionUsageHistory` | Stores top session-level TempDB consumers for alert drill-through. |
 | `012_BlockingSessionHistory.sql` | `dbo.BlockingSessionHistory` | Stores lead blocker, blocked request, wait, object, SQL text, lock, and cached query plan evidence. |
@@ -26,6 +26,7 @@ The files are numbered so deployment order is predictable.
 | `014_ReplicationHealthHistory.sql` | `dbo.ReplicationHealthHistory` | Stores replication database flags and replication agent status/error evidence. |
 | `015_AlertThresholdSetting.sql` | `dbo.AlertThresholdSetting` | Stores editable alert and forecast threshold settings used by `dbo.usp_GenerateCapacityForecast` and `dbo.usp_GenerateAlerts`. |
 | `016_ApplicationCmdb.sql` | `dbo.ApplicationCmdb`, `dbo.ApplicationDatabaseMapping` | Stores application ownership/contact details and maps applications to databases across servers. |
+| `017_AutoHealHistory.sql` | `dbo.AutoHealRequest`, `dbo.AutoHealFileCandidate` | Stores dashboard-triggered auto-heal pipeline requests, durable run status, result JSON, and backup-file cleanup candidates. |
 
 ## ServerInventory Details
 
@@ -95,6 +96,14 @@ Long-running transaction and blocking history also keep XML execution plan colum
 
 `dbo.AlertHistory` stores both forecast alerts and collection failure alerts.
 
+Important lifecycle columns:
+
+| Column | Meaning |
+| --- | --- |
+| `is_resolved` | `0` for active alerts and `1` for alerts moved to history. |
+| `resolved_at` | Time the collector or alert generator confirmed the condition was gone. |
+| `resolved_by` | `Collector` for normal retirement, `AutoHeal:<ActionType>` when a completed auto-heal request existed for that alert before the next alert-generation run retired it. |
+
 Common alert types:
 
 ```text
@@ -123,6 +132,15 @@ Important columns:
 
 Deployment reruns the seed script with `MERGE`. Existing customized `setting_value_decimal` values are preserved; metadata, descriptions, defaults, and ranges are refreshed from source control.
 
+`LogShrinkAutoHeal` settings control the transaction log shrink target:
+
+| Setting | Meaning |
+| --- | --- |
+| `MinimumTargetSizeMb` | Lowest MB target passed to `DBCC SHRINKFILE`; default `256`. |
+| `UsedLogMultiplier` | Keeps target above current used log space; default `2`. |
+
+Auto-heal stores the requested target and post-shrink size in `dbo.AutoHealRequest.details_json`. If SQL Server leaves the file larger than requested, the UI and email text call that out because the active log tail or VLF layout may prevent shrinking lower during that run.
+
 ## Application CMDB Details
 
 `dbo.ApplicationCmdb` stores one row per application. `dbo.ApplicationDatabaseMapping` maps that application to one or more databases across one or more SQL Server instances.
@@ -141,6 +159,22 @@ Important `dbo.ApplicationCmdb` fields:
 | `criticality`, `application_url`, `notes` | Optional operational metadata. |
 
 `dbo.ApplicationDatabaseMapping` has a unique `(server_name, database_name)` constraint so one database maps to one owning application. One application can have many mapped databases.
+
+## AutoHeal Details
+
+`dbo.AutoHealRequest` stores each dashboard-triggered remediation request and the latest Azure DevOps state. The More info popup reloads this table, so auto-heal status survives closing and reopening the popup.
+
+Important fields:
+
+| Column | Meaning |
+| --- | --- |
+| `alert_id` | Alert that requested the remediation. |
+| `action_type` | `BackupRetentionScan`, `DeleteSelectedBackupFiles`, or `LogShrinkAssessment`. |
+| `status` | Queued, Running, Completed, Failed, or the latest controlled state. |
+| `pipeline_run_id`, `pipeline_web_url` | Azure DevOps run reference. |
+| `details_json` | Action-specific result payload. Log shrink stores used log, target settings, requested target, post-shrink size, and whether SQL Server stopped above target. |
+
+`dbo.AutoHealFileCandidate` stores `.bak` and `.trn` files discovered by backup cleanup scans. User-selected cleanup reads these candidate rows rather than accepting arbitrary paths from the browser.
 
 ## CapacityForecastResult Details
 
