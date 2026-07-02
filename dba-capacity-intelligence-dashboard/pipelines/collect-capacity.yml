@@ -10,7 +10,7 @@ parameters:
   - name: agentName
     displayName: Pipeline agent name
     type: string
-    default: shamvil
+    default: eve-vsts
     values:
       - shamvil
       - eve-vsts
